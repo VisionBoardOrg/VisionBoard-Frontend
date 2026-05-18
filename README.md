@@ -11,6 +11,9 @@
 
 This repository contains the frontend monorepo for the VisionBoard web application.
 
+🎨 **Figma Design System & Mockups**: [VisionBoard Figma Project](https://www.figma.com/design/0phFoJ8e7D2Ba855P485wP/VisionBoard?node-id=197-34&t=en4Lqv4AKMepGlc7-0)
+
+
 ## ✨ Key Features
 
 - **AI-Powered Planning**: Generate strategic roadmaps, break down milestones, and use predictive timelines for smarter task clustering.
