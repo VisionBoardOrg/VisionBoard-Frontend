@@ -10,11 +10,11 @@ export default function HomeHero() {
             
             <div className="relative z-10 flex flex-col items-center justify-center gap-6 max-w-4xl text-center px-6 mt-10">
                 <h1 className="text-[52px] md:text-[64px] font-extrabold tracking-[-0.03em] text-ink leading-[1.1]">
-                    Work <span className="text-blue">smarter</span> together with AI, from <br className="hidden md:block" /> <span className="text-blue">vision</span> to <span className="text-blue-deep">execution</span>.
+                    Work <span className="text-blue">smarter</span> together with AI, from <span className="text-blue">vision</span> to <span className="text-blue-deep">execution</span>.
                 </h1>
 
                 <p className="text-[17px] md:text-[18px] text-slate leading-[1.65] max-w-[800px] font-medium">
-                    Built for teams that need more than task management. VisionBoard combines AI-powered <br className="hidden md:block" /> roadmaps, documentation, and a single workspace making tracking more transparent.
+                    Built for teams that need more than task management. VisionBoard combines AI-powered roadmaps, documentation, and a single workspace making tracking more transparent.
                 </p>
 
                 <div className="flex flex-col sm:flex-row items-center gap-4 mt-6">
