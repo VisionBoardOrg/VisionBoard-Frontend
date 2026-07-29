@@ -28,3 +28,22 @@
   --shadow-primary: 0 2px 8px rgba(37,99,235,0.32);
   --shadow-icon: 0 2px 8px rgba(37,99,235,0.28);
 }
+
+/* Global Interactive Element Cursor Standard */
+button,
+a,
+select,
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+input[type="checkbox"],
+input[type="radio"],
+[role="button"] {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: not-allowed !important;
+}

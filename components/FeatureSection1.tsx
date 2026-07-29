@@ -2,7 +2,7 @@ import { Zap, Link as LinkIcon, Eye } from "lucide-react";
 
 export default function FeatureSection1() {
   return (
-    <section className="py-24 px-6 flex flex-col items-center text-center">
+    <section id="features" className="py-24 px-6 flex flex-col items-center text-center">
       <h2 className="text-[28px] max-w-[600px]   md:text-[36px] font-extrabold tracking-[-0.02em] mb-4">
         Bring clarity to how your team plans and executes.
       </h2>

@@ -10,7 +10,7 @@ export default function SecondaryButton({ size = 'md', children, className = '',
 
   return (
     <button
-      className={`inline-flex items-center justify-center font-semibold tracking-tight transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+      className={`inline-flex items-center justify-center font-semibold tracking-tight transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed
         bg-transparent text-blue border-[1.5px] border-blue-light hover:bg-blue-faint
         ${sizeClasses[size]} ${className}`}
       {...props}

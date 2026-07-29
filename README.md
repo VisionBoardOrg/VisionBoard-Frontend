@@ -5,34 +5,89 @@
   </p>
 </div>
 
+---
+
 ## 📖 Overview
 
-**VisionBoard** is a next-generation workspace for product and engineering teams. It moves beyond traditional task management by natively combining AI-powered roadmaps, contextual documentation, and real-time execution tracking into a single, cohesive platform. 
+**VisionBoard** is a next-generation workspace for product, engineering, and cross-functional teams. It moves beyond traditional task management by natively combining AI-powered roadmaps, contextual documentation, and real-time execution tracking into a single, cohesive platform.
 
-This repository contains the frontend monorepo for the VisionBoard web application.
+Whether you are setting high-level company OKRs, defining product specs, running agile engineering sprints, or preparing Go-To-Market launches, VisionBoard connects strategic goals directly to day-to-day execution.
 
 🎨 **Figma Design System & Mockups**: [VisionBoard Figma Project](https://www.figma.com/design/0phFoJ8e7D2Ba855P485wP/VisionBoard?node-id=197-34&t=en4Lqv4AKMepGlc7-0)
 
+---
 
-## ✨ Key Features
+## ✨ What VisionBoard Entails
 
-- **AI-Powered Planning**: Generate strategic roadmaps, break down milestones, and use predictive timelines for smarter task clustering.
-- **Connected Documentation**: Keep PRDs, technical specs, and meeting notes tightly linked to the goals and execution tasks they relate to.
-- **Execution Visibility**: Real-time cross-team visibility across boards, sprint execution, and blocker tracking.
-- **Premium Design System**: Built with a custom aesthetic utilizing a precise design token architecture for a consistently premium user experience.
+### 🤖 AI-Powered Workflow Engines
+- **AI Roadmap Generator**: Transforms unstructured product specs, user feedback, and business goals into structured, milestone-driven product roadmaps.
+- **Goal Deconstructor**: Deconstructs quarterly OKRs into actionable sub-tasks, owner assignments, and sprint milestones.
+- **Progress Insights & Predictive Alerts**: Velocity tracking that monitors team performance and alerts managers weeks before deadlines slip.
+- **Natural Language Board Commands**: Update board items, reassign capacity, and wire task dependencies using plain text commands.
 
-## 🛠️ Tech Stack
+### 👥 Role-Tailored Dashboards
+- **Product Managers**: Manage feature roadmaps, track Goal Health Scores, and map user feedback to delivery items.
+- **Executive Strategy**: Portfolio health visibility, Strategic Alignment Scores, Resource Allocation Matrices, and automated board meeting executive summaries.
+- **Engineering & Ops**: Monitor sprint velocity, cross-team blocker dependency graphs, and CI/CD deployment health.
+- **Marketing & Growth**: Synchronize Go-To-Market (GTM) launch timelines directly with engineering feature drops.
 
+### 📋 Preset Workflow Templates
+- **OKR Board**: Align team objectives and key results across departments with live tracking.
+- **Product Roadmap**: Visual timelines connecting feedback and strategy to upcoming releases.
+- **Quarterly Plan**: Resource allocation and team bandwidth mapping.
+- **Sprint Board**: Agile tracking with automated velocity forecasting and blocker resolution.
+
+---
+
+## 🛠️ Tech Stack & Architecture
+
+### Frontend (Current Repository)
 - **Framework**: [Next.js](https://nextjs.org/) (App Router & Turbopack)
 - **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/) with a custom design token architecture
 - **Icons**: [Lucide React](https://lucide.dev/)
+- **Typography**: Plus Jakarta Sans
+
+### Target Full-Stack Architecture (Production Roadmap)
+```
+┌─────────────────────────────────────────────────────────┐
+│                 VisionBoard Web Client                  │
+│             (Next.js App Router + Tailwind)             │
+└──────────────────────────┬──────────────────────────────┘
+                           │ WebSockets / REST / SSE
+┌──────────────────────────▼──────────────────────────────┐
+│                    API Service Layer                    │
+│            (Node.js / Next.js Serverless)               │
+└──────┬───────────────────┬───────────────────┬──────────┘
+       │                   │                   │
+┌──────▼──────┐     ┌──────▼──────┐     ┌──────▼──────┐
+│ Database    │     │ AI Pipeline │     │ Integrations│
+│ PostgreSQL  │     │ OpenAI /    │     │ GitHub /    │
+│ + Prisma    │     │ Gemini LLM  │     │ Jira Sync   │
+└─────────────┘     └─────────────┘     └─────────────┘
+```
+
+- **Persistence Layer**: PostgreSQL with Prisma ORM / Drizzle for workspaces, tasks, PRDs, and OKRs.
+- **Real-Time Collaboration**: WebSockets / SSE for live multiplayer updates on boards and docs.
+- **AI Infrastructure**: OpenAI / Google Gemini API integration with RAG (Retrieval-Augmented Generation) over team documentation.
+- **Integrations**: GitHub, GitLab, and Jira webhook synchronization for automated PR/commit tracking.
+
+---
+
+## 💳 Subscription Tiers
+
+- **Free**: 1 Workspace, up to 5 members, 10GB cloud storage, standard roadmap views.
+- **Startup** ($23–$29/mo): 5 Workspaces, up to 25 members, 100GB storage, full roadmap views, priority support.
+- **Growth** ($63–$79/mo): Unlimited workspaces, up to 100 members, 1TB storage, custom workflow automation, advanced analytics.
+- **Enterprise** (Custom): Unlimited team members & storage, dedicated account manager, custom SSO (SAML/OAuth), and API access.
+
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 - Node.js >= 18.17.0
-- npm (or yarn/pnpm)
+- npm (or yarn/pnpm/bun)
 
 ### Installation
 
@@ -47,53 +102,42 @@ This repository contains the frontend monorepo for the VisionBoard web applicati
    npm install
    ```
 
-3. **Set up environment variables:**
-   Duplicate the `.env.example` file and rename it to `.env.local`, then add your local configuration values:
-   ```bash
-   cp .env.example .env.local
-   ```
-
-4. **Start the development server:**
+3. **Start the development server:**
    ```bash
    npm run dev
    ```
-   The application will be available at [http://localhost:3000](http://localhost:3000).
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## 🏗️ Architecture & Structure
+---
+
+## 📁 Repository Structure
 
 ```
 ├── app/                  # Next.js App Router pages, layouts, and global CSS
-├── components/           # React components
-│   ├── reusables/        # Core design system components (Buttons, Inputs, Logo, etc.)
-│   └── ...               # Domain-specific components (e.g., HomeHero, FeatureSections)
-├── lib/                  # Utility functions, API clients, and shared logic
-├── hooks/                # Custom React hooks
-├── types/                # TypeScript type definitions and interfaces
-└── public/               # Static assets (images, fonts, SVGs)
+│   ├── pricing/          # Pricing page route
+│   ├── solutions/        # Solutions & role-based breakdown route
+│   └── page.tsx          # Homepage
+├── components/           # React UI components
+│   ├── pricing/          # Pricing cards, comparison table, FAQ
+│   ├── solutions/        # Role-based views, AI features, templates
+│   └── reusables/        # Core design system tokens & buttons
+├── lib/                  # Utility functions and shared logic
+├── public/               # Static assets (images, icons)
+└── README.md             # Project documentation
 ```
+
+---
 
 ## 🎨 Design System & UI Guidelines
 
-VisionBoard relies on a strict, component-driven design system to maintain its premium look and feel. 
+VisionBoard relies on a strict, component-driven design system:
 
-- **Typography**: We use **Plus Jakarta Sans** exclusively across the application.
-- **Colors**: Rely on defined Tailwind tokens (`text-blue`, `bg-offwhite`, `border-border`) configured in the root `globals.css` rather than hardcoded hex values.
-- **Components**: Always prioritize the reusable components from `components/reusables/` (e.g., `<PrimaryButton>`, `<SecondaryButton>`, `<Logo>`) instead of building ad-hoc elements. Ensure you pass the appropriate `size` prop (`sm`, `md`, `lg`) as required by the design specs.
-- **Spacing**: We follow a strict 8px grid system for layout padding, margins, and gaps.
+- **Typography**: **Plus Jakarta Sans** exclusively.
+- **Colors**: Configured via Tailwind design tokens (`text-blue`, `bg-offwhite`, `border-border`) in `globals.css`.
+- **Components**: Use reusable components from `components/reusables/` (`<PrimaryButton>`, `<SecondaryButton>`, `<Logo>`) with proper `size` props (`sm`, `md`, `lg`).
+- **Spacing**: Strict 8px grid system.
 
-## 🤝 Contributing
-
-We welcome contributions! As the team grows, please adhere to the following workflow:
-
-1. **Branch Naming**: 
-   - `feature/your-feature-name`
-   - `bugfix/issue-description`
-   - `chore/maintenance-work`
-2. **Commit Messages**: We follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). (e.g., `feat: add AI roadmap generation modal`)
-3. **Pull Requests**:
-   - Ensure your code passes all linting (`npm run lint`) and type checks.
-   - If you modify the UI, include screenshots or screen recordings of your changes.
-   - Request review from at least one core frontend maintainer before merging.
+---
 
 ## 📜 License
 

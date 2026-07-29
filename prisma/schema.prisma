@@ -1,0 +1,202 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  avatarUrl String?
+  role      String   @default("MEMBER") // ADMIN, MANAGER, MEMBER, GUEST
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignedTasks Task[]     @relation("TaskAssignee")
+  documents     Document[] @relation("DocumentAuthor")
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workspaces Workspace[]
+}
+
+model Workspace {
+  id             String       @id @default(uuid())
+  name           String
+  slug           String
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  projects  Project[]
+  sprints   Sprint[]
+  tasks     Task[]
+  documents Document[]
+  cards     Card[]
+  okrs      OKR[]
+
+  @@index([organizationId])
+}
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sprints   Sprint[]
+  tasks     Task[]
+  documents Document[]
+  cards     Card[]
+  okrs      OKR[]
+
+  @@index([workspaceId])
+}
+
+model Sprint {
+  id          String    @id @default(uuid())
+  name        String
+  startDate   DateTime
+  endDate     DateTime
+  status      String    @default("PLANNED") // PLANNED, ACTIVE, COMPLETED
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tasks Task[]
+  cards Card[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+model Card {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  status      String    @default("TODO") // TODO, IN_PROGRESS, IN_REVIEW, DONE
+  priority    String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sprintId    String?
+  sprint      Sprint?   @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tasks Task[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+model Document {
+  id          String    @id @default(uuid())
+  title       String
+  content     String
+  type        String    @default("PRD") // PRD, SPEC, MEETING_NOTE, ROADMAP
+  authorId    String?
+  author      User?     @relation("DocumentAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  parentTasks Task[] @relation("TaskParentDocument")
+
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+model Task {
+  id               String    @id @default(uuid())
+  title            String
+  description      String?
+  status           String    @default("TODO") // TODO, IN_PROGRESS, BLOCKED, DONE
+  priority         String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  assigneeId       String?
+  assignee         User?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  workspaceId      String
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId        String?
+  project          Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sprintId         String?
+  sprint           Sprint?   @relation(fields: [sprintId], references: [id], onDelete: SetNull)
+  cardId           String?
+  card             Card?     @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  parentDocumentId String?
+  parentDocument   Document? @relation("TaskParentDocument", fields: [parentDocumentId], references: [id], onDelete: SetNull)
+  dueDate          DateTime?
+  estimatedHours   Float?    @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([status])
+  @@index([assigneeId])
+  @@index([projectId])
+}
+
+model OKR {
+  id          String    @id @default(uuid())
+  title       String
+  objective   String
+  targetDate  DateTime
+  progress    Float     @default(0) // 0 to 100 percentage
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model WaitlistEntry {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  fullName       String
+  company        String?
+  teamSize       String?
+  role           String
+  painPoint      String?
+  referralCode   String    @unique
+  referredBy     String?   // Referral code of the inviter
+  referralCount  Int       @default(0)
+  position       Int
+  status         String    @default("PENDING") // PENDING, INVITED, REGISTERED, EXPIRED
+  inviteToken    String?   @unique
+  invitedAt      DateTime?
+  sharedPlatforms String   @default("") // Comma-separated: "linkedin,twitter,email"
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([email])
+  @@index([status])
+  @@index([position])
+}
