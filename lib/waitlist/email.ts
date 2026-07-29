@@ -1,5 +1,5 @@
 /**
- * Email dispatch utility using Resend API (HTTP fetch integration)
+ * Email dispatch utility (Local Console Mock Logger)
  */
 
 export async function sendWaitlistEmail(
@@ -8,7 +8,6 @@ export async function sendWaitlistEmail(
   position: number,
   referralLink: string
 ): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY;
 
   const subject = `🚀 You're on the VisionBoard Waitlist! (Position #${position})`;
 
@@ -168,49 +167,17 @@ export async function sendWaitlistEmail(
     </html>
   `;
 
-  if (!apiKey) {
-    console.log(`
+  console.log(`
 ========================================================================
-[MOCK EMAIL DISPATCH] RESEND_API_KEY environment variable is not defined.
+[EMAIL DISPATCH] Mock Waitlist Email Logged
 ------------------------------------------------------------------------
 To: ${email} (${fullName})
 Subject: ${subject}
-From: VisionBoard Waitlist <onboarding@resend.dev>
-
-HTML Preview:
-${html}
+Position: #${position}
+Referral Link: ${referralLink}
 ========================================================================
-    `);
-    return true;
-  }
-
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        from: "VisionBoard <onboarding@resend.dev>",
-        to: [email],
-        subject,
-        html,
-      }),
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      console.log(`[EMAIL DISPATCH] Email successfully sent to ${email} (Resend ID: ${data.id})`);
-      return true;
-    } else {
-      console.error(`[EMAIL DISPATCH ERROR] Resend API returned error:`, data);
-      return false;
-    }
-  } catch (error) {
-    console.error(`[EMAIL DISPATCH ERROR] Failed to fetch Resend API:`, error);
-    return false;
-  }
+  `);
+  return true;
 }
 
 /**
@@ -223,7 +190,6 @@ export async function sendInviteEmail(
   inviteToken: string,
   origin: string
 ): Promise<boolean> {
-  const apiKey = process.env.RESEND_API_KEY;
   const signupUrl = `${origin}/signup?inviteToken=${inviteToken}`;
   const subject = `🎉 Your VisionBoard Access Has Been Unlocked!`;
 
@@ -333,45 +299,15 @@ export async function sendInviteEmail(
     </html>
   `;
 
-  if (!apiKey) {
-    console.log(`
+  console.log(`
 ========================================================================
-[MOCK INVITE EMAIL DISPATCH] RESEND_API_KEY is not set.
+[INVITE EMAIL DISPATCH] Mock Invite Email Logged
 ------------------------------------------------------------------------
 To: ${email} (${fullName})
 Subject: ${subject}
 Invite URL: ${signupUrl}
 ========================================================================
-    `);
-    return true;
-  }
-
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        from: "VisionBoard <onboarding@resend.dev>",
-        to: [email],
-        subject,
-        html,
-      }),
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      console.log(`[INVITE EMAIL DISPATCH] Invite sent to ${email} (Resend ID: ${data.id})`);
-      return true;
-    } else {
-      console.error(`[INVITE EMAIL ERROR] Resend API error:`, data);
-      return false;
-    }
-  } catch (error) {
-    console.error(`[INVITE EMAIL ERROR] Failed to reach Resend API:`, error);
-    return false;
-  }
+  `);
+  return true;
 }
 
