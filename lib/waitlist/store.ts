@@ -44,21 +44,36 @@ function getVipCode(): string {
 }
 
 export async function getTotalWaitlistCount(): Promise<number> {
-  return prisma.waitlistEntry.count();
+  try {
+    return await prisma.waitlistEntry.count();
+  } catch (err) {
+    console.error("[waitlist/store] Failed to fetch total count from database:", err);
+    return 0;
+  }
 }
 
 export async function getWaitlistByEmail(email: string): Promise<WaitlistRecord | undefined> {
-  const target = email.toLowerCase().trim();
-  const entry = await prisma.waitlistEntry.findUnique({
-    where: { email: target },
-  });
-  return entry || undefined;
+  try {
+    const target = email.toLowerCase().trim();
+    const entry = await prisma.waitlistEntry.findUnique({
+      where: { email: target },
+    });
+    return entry || undefined;
+  } catch (err) {
+    console.error("[waitlist/store] Failed to fetch waitlist entry by email:", err);
+    return undefined;
+  }
 }
 
 export async function getAllWaitlistEntries(): Promise<WaitlistRecord[]> {
-  return prisma.waitlistEntry.findMany({
-    orderBy: { position: "asc" },
-  });
+  try {
+    return await prisma.waitlistEntry.findMany({
+      orderBy: { position: "asc" },
+    });
+  } catch (err) {
+    console.error("[waitlist/store] Failed to fetch all waitlist entries:", err);
+    return [];
+  }
 }
 
 export async function joinWaitlist(input: WaitlistJoinInput): Promise<{

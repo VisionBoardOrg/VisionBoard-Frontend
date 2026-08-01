@@ -1,0 +1,232 @@
+"use client";
+
+import { useState } from "react";
+import { GoalHealthScore } from "@/components/dashboard/GoalHealthScore";
+import { computeGoalHealth } from "@/lib/dashboard-utils";
+import { Zap, FileText, MessageCircle, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle } from "lucide-react";
+import Link from "next/link";
+
+interface KeyResult { id: string; title: string; target: number; current: number; unit: string }
+
+interface GoalDetailProps {
+  goal: {
+    id: string;
+    title: string;
+    objective: string;
+    status: string;
+    healthScore: number;
+    targetDate: Date | null;
+    keyResults: unknown;
+    milestones: {
+      id: string; title: string; description: string | null; status: string; targetDate: Date | null;
+      tasks: { id: string; title: string; status: string; priority: string; storyPoints: number | null; assigneeId: string | null }[];
+    }[];
+    documents: { id: string; title: string; author: { name: string | null } | null; updatedAt: Date }[];
+    comments: { id: string; body: string; author: { id: string; name: string | null; image: string | null }; createdAt: Date }[];
+  };
+  workspaceId: string;
+  userId: string;
+}
+
+const STATUS_ICON: Record<string, React.ReactNode> = {
+  done: <CheckCircle2 size={14} className="text-success" />,
+  completed: <CheckCircle2 size={14} className="text-success" />,
+  in_progress: <Clock size={14} className="text-blue" />,
+  blocked: <AlertTriangle size={14} className="text-danger" />,
+  todo: <Circle size={14} className="text-muted" />,
+  planned: <Circle size={14} className="text-muted" />,
+};
+
+export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
+  const [comment, setComment] = useState("");
+  const [comments, setComments] = useState(goal.comments);
+  const [deconstructResult, setDeconstructResult] = useState<Record<string, unknown> | null>(null);
+  const [deconstructLoading, setDeconstructLoading] = useState(false);
+
+  const health = computeGoalHealth({
+    ...goal,
+    milestones: goal.milestones.map((m) => ({
+      ...m,
+      tasks: m.tasks.map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
+    })),
+  } as never);
+
+  const keyResults = (goal.keyResults as KeyResult[]) ?? [];
+
+  async function postComment() {
+    if (!comment.trim()) return;
+    const res = await fetch("/api/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: comment, entityType: "goal", goalId: goal.id }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setComments((prev) => [...prev, data.comment]);
+      setComment("");
+    }
+  }
+
+  async function deconstructGoal() {
+    setDeconstructLoading(true);
+    const res = await fetch("/api/ai/goal-deconstructor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId, objective: goal.objective }),
+    });
+    const data = await res.json();
+    if (res.ok) setDeconstructResult(data);
+    setDeconstructLoading(false);
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-2xl border border-border p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full capitalize ${
+                goal.status === "active" ? "bg-blue-faint text-blue" :
+                goal.status === "completed" ? "bg-green-100 text-success" : "bg-border text-muted"
+              }`}>{goal.status}</span>
+              {goal.targetDate && (
+                <span className="text-xs text-muted">Due {new Date(goal.targetDate).toLocaleDateString()}</span>
+              )}
+            </div>
+            <h1 className="text-xl font-bold text-ink">{goal.title}</h1>
+            <p className="text-slate text-sm mt-2">{goal.objective}</p>
+          </div>
+          <GoalHealthScore score={health} size="md" />
+        </div>
+
+        {/* Key Results */}
+        {keyResults.length > 0 && (
+          <div className="mt-5">
+            <h3 className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Key Results</h3>
+            <div className="space-y-3">
+              {keyResults.map((kr) => {
+                const pct = Math.min(100, Math.round((kr.current / kr.target) * 100));
+                return (
+                  <div key={kr.id}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-ink">{kr.title}</span>
+                      <span className="text-sm font-semibold text-ink">{kr.current} / {kr.target} {kr.unit}</span>
+                    </div>
+                    <div className="h-2 bg-border rounded-full overflow-hidden">
+                      <div className="h-full bg-blue rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* AI deconstruct */}
+        <div className="mt-5 pt-5 border-t border-border">
+          <button
+            onClick={deconstructGoal}
+            disabled={deconstructLoading}
+            className="flex items-center gap-2 text-sm text-blue hover:text-blue-mid font-medium transition-colors"
+          >
+            <Zap size={14} />
+            {deconstructLoading ? "Analysing…" : "Deconstruct with AI →"}
+          </button>
+          {deconstructResult && (
+            <pre className="mt-3 text-xs bg-offwhite border border-border rounded-xl p-4 overflow-auto max-h-48">
+              {JSON.stringify(deconstructResult, null, 2)}
+            </pre>
+          )}
+        </div>
+      </div>
+
+      {/* Milestones */}
+      <div className="bg-white rounded-2xl border border-border p-6">
+        <h2 className="font-semibold text-ink mb-4">Milestones ({goal.milestones.length})</h2>
+        <div className="space-y-3">
+          {goal.milestones.map((ms) => (
+            <div key={ms.id} className="border border-border rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                {STATUS_ICON[ms.status]}
+                <span className="font-medium text-ink text-sm">{ms.title}</span>
+                {ms.targetDate && (
+                  <span className="text-xs text-muted ml-auto">
+                    {new Date(ms.targetDate).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+              {ms.description && <p className="text-xs text-slate mb-2">{ms.description}</p>}
+              <div className="flex flex-wrap gap-1.5">
+                {ms.tasks.slice(0, 5).map((t) => (
+                  <span key={t.id} className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                    t.status === "done" ? "bg-green-50 border-green-200 text-success" :
+                    t.status === "blocked" ? "bg-red-50 border-red-200 text-danger" :
+                    "bg-offwhite border-border text-slate"
+                  }`}>{t.title.slice(0, 30)}</span>
+                ))}
+                {ms.tasks.length > 5 && <span className="text-[10px] text-muted">+{ms.tasks.length - 5} more</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Documents */}
+      <div className="bg-white rounded-2xl border border-border p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-ink">Connected Docs ({goal.documents.length})</h2>
+          <Link href={`/workspace/${workspaceId}/docs/new?linkedGoalId=${goal.id}`} className="text-sm text-blue hover:underline flex items-center gap-1">
+            <FileText size={13} /> Add doc
+          </Link>
+        </div>
+        {goal.documents.length === 0 ? (
+          <p className="text-sm text-muted">No docs linked yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {goal.documents.map((doc) => (
+              <Link key={doc.id} href={`/workspace/${workspaceId}/docs/${doc.id}`} className="flex items-center gap-3 p-3 rounded-lg hover:bg-offwhite transition-colors">
+                <FileText size={14} className="text-blue shrink-0" />
+                <span className="text-sm text-ink flex-1">{doc.title}</span>
+                <span className="text-xs text-muted">{doc.author?.name}</span>
+                <ChevronRight size={14} className="text-muted" />
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Comments */}
+      <div className="bg-white rounded-2xl border border-border p-6">
+        <h2 className="font-semibold text-ink mb-4">
+          <span className="flex items-center gap-2"><MessageCircle size={16} /> Comments ({comments.length})</span>
+        </h2>
+        <div className="space-y-3 mb-4">
+          {comments.map((c) => (
+            <div key={c.id} className="flex gap-3">
+              <div className="w-7 h-7 rounded-full bg-blue-light flex items-center justify-center text-blue text-xs font-bold uppercase shrink-0">
+                {c.author.name?.[0] ?? "?"}
+              </div>
+              <div className="flex-1 bg-offwhite rounded-xl px-3 py-2">
+                <span className="text-xs font-medium text-ink">{c.author.name}</span>
+                <p className="text-sm text-slate mt-0.5">{c.body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(); } }}
+            placeholder="Add a comment…"
+            className="flex-1 border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue/30"
+          />
+          <button onClick={postComment} className="bg-blue text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-blue-mid transition-colors">
+            Send
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

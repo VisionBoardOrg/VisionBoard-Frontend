@@ -21,6 +21,7 @@ export default function WaitlistTicker({ count: initialCount, className = "" }: 
     const fetchCount = async () => {
       try {
         const res = await fetch("/api/waitlist/status");
+        if (!res.ok) return;
         const json = await res.json();
         if (json.success && json.data) {
           setCount(json.data.totalWaitlist);

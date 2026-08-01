@@ -49,7 +49,7 @@ export default function WaitlistStatusCard({ data, onReset }: WaitlistStatusCard
       const json = await res.json();
       if (json.success && json.data) {
         setCurrentPosition(json.data.position);
-        setShareBumpMessage("🎉 You jumped 2 spots in line for sharing!");
+        setShareBumpMessage("You jumped 2 spots in line for sharing!");
         setTimeout(() => setShareBumpMessage(""), 4000);
       }
     } catch {}
