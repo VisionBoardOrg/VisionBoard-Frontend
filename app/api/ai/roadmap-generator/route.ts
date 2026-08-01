@@ -48,7 +48,7 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
 
   try {
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-5",
+      model: "claude-3-5-sonnet-20241022",
       max_tokens: 2000,
       system: systemPrompt,
       messages: [{ role: "user", content: text }],
