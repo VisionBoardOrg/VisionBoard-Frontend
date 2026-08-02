@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { checkPlanLimit, checkStorageLimit, estimateDocStorageMb } from "@/lib/plan-limits";
 
 const createSchema = z.object({
   workspaceId: z.string(),
@@ -29,6 +30,39 @@ export async function POST(request: NextRequest) {
     where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  // ── Plan limit checks ──────────────────────────────────────────────────────
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+
+  // 1. Document count limit
+  const docCount = await prisma.document.count({ where: { workspaceId } });
+  const countCheck = checkPlanLimit(
+    { plan: workspace.plan, aiCreditsUsed: docCount },
+    "create_document"
+  );
+  if (!countCheck.allowed) {
+    return NextResponse.json(
+      { error: countCheck.reason, upgradePrompt: countCheck.upgradePrompt },
+      { status: 403 }
+    );
+  }
+
+  // 2. Storage limit — estimate incoming size + current total
+  const existingDocs = await prisma.document.findMany({
+    where: { workspaceId },
+    select: { content: true },
+  });
+  const currentMb = estimateDocStorageMb(existingDocs.map((d) => d.content));
+  const incomingMb = estimateDocStorageMb([content ?? {}]);
+  const storageCheck = checkStorageLimit(workspace.plan, currentMb, incomingMb);
+  if (!storageCheck.allowed) {
+    return NextResponse.json(
+      { error: storageCheck.reason, upgradePrompt: storageCheck.upgradePrompt },
+      { status: 403 }
+    );
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   const document = await prisma.document.create({
     data: {

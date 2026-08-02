@@ -11,7 +11,14 @@ interface LimitCheck {
   upgradePrompt?: string;
 }
 
-type Feature = "ai_credit" | "timeline_gantt" | "sprint_tracking" | "integrations" | "sso" | "invite_member";
+type Feature =
+  | "ai_credit"
+  | "timeline_gantt"
+  | "sprint_tracking"
+  | "integrations"
+  | "sso"
+  | "invite_member"
+  | "create_document";
 
 interface PlanLimitDef {
   workspaces: number | "unlimited";
@@ -22,24 +29,32 @@ interface PlanLimitDef {
   sprintTracking: boolean;
   integrations: boolean;
   sso: boolean;
+  /** Max documents per workspace. -1 = unlimited */
+  documents: number;
+  /** Max total document storage in MB per workspace. -1 = unlimited */
+  storageMb: number;
 }
 
 export const PLAN_LIMITS: Record<PlanTier, PlanLimitDef> = {
   free: {
     workspaces: 1, members: 5, aiCreditsPerMonth: 10, activityLogDays: 7,
     timelineGantt: false, sprintTracking: false, integrations: false, sso: false,
+    documents: 10, storageMb: 5,
   },
   startup: {
     workspaces: 5, members: 25, aiCreditsPerMonth: 100, activityLogDays: 30,
     timelineGantt: true, sprintTracking: true, integrations: false, sso: false,
+    documents: 100, storageMb: 100,
   },
   growth: {
     workspaces: -1, members: 100, aiCreditsPerMonth: -1, activityLogDays: 90,
     timelineGantt: true, sprintTracking: true, integrations: true, sso: false,
+    documents: -1, storageMb: 1000,
   },
   enterprise: {
     workspaces: -1, members: -1, aiCreditsPerMonth: -1, activityLogDays: -1,
     timelineGantt: true, sprintTracking: true, integrations: true, sso: true,
+    documents: -1, storageMb: -1,
   },
 } as const;
 
@@ -88,7 +103,53 @@ export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCh
       }
       return { allowed: true };
     }
+    case "create_document": {
+      // ctx.aiCreditsUsed carries current document count
+      const max = limits.documents;
+      if (max === -1) return { allowed: true };
+      if (ctx.aiCreditsUsed >= max) {
+        return {
+          allowed: false,
+          reason: `Your ${ctx.plan} plan allows up to ${max} documents per workspace.`,
+          upgradePrompt: upgrade,
+        };
+      }
+      return { allowed: true };
+    }
     default:
       return { allowed: true };
   }
+}
+
+/**
+ * Estimate storage used by an array of document content blobs (Tiptap JSON).
+ * Returns megabytes.
+ */
+export function estimateDocStorageMb(contents: unknown[]): number {
+  const bytes = contents.reduce<number>((sum, c) => {
+    try {
+      return sum + Buffer.byteLength(JSON.stringify(c ?? ""), "utf8");
+    } catch {
+      return sum;
+    }
+  }, 0);
+  return bytes / (1024 * 1024);
+}
+
+export function checkStorageLimit(
+  plan: PlanTier,
+  currentUsedMb: number,
+  incomingMb: number,
+): LimitCheck {
+  const max = PLAN_LIMITS[plan].storageMb;
+  if (max === -1) return { allowed: true };
+  const upgrade = UPGRADE_COPY[plan];
+  if (currentUsedMb + incomingMb > max) {
+    return {
+      allowed: false,
+      reason: `This would exceed your ${max} MB document storage limit on the ${plan} plan.`,
+      upgradePrompt: upgrade,
+    };
+  }
+  return { allowed: true };
 }

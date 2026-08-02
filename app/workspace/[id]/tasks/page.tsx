@@ -7,6 +7,7 @@ import {
   CheckCircle2, Circle, Clock, AlertTriangle,
   ChevronRight, ListTodo, Flame, ArrowUp, ArrowDown, Minus
 } from "lucide-react";
+import { TaskStatusDropdown } from "@/components/tasks/TaskStatusDropdown";
 
 interface TasksPageProps {
   params: Promise<{ id: string }>;
@@ -129,7 +130,6 @@ export default async function TasksPage({ params }: TasksPageProps) {
                   <div className="space-y-2">
                     {group.map((task) => {
                       const pm = PRIORITY_META[task.priority] ?? PRIORITY_META.medium;
-                      const sm = STATUS_META[task.status] ?? STATUS_META.todo;
                       const isOverdue =
                         task.dueDate && new Date(task.dueDate) < new Date() && task.status !== "done";
 
@@ -138,8 +138,6 @@ export default async function TasksPage({ params }: TasksPageProps) {
                           key={task.id}
                           className="bg-white rounded-2xl border border-border px-5 py-4 flex items-start gap-4 hover:border-blue/30 transition-colors"
                         >
-                          <div className="mt-0.5">{sm.icon}</div>
-
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-3">
                               <p
@@ -155,7 +153,15 @@ export default async function TasksPage({ params }: TasksPageProps) {
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-3 mt-2 flex-wrap text-xs text-muted">
+                            <div className="flex items-center gap-3 mt-2.5 flex-wrap text-xs text-muted">
+                              {/* Interactive status dropdown */}
+                              <TaskStatusDropdown
+                                taskId={task.id}
+                                initialStatus={task.status as "todo" | "in_progress" | "in_review" | "blocked" | "done"}
+                                milestoneId={task.milestone.id}
+                                workspaceId={id}
+                              />
+
                               <Link
                                 href={`/workspace/${id}/goals/${task.milestone.goal.id}`}
                                 className="flex items-center gap-1 hover:text-blue transition-colors"

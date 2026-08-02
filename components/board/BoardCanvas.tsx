@@ -104,38 +104,97 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
     [items, zoom, moveItem, sendEvent, workspaceId]
   );
 
-  // ── SVG connector lines between linked items ───────────────────────────────
-  // Build a map: itemId → centre point
-  function itemCentre(item: BoardItemFull) {
+  // ── SVG connector lines — shortest-path edge routing ─────────────────────
+  type Point = { x: number; y: number };
+  type Edge = "right" | "left" | "bottom" | "top";
+
+  /** All four named edge midpoints of a card */
+  function cardEdges(item: BoardItemFull): Record<Edge, Point> {
+    const w = item.width  ?? 200;
+    const h = item.height ?? 120;
     return {
-      x: item.x + (item.width ?? 200) / 2,
-      y: item.y + (item.height ?? 120) / 2,
+      right:  { x: item.x + w,     y: item.y + h / 2 },
+      left:   { x: item.x,         y: item.y + h / 2 },
+      bottom: { x: item.x + w / 2, y: item.y + h     },
+      top:    { x: item.x + w / 2, y: item.y          },
     };
   }
 
-  // Draw a line from each milestone card to its goal card (if goal card exists on canvas)
-  // and from each task card to its milestone card (if milestone card exists on canvas)
-  const connectors: { x1: number; y1: number; x2: number; y2: number; color: string; key: string }[] = [];
+  /** Euclidean distance between two points */
+  function dist(a: Point, b: Point) {
+    return Math.hypot(b.x - a.x, b.y - a.y);
+  }
 
-  for (const item of items) {
-    if (item.entityType === "milestone" && item.linkedGoalId) {
-      const goalCard = items.find(
-        (i) => i.entityType === "goal" && i.linkedGoalId === item.linkedGoalId
-      );
-      if (goalCard) {
-        const a = itemCentre(item);
-        const b = itemCentre(goalCard);
-        connectors.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color: "#6366f1", key: `ms-goal-${item.id}` });
+  /**
+   * Pick the pair of edges (one from `src` card, one from `tgt` card) whose
+   * midpoints are closest together, then build a bezier that exits/enters
+   * perpendicular to those edges.
+   */
+  function smartConnector(src: BoardItemFull, tgt: BoardItemFull): string {
+    const srcEdges = cardEdges(src);
+    const tgtEdges = cardEdges(tgt);
+
+    const edges: Edge[] = ["right", "left", "bottom", "top"];
+    let best = { srcEdge: "right" as Edge, tgtEdge: "left" as Edge, d: Infinity };
+
+    for (const se of edges) {
+      for (const te of edges) {
+        // Avoid connecting same-side edges (e.g. right→right looks bad)
+        if (se === te) continue;
+        const d = dist(srcEdges[se], tgtEdges[te]);
+        if (d < best.d) best = { srcEdge: se, tgtEdge: te, d };
       }
     }
+
+    const p1 = srcEdges[best.srcEdge];
+    const p2 = tgtEdges[best.tgtEdge];
+
+    // Control-point offsets: pull outward from each card face
+    const CTRL = Math.max(40, best.d * 0.35);
+    const offsets: Record<Edge, Point> = {
+      right:  { x:  CTRL, y: 0 },
+      left:   { x: -CTRL, y: 0 },
+      bottom: { x: 0, y:  CTRL },
+      top:    { x: 0, y: -CTRL },
+    };
+
+    const c1 = { x: p1.x + offsets[best.srcEdge].x, y: p1.y + offsets[best.srcEdge].y };
+    const c2 = { x: p2.x + offsets[best.tgtEdge].x, y: p2.y + offsets[best.tgtEdge].y };
+
+    return `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
+  }
+
+  // Draw arrows: goal → milestone (violet), milestone → task (cyan)
+  const connectors: { path: string; color: string; key: string }[] = [];
+
+  for (const item of items) {
+    // Milestone card → its Goal card
+    if (item.entityType === "milestone") {
+      const milestoneGoalId = item.linkedGoalId ?? item.linkedMilestone?.goalId ?? null;
+      if (milestoneGoalId) {
+        const goalCard = items.find(
+          (i) => i.entityType === "goal" && i.linkedGoalId === milestoneGoalId
+        );
+        if (goalCard) {
+          connectors.push({
+            path: smartConnector(goalCard, item),
+            color: "#6366f1",
+            key: `ms-goal-${item.id}`,
+          });
+        }
+      }
+    }
+    // Task card → its Milestone card
     if (item.entityType === "task" && item.linkedMilestoneId) {
       const msCard = items.find(
         (i) => i.entityType === "milestone" && i.linkedMilestoneId === item.linkedMilestoneId
       );
       if (msCard) {
-        const a = itemCentre(item);
-        const b = itemCentre(msCard);
-        connectors.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color: "#06b6d4", key: `task-ms-${item.id}` });
+        connectors.push({
+          path: smartConnector(msCard, item),
+          color: "#06b6d4",
+          key: `task-ms-${item.id}`,
+        });
       }
     }
   }
@@ -159,6 +218,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
         workspaceId={workspaceId}
         goals={goals}
         milestones={milestones}
+        currentItems={items}
         onItemAdded={(item) => setItems([...items, item])}
       />
 
@@ -199,21 +259,21 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
               aria-hidden
             >
               <defs>
-                <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                  <path d="M0,0 L0,6 L8,3 z" fill="#6366f1" opacity="0.6" />
+                <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                  <path d="M0,0 L0,6 L8,3 z" fill="#6366f1" opacity="0.75" />
                 </marker>
-                <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                  <path d="M0,0 L0,6 L8,3 z" fill="#06b6d4" opacity="0.6" />
+                <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                  <path d="M0,0 L0,6 L8,3 z" fill="#06b6d4" opacity="0.75" />
                 </marker>
               </defs>
               {connectors.map((c) => (
-                <line
+                <path
                   key={c.key}
-                  x1={c.x1} y1={c.y1} x2={c.x2} y2={c.y2}
+                  d={c.path}
                   stroke={c.color}
-                  strokeWidth={1.5}
-                  strokeDasharray="6 4"
-                  strokeOpacity={0.5}
+                  strokeWidth={1.75}
+                  strokeOpacity={0.6}
+                  fill="none"
                   markerEnd={c.color === "#6366f1" ? "url(#arrow-violet)" : "url(#arrow-cyan)"}
                 />
               ))}

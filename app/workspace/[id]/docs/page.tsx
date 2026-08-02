@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
 import Link from "next/link";
 import { FileText, Plus } from "lucide-react";
+import { ImportDocButton } from "@/components/docs/ImportDocButton";
 
 interface DocsPageProps { params: Promise<{ id: string }> }
 
@@ -31,12 +32,15 @@ export default async function DocsPage({ params }: DocsPageProps) {
             <h1 className="text-2xl font-bold text-ink">Connected Docs</h1>
             <p className="text-slate text-sm mt-1">Rich-text documents linked directly to goals, milestones, and tasks</p>
           </div>
-          <Link
-            href={`/workspace/${id}/docs/new`}
-            className="flex items-center gap-2 bg-blue text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors"
-          >
-            <Plus size={15} /> New doc
-          </Link>
+          <div className="flex items-center gap-2">
+            <ImportDocButton workspaceId={id} />
+            <Link
+              href={`/workspace/${id}/docs/new`}
+              className="flex items-center gap-2 bg-blue text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors"
+            >
+              <Plus size={15} /> New doc
+            </Link>
+          </div>
         </div>
 
         {docs.length === 0 ? (
@@ -44,9 +48,12 @@ export default async function DocsPage({ params }: DocsPageProps) {
             <FileText size={40} className="text-muted mx-auto mb-4" />
             <h3 className="font-semibold text-ink">No documents yet</h3>
             <p className="text-sm text-slate mt-1 mb-5">Create a document and link it to any goal, milestone, or task.</p>
-            <Link href={`/workspace/${id}/docs/new`} className="inline-flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors">
-              <Plus size={14} /> Create first doc
-            </Link>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <Link href={`/workspace/${id}/docs/new`} className="inline-flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors">
+                <Plus size={14} /> Create first doc
+              </Link>
+              <ImportDocButton workspaceId={id} />
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -4,6 +4,28 @@ import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNo
 import type { GoalSimple, MilestoneWithTasks, BoardItemFull } from "@/types/board";
 import { useState, useRef, useEffect } from "react";
 
+// ── Layout constants for the Goal → Milestone → Task hierarchy ──────────────
+const COL_GOAL_X      = 80;
+const COL_MILESTONE_X = 380;
+const COL_TASK_X      = 680;
+const ROW_START_Y     = 80;
+const ROW_GAP         = 150; // vertical spacing between sibling cards
+
+/**
+ * Compute the next available Y position in a column so cards don't overlap.
+ * Looks at all existing items whose x is within ±20px of the target column x.
+ */
+function nextColumnY(
+  existingItems: BoardItemFull[],
+  targetX: number,
+  cardHeight = 120
+): number {
+  const colItems = existingItems.filter((i) => Math.abs(i.x - targetX) < 20);
+  if (colItems.length === 0) return ROW_START_Y;
+  const maxBottom = Math.max(...colItems.map((i) => i.y + (i.height ?? cardHeight)));
+  return maxBottom + ROW_GAP - cardHeight; // gap between bottom of last card and top of new one
+}
+
 interface BoardToolbarProps {
   zoom: number;
   onZoomIn: () => void;
@@ -14,11 +36,13 @@ interface BoardToolbarProps {
   goals: GoalSimple[];
   milestones: MilestoneWithTasks[];
   onItemAdded: (item: BoardItemFull) => void;
+  /** Current board items — used to compute auto-layout positions */
+  currentItems: BoardItemFull[];
 }
 
 export function BoardToolbar({
   zoom, onZoomIn, onZoomOut, onZoomReset, onCommandOpen,
-  workspaceId, goals, milestones, onItemAdded,
+  workspaceId, goals, milestones, onItemAdded, currentItems,
 }: BoardToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"goal" | "milestone" | null>(null);
@@ -45,16 +69,45 @@ export function BoardToolbar({
     setMenuOpen(false);
     setPickerType(null);
 
+    // Determine column x and card dimensions based on entity type
+    let targetX: number;
+    let cardWidth: number;
+    let cardHeight: number;
+
+    if (entityType === "goal") {
+      targetX = COL_GOAL_X;
+      cardWidth = 220;
+      cardHeight = 130;
+    } else if (entityType === "milestone") {
+      targetX = COL_MILESTONE_X;
+      cardWidth = 220;
+      cardHeight = 130;
+    } else {
+      // note — free placement with slight randomness
+      targetX = 120 + Math.random() * 300;
+      cardWidth = 180;
+      cardHeight = 100;
+    }
+
+    const targetY = entityType === "note"
+      ? 120 + Math.random() * 200
+      : nextColumnY(currentItems, targetX, cardHeight);
+
     const body: Record<string, unknown> = {
       workspaceId,
       entityType,
-      x: 120 + Math.random() * 300,
-      y: 120 + Math.random() * 200,
-      width: entityType === "note" ? 180 : 200,
-      height: entityType === "note" ? 100 : 120,
+      x: targetX,
+      y: targetY,
+      width: cardWidth,
+      height: cardHeight,
     };
     if (entityType === "goal" && linkedId) body.linkedGoalId = linkedId;
-    if (entityType === "milestone" && linkedId) body.linkedMilestoneId = linkedId;
+    if (entityType === "milestone" && linkedId) {
+      body.linkedMilestoneId = linkedId;
+      // Also store the milestone's goalId so connectors can draw goal→milestone lines
+      const milestone = milestones.find((m) => m.id === linkedId);
+      if (milestone?.goalId) body.linkedGoalId = milestone.goalId;
+    }
     if (entityType === "note") body.label = label ?? "New note";
 
     const res = await fetch(`/api/board-items`, {

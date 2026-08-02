@@ -2,16 +2,16 @@
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import LinkExtension from "@tiptap/extension-link";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Bold, Italic, Strikethrough, Code, Heading1, Heading2,
-  List, ListOrdered, Quote, Save, ArrowLeft, Loader2, ImagePlus,
+  List, ListOrdered, Quote, Save, ArrowLeft, Loader2, ImagePlus, Upload, Trash2,
 } from "lucide-react";
 import Link from "next/link";
+import { ImportDocButton } from "@/components/docs/ImportDocButton";
 
 interface DocEditorProps {
   workspaceId: string;
@@ -35,12 +35,16 @@ export function DocEditor({ workspaceId, initialData, goals = [], milestones = [
   const [saving, setSaving]                   = useState(false);
   const [error, setError]                     = useState("");
   const [imgUploading, setImgUploading]       = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting]               = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const editor = useEditor({
+    immediatelyRender: false,
     extensions: [
-      StarterKit,
-      LinkExtension.configure({ openOnClick: false }),
+      StarterKit.configure({
+        link: { openOnClick: false },
+      }),
       Placeholder.configure({ placeholder: "Start writing your document…" }),
       Image.configure({ inline: false, allowBase64: true }),
     ],
@@ -135,6 +139,28 @@ export function DocEditor({ workspaceId, initialData, goals = [], milestones = [
     }
   }
 
+  async function handleDelete() {
+    if (!initialData?.id) return;
+    setDeleting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/documents/${initialData.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json();
+        setError(data.error || "Failed to delete document.");
+        setShowDeleteConfirm(false);
+      } else {
+        router.push(`/workspace/${workspaceId}/docs`);
+        router.refresh();
+      }
+    } catch {
+      setError("Network error while deleting.");
+      setShowDeleteConfirm(false);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (!editor) return null;
 
   return (
@@ -147,15 +173,65 @@ export function DocEditor({ workspaceId, initialData, goals = [], milestones = [
         >
           <ArrowLeft size={16} /> Back to docs
         </Link>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer"
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          {initialData?.id ? "Save changes" : "Create document"}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Delete — only shown when editing an existing doc */}
+          {initialData?.id && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={deleting}
+              title="Delete document"
+              className="flex items-center gap-1.5 text-sm text-danger hover:bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <Trash2 size={14} /> Delete
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {initialData?.id ? "Save changes" : "Create document"}
+          </button>
+        </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl border border-border shadow-xl p-6 max-w-sm w-full mx-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-full bg-red-50 flex items-center justify-center shrink-0">
+                <Trash2 size={16} className="text-danger" />
+              </div>
+              <h2 className="font-semibold text-ink">Delete document?</h2>
+            </div>
+            <p className="text-sm text-slate mb-5">
+              <strong className="text-ink">{title || "Untitled Document"}</strong> will be permanently deleted along with all its comments. This cannot be undone.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+                className="px-4 py-2 text-sm rounded-xl border border-border text-ink hover:bg-offwhite transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex items-center gap-2 px-4 py-2 text-sm rounded-xl bg-danger text-white hover:bg-red-600 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-danger text-sm p-3 rounded-xl">
@@ -236,6 +312,11 @@ export function DocEditor({ workspaceId, initialData, goals = [], milestones = [
           >
             {imgUploading ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
           </ToolbarBtn>
+
+          <div className="w-px h-4 bg-border mx-1" />
+
+          {/* Import doc button */}
+          <ImportDocButton workspaceId={workspaceId} variant="toolbar" />
         </div>
 
         {/* Hidden file input */}
@@ -253,10 +334,13 @@ export function DocEditor({ workspaceId, initialData, goals = [], milestones = [
           <EditorContent editor={editor} />
         </div>
 
-        {/* Image hint */}
-        <div className="px-6 pb-4">
+        {/* Hints */}
+        <div className="px-6 pb-4 flex flex-col gap-1">
           <p className="text-[11px] text-muted">
-            💡 Tip: Click the <ImagePlus size={10} className="inline" /> icon in the toolbar to insert an image from your device (max 5 MB). Images are embedded in the document.
+            💡 Click <ImagePlus size={10} className="inline" /> to insert an image from your device (max 5 MB). Images are embedded in the document.
+          </p>
+          <p className="text-[11px] text-muted">
+            📄 Click <Upload size={10} className="inline" /> to import a <strong>.txt</strong>, <strong>.md</strong>, or <strong>.docx</strong> file and open it as a new document.
           </p>
         </div>
       </div>
