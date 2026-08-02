@@ -54,9 +54,12 @@ export async function POST(
       return NextResponse.json({ error: "Workspace not found or access denied." }, { status: 404 });
     }
 
-    if (requesterMember.role !== "admin" && requesterMember.role !== "pm") {
+    const isOwner = requesterMember.workspace.ownerId === session.user.id;
+    const canInvite = isOwner || requesterMember.role === "admin" || requesterMember.role === "pm";
+
+    if (!canInvite) {
       return NextResponse.json(
-        { error: "Only admins and product managers can invite team members." },
+        { error: "Only the workspace owner, admins, and product managers can invite team members." },
         { status: 403 }
       );
     }

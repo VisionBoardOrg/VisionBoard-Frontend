@@ -1,14 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/reusables/Logo";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter();
-  const [form, setForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
+  const searchParams = useSearchParams();
+  // Preserve callbackUrl so invite tokens survive the post-registration redirect
+  const callbackUrl = searchParams.get("callbackUrl") || "/onboarding";
+  const prefillEmail = searchParams.get("email") || "";
+
+  const [form, setForm] = useState({ name: "", email: prefillEmail, password: "", confirmPassword: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -34,16 +39,16 @@ export default function RegisterPage() {
       return;
     }
 
-    // Auto sign in after registration
+    // Auto sign in after registration — redirect to callbackUrl (preserves invite token)
     await signIn("credentials", {
       email: form.email,
       password: form.password,
-      callbackUrl: "/onboarding",
+      callbackUrl,
     });
   }
 
   async function handleGoogle() {
-    await signIn("google", { callbackUrl: "/onboarding" });
+    await signIn("google", { callbackUrl });
   }
 
   return (
@@ -153,6 +158,14 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
   );
 }
 

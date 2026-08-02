@@ -36,11 +36,13 @@ export async function seedWorkspace({
       },
     });
 
+    // The workspace creator is always an admin so they can manage members,
+    // regardless of which role they selected during onboarding.
     await tx.workspaceMember.create({
       data: {
         workspaceId: ws.id,
         userId,
-        role,
+        role: "admin",
       },
     });
 

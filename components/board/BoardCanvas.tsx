@@ -253,8 +253,50 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
         <NLCommandBar
           workspaceId={workspaceId}
           onClose={() => setCommandOpen(false)}
-          onAction={(action) => {
-            console.log("AI action pending confirmation:", action);
+          onAction={async (action) => {
+            if (!action.id) return;
+
+            // Apply the AI-parsed action immediately after user confirmation
+            if (action.entity === "milestone" || action.entity === "task") {
+              if (action.action === "update" || action.action === "assign" || action.action === "move") {
+                // Optimistically update the board store
+                setItems(
+                  items.map((item) => {
+                    if (
+                      (item.entityType === "milestone" && item.linkedMilestoneId === action.id) ||
+                      (item.entityType === "goal" && item.linkedGoalId === action.id)
+                    ) {
+                      return { ...item, ...(action.changes as Partial<typeof item>) };
+                    }
+                    return item;
+                  })
+                );
+
+                // Persist to API
+                const endpoint =
+                  action.entity === "task"
+                    ? `/api/tasks/${action.id}`
+                    : `/api/milestones/${action.id}`;
+
+                fetch(endpoint, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(action.changes),
+                }).catch((err) =>
+                  console.error("[NL Board Edit] Failed to persist action:", err)
+                );
+              }
+            }
+
+            if (action.entity === "goal" && action.id) {
+              fetch(`/api/board-items/${action.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(action.changes),
+              }).catch((err) =>
+                console.error("[NL Board Edit] Failed to persist goal action:", err)
+              );
+            }
           }}
         />
       )}

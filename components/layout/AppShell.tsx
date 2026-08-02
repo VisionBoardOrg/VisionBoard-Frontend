@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
-  Layers, LogOut, Zap, Building2
+  Layers, LogOut, Zap, Building2, Target, ListTodo
 } from "lucide-react";
 import { useState } from "react";
 
@@ -21,10 +21,12 @@ interface AppShellProps {
 const NAV = (workspaceId: string) => [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: `/workspace/${workspaceId}/board`, label: "Board", icon: Kanban },
+  { href: `/workspace/${workspaceId}/goals`, label: "Goals", icon: Target },
+  { href: `/workspace/${workspaceId}/tasks`, label: "My Tasks", icon: ListTodo },
   { href: `/workspace/${workspaceId}/roadmap`, label: "Roadmap", icon: Map },
   { href: `/workspace/${workspaceId}/docs`, label: "Docs", icon: FileText },
   { href: `/workspace/${workspaceId}/templates`, label: "Templates", icon: Layers },
-  { href: `/workspace/${workspaceId}/workspace`, label: "Workspace", icon: Building2 },
+  { href: "/workspaces", label: "Workspaces", icon: Building2 },
   { href: `/workspace/${workspaceId}/settings`, label: "Settings", icon: Settings },
 ];
 
@@ -69,7 +71,12 @@ export function AppShell({ workspaceId, role, plan, children }: AppShellProps) {
         <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            const active =
+              item.href === "/dashboard"
+                ? pathname === "/dashboard"
+                : item.href === "/workspaces"
+                ? pathname === "/workspaces"
+                : pathname === item.href || pathname.startsWith(item.href + "/");
             const isWorkspace = item.label === "Workspace";
             return (
               <Link

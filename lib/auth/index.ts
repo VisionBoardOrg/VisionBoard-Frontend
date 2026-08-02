@@ -53,16 +53,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.id = user.id;
       }
 
-      // Fetch primary workspace membership if not already cached in token
-      if (token.id && !token.workspaceId) {
-        const membership = await prisma.workspaceMember.findFirst({
-          where: { userId: token.id as string },
-          include: { workspace: true },
-          orderBy: { joinedAt: "asc" },
-        });
-        token.role = membership?.role ?? null;
-        token.workspaceId = membership?.workspaceId ?? null;
-        token.workspacePlan = membership?.workspace?.plan ?? null;
+      // Fetch primary workspace membership:
+      // Re-fetch whenever workspaceId or role isn't cached yet (e.g. fresh login,
+      // just created first workspace during onboarding).
+      if (token.id && (!token.workspaceId || !token.role)) {
+        try {
+          const membership = await prisma.workspaceMember.findFirst({
+            where: { userId: token.id as string },
+            include: { workspace: true },
+            orderBy: { joinedAt: "asc" },
+          });
+          token.role        = membership?.role        ?? null;
+          token.workspaceId = membership?.workspaceId ?? null;
+          token.workspacePlan = membership?.workspace?.plan ?? null;
+        } catch (error) {
+          console.error("[auth] Failed to fetch workspace membership:", error);
+        }
       }
 
       return token;

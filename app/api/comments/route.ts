@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
-const schema = z.object({
+const createSchema = z.object({
   body: z.string().min(1).max(2000),
   entityType: z.enum(["goal", "milestone", "task", "document"]),
   goalId: z.string().optional(),
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json();
-  const parsed = schema.safeParse(body);
+  const parsed = createSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
 
   const comment = await prisma.comment.create({

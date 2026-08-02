@@ -95,8 +95,9 @@ export default function OnboardingPage() {
           {/* STEP 1 — Role */}
           {step === 1 && (
             <div>
-              <h1 className="text-2xl font-bold text-ink mb-2">What&apos;s your role?</h1>
-              <p className="text-slate mb-8">We&apos;ll personalise your dashboard so the most relevant view loads first.</p>
+              <h1 className="text-2xl font-bold text-ink mb-2">What&apos;s your primary role?</h1>
+              <p className="text-slate mb-1">We&apos;ll set your default dashboard view to match. You&apos;ll be the workspace <strong>admin</strong> so you can invite your team.</p>
+              <p className="text-xs text-muted mb-8">You can change your view role at any time from workspace settings.</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {ROLES.map((role) => {
@@ -225,15 +226,19 @@ export default function OnboardingPage() {
                 <div className="mt-6 bg-offwhite rounded-xl p-4 space-y-2">
                   <h3 className="text-xs font-semibold text-ink uppercase tracking-wide">Your workspace</h3>
                   <div className="flex items-center gap-3 text-sm">
-                    <span className="text-muted w-24">Role</span>
+                    <span className="text-muted w-32">Dashboard view</span>
                     <span className="font-medium text-ink capitalize">{selectedRole?.replace("_", " ")}</span>
                   </div>
                   <div className="flex items-center gap-3 text-sm">
-                    <span className="text-muted w-24">Template</span>
+                    <span className="text-muted w-32">Workspace role</span>
+                    <span className="font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full text-xs">Admin</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-muted w-32">Template</span>
                     <span className="font-medium text-ink">{TEMPLATES.find(t => t.value === selectedTemplate)?.label}</span>
                   </div>
                   <div className="flex items-center gap-3 text-sm">
-                    <span className="text-muted w-24">Plan</span>
+                    <span className="text-muted w-32">Plan</span>
                     <span className="font-medium text-ink">Free (10 AI credits/month)</span>
                   </div>
                 </div>

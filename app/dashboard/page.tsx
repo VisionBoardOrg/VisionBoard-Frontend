@@ -51,6 +51,18 @@ export default async function DashboardPage() {
 
   if (!workspace) redirect("/onboarding");
 
+  // Auto-correct: if this user is the workspace owner but their member role
+  // isn't admin (created before the enforce-admin-on-create rule), fix it now.
+  if (workspace.ownerId === session.user.id) {
+    const myMember = workspace.members.find((m) => m.userId === session.user.id);
+    if (myMember && myMember.role !== "admin") {
+      await prisma.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId: workspaceId!, userId: session.user.id } },
+        data: { role: "admin" },
+      });
+    }
+  }
+
   const role = session.user.role as string;
 
   const dashboardProps = {

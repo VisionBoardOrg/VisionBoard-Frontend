@@ -8,6 +8,20 @@ import Link from "next/link";
 
 interface KeyResult { id: string; title: string; target: number; current: number; unit: string }
 
+interface DeconstructSprint {
+  name: string;
+  goal: string;
+  durationWeeks: number;
+  tasks: { title: string; priority: string; storyPoints: number; suggestedOwnerRole: string }[];
+}
+
+interface DeconstructResult {
+  recommendation?: string;
+  suggestedTimeline?: string;
+  sprints?: DeconstructSprint[];
+  risks?: string[];
+}
+
 interface GoalDetailProps {
   goal: {
     id: string;
@@ -40,7 +54,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState(goal.comments);
-  const [deconstructResult, setDeconstructResult] = useState<Record<string, unknown> | null>(null);
+  const [deconstructResult, setDeconstructResult] = useState<DeconstructResult | null>(null);
   const [deconstructLoading, setDeconstructLoading] = useState(false);
 
   const health = computeGoalHealth({
@@ -75,7 +89,7 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
       body: JSON.stringify({ workspaceId, objective: goal.objective }),
     });
     const data = await res.json();
-    if (res.ok) setDeconstructResult(data);
+    if (res.ok) setDeconstructResult(data as DeconstructResult);
     setDeconstructLoading(false);
   }
 
@@ -134,9 +148,47 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
             {deconstructLoading ? "Analysing…" : "Deconstruct with AI →"}
           </button>
           {deconstructResult && (
-            <pre className="mt-3 text-xs bg-offwhite border border-border rounded-xl p-4 overflow-auto max-h-48">
-              {JSON.stringify(deconstructResult, null, 2)}
-            </pre>
+            <div className="mt-4 space-y-3">
+              {deconstructResult.recommendation && (
+                <div className="bg-blue-faint border border-blue-light rounded-xl p-4 text-sm text-slate">
+                  <span className="font-semibold text-ink block mb-1">AI Recommendation</span>
+                  {deconstructResult.recommendation}
+                </div>
+              )}
+              {deconstructResult.sprints && deconstructResult.sprints.length > 0 && (
+                <div>
+                  <span className="text-xs font-semibold text-ink uppercase tracking-wide">Suggested Sprints</span>
+                  <div className="mt-2 space-y-2">
+                    {deconstructResult.sprints.map((sprint, i) => (
+                      <div key={i} className="bg-white border border-border rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium text-sm text-ink">{sprint.name}</span>
+                          <span className="text-xs text-muted">{sprint.durationWeeks}w</span>
+                        </div>
+                        <p className="text-xs text-slate mb-2">{sprint.goal}</p>
+                        <div className="flex flex-wrap gap-1">
+                          {sprint.tasks.slice(0, 4).map((t, ti) => (
+                            <span key={ti} className="text-[10px] px-2 py-0.5 bg-offwhite border border-border rounded-full text-slate">{t.title}</span>
+                          ))}
+                          {sprint.tasks.length > 4 && <span className="text-[10px] text-muted">+{sprint.tasks.length - 4} more</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {deconstructResult.risks && deconstructResult.risks.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                  <span className="text-xs font-semibold text-amber-800 block mb-1">Risks to watch</span>
+                  <ul className="text-xs text-amber-700 space-y-0.5 list-disc pl-4">
+                    {deconstructResult.risks.map((r, i) => <li key={i}>{r}</li>)}
+                  </ul>
+                </div>
+              )}
+              <button onClick={() => setDeconstructResult(null)} className="text-xs text-muted hover:text-ink transition-colors">
+                Dismiss
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -208,7 +260,21 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                 {c.author.name?.[0] ?? "?"}
               </div>
               <div className="flex-1 bg-offwhite rounded-xl px-3 py-2">
-                <span className="text-xs font-medium text-ink">{c.author.name}</span>
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <span className="text-xs font-medium text-ink">{c.author.name}</span>
+                  {c.author.id === userId && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm("Delete this comment?")) return;
+                        const res = await fetch(`/api/comments/${c.id}`, { method: "DELETE" });
+                        if (res.ok) setComments((prev) => prev.filter((x) => x.id !== c.id));
+                      }}
+                      className="text-[11px] text-muted hover:text-danger transition-colors"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
                 <p className="text-sm text-slate mt-0.5">{c.body}</p>
               </div>
             </div>

@@ -52,5 +52,17 @@ export async function PATCH(
       ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
     },
   });
+
+  await prisma.activityLog.create({
+    data: {
+      workspaceId,
+      userId: session.user.id,
+      entityType: "milestone",
+      entityId: id,
+      action: "updated",
+      diff: parsed.data as never,
+    },
+  });
+
   return NextResponse.json({ milestone: updated });
 }

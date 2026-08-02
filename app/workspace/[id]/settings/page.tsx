@@ -4,18 +4,22 @@ import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
 import { InviteMemberModal } from "@/components/settings/InviteMemberModal";
 import { PendingInvitesList } from "@/components/settings/PendingInvitesList";
+import { WorkspaceRenameInline } from "@/components/settings/WorkspaceRenameInline";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import Link from "next/link";
-import { Users, CreditCard, Plug, Shield, ChevronRight, MessageSquare, GitBranch, Kanban, Layout, Layers, Check, X } from "lucide-react";
+import {
+  Users, CreditCard, Plug, Shield, ChevronRight,
+  MessageSquare, GitBranch, Kanban, Layout, Layers, Check, X, Building2,
+} from "lucide-react";
 
 interface SettingsPageProps { params: Promise<{ id: string }> }
 
 const INTEGRATIONS = [
-  { name: "Slack", icon: MessageSquare, description: "Get notified when milestones update", tier: "growth" },
-  { name: "GitHub", icon: GitBranch, description: "Link PRs and issues to tasks", tier: "growth" },
-  { name: "Jira", icon: Kanban, description: "Sync Jira tickets with VisionBoard tasks", tier: "growth" },
-  { name: "Figma", icon: Layout, description: "Embed designs in connected docs", tier: "growth" },
-  { name: "Linear", icon: Layers, description: "Mirror Linear issues on the board", tier: "growth" },
+  { name: "Slack",   icon: MessageSquare, description: "Get notified when milestones update" },
+  { name: "GitHub",  icon: GitBranch,     description: "Link PRs and issues to tasks" },
+  { name: "Jira",    icon: Kanban,        description: "Sync Jira tickets with VisionBoard tasks" },
+  { name: "Figma",   icon: Layout,        description: "Embed designs in connected docs" },
+  { name: "Linear",  icon: Layers,        description: "Mirror Linear issues on the board" },
 ];
 
 export default async function SettingsPage({ params }: SettingsPageProps) {
@@ -36,85 +40,150 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   });
   if (!member) redirect("/dashboard");
 
-  const workspace = member.workspace;
-  const pendingInvites = workspace.invites.map((inv) => ({
-    id: inv.id,
-    email: inv.email,
-    role: inv.role,
-    token: inv.token,
-    createdAt: inv.createdAt.toISOString(),
-  }));
-  const plan = workspace.plan;
-  const limits = PLAN_LIMITS[plan];
-  const canManage = member.role === "admin" || member.role === "pm";
+  // Auto-correct: workspace owner must always have admin role.
+  // Handles accounts created before this rule was enforced.
+  const isOwnerWithWrongRole =
+    member.workspace.ownerId === session.user.id && member.role !== "admin";
+  if (isOwnerWithWrongRole) {
+    await prisma.workspaceMember.update({
+      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
+      data: { role: "admin" },
+    });
+    // Reload the member object with corrected role
+    member.role = "admin";
+  }
 
-  const TIER_NAMES = { free: "Free", startup: "Startup", growth: "Growth", enterprise: "Enterprise" };
-  const TIER_COLORS = { free: "bg-muted text-white", startup: "bg-cyan text-white", growth: "bg-blue text-white", enterprise: "bg-violet-600 text-white" };
+  const workspace  = member.workspace;
+  const plan       = workspace.plan;
+  const limits     = PLAN_LIMITS[plan];
+  const isOwner    = workspace.ownerId === session.user.id;
+  // Owner always has full management rights regardless of stored role
+  const canManage  = isOwner || member.role === "admin" || member.role === "pm";
+  const canRename  = isOwner || member.role === "admin";
+
+  const pendingInvites = workspace.invites.map((inv) => ({
+    id: inv.id, email: inv.email, role: inv.role,
+    token: inv.token, createdAt: inv.createdAt.toISOString(),
+  }));
+
+  const TIER_NAMES  = { free: "Free", startup: "Startup", growth: "Growth", enterprise: "Enterprise" };
+  const TIER_COLORS = {
+    free: "bg-slate-100 text-slate-700",
+    startup: "bg-cyan-50 text-cyan-700 border border-cyan-200",
+    growth: "bg-blue-faint text-blue border border-blue-light",
+    enterprise: "bg-violet-50 text-violet-700 border border-violet-200",
+  };
 
   return (
     <AppShell workspaceId={id} role={session.user.role} plan={plan}>
       <div className="max-w-3xl mx-auto space-y-8">
+
+        {/* ── Header ── */}
         <div>
           <h1 className="text-2xl font-bold text-ink">Settings</h1>
           <p className="text-slate text-sm mt-1">{workspace.name}</p>
         </div>
 
-        {/* Members */}
+        {/* ── Workspace identity (rename) ── */}
+        <section className="bg-white rounded-2xl border border-border p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <Building2 size={18} className="text-blue" />
+            <h2 className="font-semibold text-ink">Workspace</h2>
+          </div>
+          <WorkspaceRenameInline
+            workspaceId={id}
+            currentName={workspace.name}
+            canRename={canRename}
+          />
+          <p className="text-xs text-muted mt-3">
+            Workspace ID: <span className="font-mono">{id}</span>
+          </p>
+        </section>
+
+        {/* ── Team Members ── */}
         <section className="bg-white rounded-2xl border border-border p-6">
           <div className="flex items-center gap-2 mb-5">
             <Users size={18} className="text-blue" />
             <h2 className="font-semibold text-ink">Team Members</h2>
             <span className="ml-auto text-xs text-muted">
-              {workspace.members.length + pendingInvites.length} / {limits.members === "unlimited" ? "∞" : limits.members}
+              {workspace.members.length + pendingInvites.length}
+              {" / "}
+              {(limits.members as number) < 0 || limits.members === "unlimited" ? "∞" : limits.members}
             </span>
           </div>
-          <div className="space-y-3">
-            {workspace.members.map((m) => (
-              <div key={m.userId} className="flex items-center gap-3 p-3 rounded-xl bg-offwhite">
-                <div className="w-8 h-8 rounded-full bg-blue-light flex items-center justify-center text-blue font-bold text-sm uppercase">
-                  {m.user.name?.[0] ?? "?"}
+
+          <div className="space-y-2">
+            {workspace.members.map((m) => {
+              const isSelf = m.userId === session.user.id;
+              return (
+                <div key={m.userId} className="flex items-center gap-3 p-3 rounded-xl bg-offwhite">
+                  <div className="w-8 h-8 rounded-full bg-blue-light flex items-center justify-center text-blue font-bold text-sm uppercase shrink-0">
+                    {m.user.name?.[0] ?? "?"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-ink truncate">
+                      {m.user.name}{isSelf && <span className="text-muted font-normal ml-1">(you)</span>}
+                    </div>
+                    <div className="text-xs text-muted truncate">{m.user.email}</div>
+                  </div>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-blue-faint text-blue font-medium capitalize shrink-0">
+                    {m.role}
+                  </span>
                 </div>
-                <div className="flex-1">
-                  <div className="text-sm font-medium text-ink">{m.user.name}</div>
-                  <div className="text-xs text-muted">{m.user.email}</div>
-                </div>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-faint text-blue font-medium capitalize">{m.role}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <PendingInvitesList workspaceId={id} invites={pendingInvites} />
 
-          {canManage && (
-            <InviteMemberModal
-              workspaceId={id}
-              currentMemberCount={workspace.members.length + pendingInvites.length}
-              memberLimit={limits.members}
-            />
+          {/* Invite section — always visible to admin/pm */}
+          {canManage ? (
+            <div className="mt-5 pt-5 border-t border-border">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <p className="text-sm font-semibold text-ink">Invite teammates</p>
+                  <p className="text-xs text-muted mt-0.5">
+                    They&apos;ll receive an email with a join link.
+                    {typeof limits.members === "number" && (limits.members as number) > 0 && (
+                      <> Plan limit: <strong>{limits.members} members</strong>.</>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <InviteMemberModal
+                workspaceId={id}
+                currentMemberCount={workspace.members.length + pendingInvites.length}
+                memberLimit={limits.members}
+              />
+            </div>
+          ) : (
+            <p className="mt-4 text-xs text-muted">
+              Only admins and product managers can invite members.
+            </p>
           )}
         </section>
 
-        {/* Billing */}
+        {/* ── Plan & Billing ── */}
         <section className="bg-white rounded-2xl border border-border p-6">
           <div className="flex items-center gap-2 mb-5">
             <CreditCard size={18} className="text-blue" />
             <h2 className="font-semibold text-ink">Plan & Billing</h2>
           </div>
 
-          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold mb-5 ${TIER_COLORS[plan]}`}>
-            {TIER_NAMES[plan]} Plan
+          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold mb-5 ${TIER_COLORS[plan] ?? TIER_COLORS.free}`}>
+            {TIER_NAMES[plan as keyof typeof TIER_NAMES] ?? plan} Plan
           </div>
 
           <div className="grid grid-cols-2 gap-3 mb-6">
             {([
-              ["Workspaces", limits.workspaces === "unlimited" ? "Unlimited" : limits.workspaces],
-              ["Team members", limits.members === "unlimited" ? "Unlimited" : limits.members],
-              ["AI credits/mo", limits.aiCreditsPerMonth === "unlimited" ? "Unlimited" : limits.aiCreditsPerMonth],
-              ["Activity log", typeof limits.activityLogDays === "number" && limits.activityLogDays === -1 ? "Forever" : `${limits.activityLogDays} days`],
-              ["Timeline/Gantt", limits.timelineGantt],
-              ["Sprint tracking", limits.sprintTracking],
-              ["Integrations", limits.integrations],
-              ["SSO/SAML", limits.sso],
+              ["Workspaces",    (limits.workspaces as number) < 0   ? "Unlimited" : limits.workspaces],
+              ["Team members",  (limits.members as number) < 0      ? "Unlimited" : limits.members],
+              ["AI credits/mo", (limits.aiCreditsPerMonth as number) < 0 ? "Unlimited" : limits.aiCreditsPerMonth],
+              ["Activity log",  (limits.activityLogDays as number) === -1 ? "Forever" : `${limits.activityLogDays} days`],
+              ["Timeline/Gantt",   limits.timelineGantt],
+              ["Sprint tracking",  limits.sprintTracking],
+              ["Integrations",     limits.integrations],
+              ["SSO/SAML",         limits.sso],
             ] as [string, string | number | boolean][]).map(([label, value]) => (
               <div key={label} className="flex items-center justify-between bg-offwhite rounded-xl px-4 py-2.5 text-sm">
                 <span className="text-slate">{label}</span>
@@ -138,46 +207,52 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
           )}
         </section>
 
-        {/* Integrations */}
+        {/* ── Integrations ── */}
         <section className="bg-white rounded-2xl border border-border p-6">
           <div className="flex items-center gap-2 mb-5">
             <Plug size={18} className="text-blue" />
             <h2 className="font-semibold text-ink">Integrations</h2>
             {!limits.integrations && (
-              <span className="ml-auto text-xs bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full">Growth plan required</span>
+              <span className="ml-auto text-xs bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full">
+                Growth plan required
+              </span>
             )}
           </div>
           <div className="space-y-3">
-            {INTEGRATIONS.map((integration) => {
-              const Icon = integration.icon;
-              return (
-                <div key={integration.name} className="flex items-center gap-4 p-4 rounded-xl border border-border">
-                  <div className="w-9 h-9 rounded-xl bg-blue/10 text-blue flex items-center justify-center shrink-0">
-                    <Icon size={18} />
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-ink text-sm">{integration.name}</div>
-                    <div className="text-xs text-muted">{integration.description}</div>
-                  </div>
-                  <span className="text-xs text-muted bg-offwhite border border-border px-2.5 py-1 rounded-full">Coming soon</span>
+            {INTEGRATIONS.map(({ name, icon: Icon, description }) => (
+              <div key={name} className="flex items-center gap-4 p-4 rounded-xl border border-border">
+                <div className="w-9 h-9 rounded-xl bg-blue/10 text-blue flex items-center justify-center shrink-0">
+                  <Icon size={18} />
                 </div>
-              );
-            })}
+                <div className="flex-1">
+                  <div className="font-medium text-ink text-sm">{name}</div>
+                  <div className="text-xs text-muted">{description}</div>
+                </div>
+                <span className="text-xs text-muted bg-offwhite border border-border px-2.5 py-1 rounded-full">
+                  Coming soon
+                </span>
+              </div>
+            ))}
           </div>
         </section>
 
-        {/* SSO */}
+        {/* ── SSO ── */}
         <section className="bg-white rounded-2xl border border-border p-6 opacity-75">
           <div className="flex items-center gap-2 mb-3">
             <Shield size={18} className="text-muted" />
             <h2 className="font-semibold text-ink">SSO / SAML</h2>
-            <span className="ml-auto text-xs bg-violet-50 border border-violet-200 text-violet-700 px-2 py-0.5 rounded-full">Enterprise only</span>
+            <span className="ml-auto text-xs bg-violet-50 border border-violet-200 text-violet-700 px-2 py-0.5 rounded-full">
+              Enterprise only
+            </span>
           </div>
-          <p className="text-sm text-muted">Single Sign-On with your identity provider (Okta, Azure AD, Google Workspace). Available on Enterprise plan.</p>
+          <p className="text-sm text-muted">
+            Single Sign-On with Okta, Azure AD, or Google Workspace. Available on Enterprise plan.
+          </p>
           <a href="mailto:sales@visionboard.app" className="mt-3 inline-flex items-center gap-1 text-sm text-blue hover:underline">
             Contact sales <ChevronRight size={13} />
           </a>
         </section>
+
       </div>
     </AppShell>
   );
