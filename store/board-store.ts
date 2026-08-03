@@ -37,26 +37,29 @@ export const useBoardStore = create<BoardState>((set) => ({
           const updatedTasks = item.linkedMilestone.tasks.map((task) =>
             task.id === taskId ? { ...task, ...updates } : task
           );
-          return {
-            ...item,
-            linkedMilestone: {
-              ...item.linkedMilestone,
-              tasks: updatedTasks,
-            },
-          };
+          return { ...item, linkedMilestone: { ...item.linkedMilestone, tasks: updatedTasks } };
         }
         return item;
       }),
     })),
 }));
 
-// Hook that initialises the store once with server data
+/**
+ * Hook that initialises the store with server-side data on first mount or when
+ * the workspace changes.
+ *
+ * Fix: both fields (workspaceId and items) are set in a single atomic setState
+ * call to avoid the race condition where two separate setState calls produced
+ * two React re-renders, causing a transient flicker where items belonged to the
+ * wrong workspaceId.
+ */
 export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
   const store = useBoardStore();
-  // Initialise only when workspaceId changes (e.g. navigation)
+
   if (store.workspaceId !== workspaceId) {
-    store.setItems(initialItems);
-    useBoardStore.setState({ workspaceId });
+    // Single atomic update — no intermediate render with mismatched state
+    useBoardStore.setState({ workspaceId, items: initialItems });
   }
+
   return store;
 }

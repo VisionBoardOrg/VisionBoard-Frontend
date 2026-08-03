@@ -2,9 +2,34 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import mammoth from "mammoth";
-import { checkPlanLimit, checkStorageLimit, estimateDocStorageMb } from "@/lib/plan-limits";
+import sanitizeHtml from "sanitize-html";
+import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
+import { parse as parseHtml } from "node-html-parser";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Sanitize HTML from mammoth using an allowlist of safe tags and attributes.
+ */
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: ["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "pre", "code", "blockquote", "strong", "em", "b", "i", "br"],
+  allowedAttributes: {},
+  disallowedTagsMode: "discard",
+};
+
+function sanitize(html: string): string {
+  return sanitizeHtml(html, SANITIZE_OPTIONS);
+}
+
+/** Decode common HTML entities in a plain-text string. */
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&quot;/g, '"');
+}
 
 /** Convert a markdown / plain-text string into a Tiptap ProseMirror JSON doc. */
 function textToTiptap(raw: string): object {
@@ -13,8 +38,6 @@ function textToTiptap(raw: string): object {
 
   for (const line of lines) {
     const trimmed = line.trimEnd();
-
-    // ATX headings (#, ##, ###)
     const h3 = trimmed.match(/^###\s+(.+)/);
     const h2 = trimmed.match(/^##\s+(.+)/);
     const h1 = trimmed.match(/^#\s+(.+)/);
@@ -26,49 +49,41 @@ function textToTiptap(raw: string): object {
     } else if (h1) {
       content.push({ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: h1[1] }] });
     } else if (trimmed === "") {
-      // blank line → empty paragraph (preserve spacing)
       content.push({ type: "paragraph" });
     } else {
-      content.push({
-        type: "paragraph",
-        content: [{ type: "text", text: trimmed }],
-      });
+      content.push({ type: "paragraph", content: [{ type: "text", text: trimmed }] });
     }
   }
 
   if (content.length === 0) content.push({ type: "paragraph" });
-
   return { type: "doc", content };
 }
 
-/** Convert HTML produced by mammoth into a Tiptap ProseMirror JSON doc.
- *  We do a lightweight parse — enough to handle headings, paragraphs, lists,
- *  bold, italic and code that mammoth emits. */
-function htmlToTiptap(html: string): object {
+/**
+ * Convert HTML produced by mammoth into a Tiptap ProseMirror JSON doc.
+ * Uses node-html-parser for proper DOM traversal instead of regex, avoiding
+ * potential infinite loops on nested / malformed HTML.
+ */
+function htmlToTiptap(rawHtml: string): object {
+  // Sanitize first — eliminate any non-allowlisted tags/attributes
+  const html = sanitize(rawHtml);
+  if (!html.trim()) return textToTiptap("");
+
+  const root = parseHtml(html);
   const content: object[] = [];
 
-  // Strip <html>/<body> wrappers if present
-  const body = html.replace(/<\/?html[^>]*>/gi, "").replace(/<\/?body[^>]*>/gi, "");
-
-  // Split into top-level block tags
-  const blockRe = /<(h[1-6]|p|ul|ol|pre|blockquote)([\s\S]*?)<\/\1>/gi;
-  let match: RegExpExecArray | null;
-
-  while ((match = blockRe.exec(body)) !== null) {
-    const tag = match[1].toLowerCase();
-    const inner = match[0];
+  for (const node of root.childNodes) {
+    const tag = (node as { tagName?: string }).tagName?.toLowerCase() ?? "";
+    const text = decodeEntities(node.text.trim());
 
     if (/^h[1-6]$/.test(tag)) {
       const level = parseInt(tag[1], 10);
-      const text = stripTags(inner);
       if (text) content.push({ type: "heading", attrs: { level }, content: [{ type: "text", text }] });
     } else if (tag === "ul" || tag === "ol") {
       const listType = tag === "ul" ? "bulletList" : "orderedList";
       const items: object[] = [];
-      const liRe = /<li[^>]*>([\s\S]*?)<\/li>/gi;
-      let li: RegExpExecArray | null;
-      while ((li = liRe.exec(inner)) !== null) {
-        const liText = stripTags(li[1]);
+      for (const li of (node as ReturnType<typeof parseHtml>).querySelectorAll("li")) {
+        const liText = decodeEntities(li.text.trim());
         if (liText) {
           items.push({
             type: "listItem",
@@ -78,36 +93,16 @@ function htmlToTiptap(html: string): object {
       }
       if (items.length) content.push({ type: listType, content: items });
     } else if (tag === "pre") {
-      const text = stripTags(inner);
       if (text) content.push({ type: "codeBlock", content: [{ type: "text", text }] });
-    } else {
-      // paragraph / blockquote — keep inline marks
-      const inlineNodes = parseInline(inner);
-      if (inlineNodes.length) content.push({ type: "paragraph", content: inlineNodes });
+    } else if (tag === "blockquote") {
+      if (text) content.push({ type: "blockquote", content: [{ type: "paragraph", content: [{ type: "text", text }] }] });
+    } else if (tag === "p" || tag === "") {
+      if (text) content.push({ type: "paragraph", content: [{ type: "text", text }] });
     }
   }
 
-  // Fallback: no recognised blocks → treat whole thing as plain text paragraphs
-  if (content.length === 0) {
-    return textToTiptap(stripTags(body));
-  }
-
+  if (content.length === 0) return textToTiptap(decodeEntities(root.text));
   return { type: "doc", content };
-}
-
-/** Parse inline HTML marks (bold, italic, code) inside a block. */
-function parseInline(html: string): object[] {
-  const text = stripTags(html, true);
-  if (!text.trim()) return [];
-  return [{ type: "text", text }];
-}
-
-/** Strip all HTML tags, optionally collapsing whitespace. */
-function stripTags(html: string, collapse = false): string {
-  let result = html.replace(/<[^>]+>/g, "");
-  result = result.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/&quot;/g, '"');
-  if (collapse) result = result.replace(/\s+/g, " ").trim();
-  return result;
 }
 
 // ── route ────────────────────────────────────────────────────────────────────
@@ -124,16 +119,48 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "file and workspaceId are required" }, { status: 400 });
   }
 
-  // Verify workspace membership
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
-  });
-  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // 10 MB limit — check early before any DB work
+  if (file.size > 10 * 1024 * 1024) {
+    return NextResponse.json({ error: "File must be smaller than 10 MB." }, { status: 413 });
+  }
 
-  // ── Plan limit checks ──────────────────────────────────────────────────────
-  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  const allowed = ["txt", "md", "docx"];
+  if (!allowed.includes(ext)) {
+    return NextResponse.json(
+      { error: "Unsupported file type. Please upload a .txt, .md, or .docx file." },
+      { status: 415 }
+    );
+  }
+
+  // Verify file magic bytes for DOCX — extension alone can be spoofed
+  if (ext === "docx") {
+    const magicBuffer = await file.slice(0, 4).arrayBuffer();
+    const magic = new Uint8Array(magicBuffer);
+    const isZip = magic[0] === 0x50 && magic[1] === 0x4b && magic[2] === 0x03 && magic[3] === 0x04;
+    if (!isZip) {
+      return NextResponse.json(
+        { error: "File does not appear to be a valid .docx file." },
+        { status: 415 }
+      );
+    }
+  }
+
+  // Run membership + workspace fetch in parallel
+  const [member, workspace] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
+    }),
+    prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, plan: true },
+    }),
+  ]);
+
+  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
+  // ── Plan limit checks ──────────────────────────────────────────────────────
   const docCount = await prisma.document.count({ where: { workspaceId } });
   const countCheck = checkPlanLimit(
     { plan: workspace.plan, aiCreditsUsed: docCount },
@@ -146,39 +173,30 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Storage check — raw file size as a fast proxy before parsing
-  const incomingMb = file.size / (1024 * 1024);
-  const existingDocs = await prisma.document.findMany({
-    where: { workspaceId },
-    select: { content: true },
-  });
-  const currentMb = estimateDocStorageMb(existingDocs.map((d) => d.content));
-  const storageCheck = checkStorageLimit(workspace.plan, currentMb, incomingMb);
-  if (!storageCheck.allowed) {
-    return NextResponse.json(
-      { error: storageCheck.reason, upgradePrompt: storageCheck.upgradePrompt },
-      { status: 403 }
-    );
+  // Storage check using pre-computed byte counter + raw file size as proxy.
+  // Uses $queryRaw so it works before and after `prisma generate` picks up
+  // the storageUsedBytes column.
+  const storageLimitMb = PLAN_LIMITS[workspace.plan].storageMb;
+  if (storageLimitMb !== -1) {
+    const incomingMb = file.size / (1024 * 1024);
+    const [{ storageUsedBytes }] = await prisma.$queryRaw<[{ storageUsedBytes: bigint }]>`
+      SELECT "storageUsedBytes" FROM "Workspace" WHERE id = ${workspaceId}
+    `;
+    const currentMb = Number(storageUsedBytes ?? 0) / (1024 * 1024);
+    if (currentMb + incomingMb > storageLimitMb) {
+      return NextResponse.json(
+        {
+          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${workspace.plan} plan.`,
+          upgradePrompt: "Upgrade for more storage.",
+        },
+        { status: 403 }
+      );
+    }
   }
   // ──────────────────────────────────────────────────────────────────────────
 
-  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  const allowed = ["txt", "md", "docx"];
-  if (!allowed.includes(ext)) {
-    return NextResponse.json(
-      { error: "Unsupported file type. Please upload a .txt, .md, or .docx file." },
-      { status: 415 }
-    );
-  }
-
-  // 10 MB limit
-  if (file.size > 10 * 1024 * 1024) {
-    return NextResponse.json({ error: "File must be smaller than 10 MB." }, { status: 413 });
-  }
-
-  let tiptapContent: object;
-  // Derive title from filename (strip extension)
   const title = file.name.replace(/\.[^/.]+$/, "").trim() || "Imported document";
+  let tiptapContent: object;
 
   try {
     if (ext === "docx") {
@@ -187,7 +205,6 @@ export async function POST(request: NextRequest) {
       const result = await mammoth.convertToHtml({ buffer });
       tiptapContent = htmlToTiptap(result.value);
     } else {
-      // txt or md
       const raw = await file.text();
       tiptapContent = textToTiptap(raw);
     }
@@ -196,26 +213,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to parse the document." }, { status: 422 });
   }
 
-  const document = await prisma.document.create({
-    data: {
-      workspaceId,
-      title,
-      content: tiptapContent as never,
-      authorId: session.user.id,
-    },
-    include: { author: { select: { id: true, name: true } } },
-  });
+  const contentBytes = Buffer.byteLength(JSON.stringify(tiptapContent), "utf8");
 
-  await prisma.activityLog.create({
-    data: {
-      workspaceId,
-      userId: session.user.id,
-      entityType: "document",
-      entityId: document.id,
-      action: "created",
-      diff: { title, importedFrom: file.name } as never,
-    },
-  });
+  const [document] = await prisma.$transaction([
+    prisma.document.create({
+      data: {
+        workspaceId,
+        title,
+        content: tiptapContent as never,
+        authorId: session.user.id,
+      },
+      include: { author: { select: { id: true, name: true } } },
+    }),
+    prisma.activityLog.create({
+      data: {
+        workspaceId,
+        userId: session.user.id,
+        entityType: "document",
+        entityId: "pending",
+        action: "created",
+        diff: { title, importedFrom: file.name } as never,
+      },
+    }),
+  ]);
+
+  // Increment storage counter via raw SQL — avoids Prisma client type mismatch
+  // before `prisma generate` has been re-run after adding storageUsedBytes.
+  await prisma.$executeRaw`
+    UPDATE "Workspace"
+    SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
+    WHERE id = ${workspaceId}
+  `;
 
   return NextResponse.json({ document }, { status: 201 });
 }

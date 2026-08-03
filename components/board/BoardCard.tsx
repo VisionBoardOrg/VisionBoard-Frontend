@@ -44,7 +44,10 @@ export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
     transition: isDragging ? "none" : "box-shadow 0.15s",
   };
 
-  const entity = item.linkedGoal ?? item.linkedMilestone;
+  const entity =
+    item.entityType === "milestone"
+      ? item.linkedMilestone
+      : item.linkedGoal ?? item.linkedMilestone;
   const title = entity?.title ?? item.label ?? item.entityType;
   const status = (entity as { status?: string })?.status ?? "";
   const colors = ENTITY_COLORS[item.entityType] ?? ENTITY_COLORS.note;

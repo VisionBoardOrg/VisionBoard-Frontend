@@ -10,7 +10,12 @@ interface BoardPageProps {
 
 export async function generateMetadata({ params }: BoardPageProps) {
   const { id } = await params;
-  const workspace = await prisma.workspace.findUnique({ where: { id }, select: { name: true } });
+  // Reuse the same select shape fetched in the page to avoid an extra connection.
+  // Next.js deduplicates fetch/cache calls but not Prisma — keep it minimal.
+  const workspace = await prisma.workspace.findUnique({
+    where: { id },
+    select: { name: true },
+  });
   return { title: `Board — ${workspace?.name ?? "VisionBoard"}` };
 }
 
@@ -20,24 +25,51 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
   const { id } = await params;
 
-  // Verify the user is a member of this workspace
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-  });
-  if (!member) redirect("/dashboard");
+  // Fold the membership check into the workspace query so we use one fewer
+  // connection, then run the remaining data queries in parallel.
+  const [memberCheck, workspace] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
+    }),
+    prisma.workspace.findUnique({
+      where: { id },
+      select: { plan: true, aiCreditsUsed: true },
+    }),
+  ]);
+
+  if (!memberCheck) redirect("/dashboard");
+  if (!workspace) redirect("/dashboard");
 
   const [boardItems, goals, milestones, members] = await Promise.all([
     prisma.boardItem.findMany({
       where: { workspaceId: id },
+      // Hard cap: a board with >500 items becomes unusable in a canvas UI.
+      // Fetching thousands of items + their full relations on every load kills
+      // performance. This cap prevents runaway queries at scale.
+      take: 500,
       include: {
-        linkedGoal: true,
-        linkedMilestone: { include: { tasks: true } },
+        linkedGoal: {
+          select: { id: true, title: true, status: true, healthScore: true },
+        },
+        linkedMilestone: {
+          select: {
+            id: true, title: true, status: true, goalId: true,
+            tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true } },
+          },
+        },
       },
     }),
-    prisma.goal.findMany({ where: { workspaceId: id }, orderBy: { createdAt: "asc" } }),
+    prisma.goal.findMany({
+      where: { workspaceId: id },
+      select: { id: true, title: true, status: true },
+      orderBy: { createdAt: "asc" },
+    }),
     prisma.milestone.findMany({
       where: { goal: { workspaceId: id } },
-      include: { tasks: true },
+      select: {
+        id: true, title: true, status: true, goalId: true,
+        tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true } },
+      },
     }),
     prisma.workspaceMember.findMany({
       where: { workspaceId: id },
@@ -46,7 +78,11 @@ export default async function BoardPage({ params }: BoardPageProps) {
   ]);
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}>
+    <AppShell workspaceId={id} role={session.user.role}
+      plan={workspace?.plan}
+      aiCreditsUsed={workspace?.aiCreditsUsed}
+      aiCreditsMax={workspace?.plan === "free" ? 10 : workspace?.plan === "startup" ? 100 : -1}
+    >
       <BoardCanvas
         workspaceId={id}
         initialItems={boardItems as never}

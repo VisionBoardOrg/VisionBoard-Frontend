@@ -5,17 +5,22 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
-  Layers, LogOut, Zap, Building2, Target, ListTodo
+  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 import Logo, { VBMark } from "../reusables/Logo";
+import { RoleSwitcher } from "@/components/workspace/RoleSwitcher";
+import type { MemberRole } from "@/components/workspace/RoleSwitcher";
 
 interface AppShellProps {
   workspaceId: string;
   role: string | null;
   plan?: string | null;
   children: React.ReactNode;
+  /** Live AI credits used — passed from server so sidebar stays accurate */
+  aiCreditsUsed?: number;
+  aiCreditsMax?: number;
 }
 
 const NAV = (workspaceId: string) => [
@@ -44,11 +49,31 @@ const PLAN_LABEL: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
-export function AppShell({ workspaceId, role, plan, children }: AppShellProps) {
+export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiCreditsMax }: AppShellProps) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
+  const roleDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close role dropdown on outside click
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
+        setRoleDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const navItems = NAV(workspaceId);
+
+  // Determine AI credits display
+  const creditsUsed = aiCreditsUsed ?? 0;
+  const creditsMax  = aiCreditsMax  ?? (plan === "free" ? 10 : plan === "startup" ? 100 : -1);
+  const creditsText = creditsMax < 0
+    ? "Unlimited credits"
+    : `${creditsUsed} / ${creditsMax} credits used`;
 
   return (
     <div className="flex h-screen bg-offwhite overflow-hidden">
@@ -112,9 +137,17 @@ export function AppShell({ workspaceId, role, plan, children }: AppShellProps) {
               <Zap size={12} className="text-blue" />
               <span className="text-xs font-semibold text-blue">AI Credits</span>
             </div>
-            <div className="text-xs text-slate">10 / month on Free plan</div>
+            <div className="text-xs text-slate">{creditsText}</div>
+            {creditsMax >= 0 && (
+              <div className="mt-1.5 h-1 bg-blue-light rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (creditsUsed / creditsMax) * 100)}%` }}
+                />
+              </div>
+            )}
             <Link href={`/workspace/${workspaceId}/settings`} className="text-[11px] text-blue hover:underline mt-1 block">
-              Upgrade →
+              {creditsMax >= 0 && creditsUsed >= creditsMax ? "Upgrade for more →" : "Upgrade →"}
             </Link>
           </div>
         )}
@@ -150,10 +183,29 @@ export function AppShell({ workspaceId, role, plan, children }: AppShellProps) {
 
           <div className="flex-1" />
 
+          {/* Role switcher dropdown */}
           {role && (
-            <span className="text-xs px-2.5 py-1 rounded-full bg-blue-faint text-blue font-medium capitalize">
-              {role.replace("_", " ")}
-            </span>
+            <div className="relative" ref={roleDropdownRef}>
+              <button
+                onClick={() => setRoleDropdownOpen((o) => !o)}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-blue-faint text-blue font-medium capitalize hover:bg-blue/10 transition-colors cursor-pointer"
+                aria-label="Switch role"
+              >
+                {role.replace("_", " ")}
+                <ChevronDown size={11} className={`transition-transform ${roleDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {roleDropdownOpen && (
+                <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-border rounded-2xl shadow-xl p-4 w-72">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Switch dashboard view</p>
+                  <RoleSwitcher
+                    workspaceId={workspaceId}
+                    currentRole={role as MemberRole}
+                    compact
+                  />
+                </div>
+              )}
+            </div>
           )}
         </header>
 

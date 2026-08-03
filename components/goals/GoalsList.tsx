@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Target, Plus, CheckCircle2, Clock, AlertTriangle, Circle,
-  ChevronRight, FileText, MessageCircle, X, Loader2
+  ChevronRight, FileText, MessageCircle,
 } from "lucide-react";
 import { GoalHealthScore } from "@/components/dashboard/GoalHealthScore";
 import { computeGoalHealth } from "@/lib/dashboard-utils";
+import { NewGoalModal } from "@/components/goals/NewGoalModal";
 
 interface Task {
   id: string; status: string; storyPoints: number | null;
@@ -48,42 +49,6 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
   const router = useRouter();
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
   const [showCreate, setShowCreate] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState("");
-  const [form, setForm] = useState({ title: "", objective: "", targetDate: "", status: "active" as const });
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.title.trim() || !form.objective.trim()) return;
-    setCreating(true);
-    setCreateError("");
-
-    const res = await fetch("/api/goals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workspaceId,
-        title: form.title.trim(),
-        objective: form.objective.trim(),
-        targetDate: form.targetDate || null,
-        status: form.status,
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      setCreateError(data.error || "Failed to create goal.");
-      setCreating(false);
-      return;
-    }
-
-    // Optimistic add with empty counts
-    setGoals((prev) => [{ ...data.goal, milestones: [], _count: { documents: 0, comments: 0 } }, ...prev]);
-    setForm({ title: "", objective: "", targetDate: "", status: "active" });
-    setShowCreate(false);
-    setCreating(false);
-    router.refresh();
-  }
 
   const statusFilter = ["all", "active", "draft", "completed", "cancelled"] as const;
   const [filter, setFilter] = useState<"all" | "active" | "draft" | "completed" | "cancelled">("all");
@@ -125,90 +90,17 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
         ))}
       </div>
 
-      {/* Create modal */}
+      {/* New Goal modal */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl border border-border shadow-2xl p-8 w-full max-w-lg">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-ink">New Goal</h2>
-              <button onClick={() => setShowCreate(false)} className="text-muted hover:text-ink transition-colors">
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreate} className="space-y-4">
-              {createError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
-                  {createError}
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-ink mb-1.5">Goal title</label>
-                <input
-                  type="text"
-                  required
-                  value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  placeholder="e.g. Launch v2 product by Q4"
-                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-ink mb-1.5">Objective</label>
-                <textarea
-                  required
-                  rows={3}
-                  value={form.objective}
-                  onChange={(e) => setForm({ ...form, objective: e.target.value })}
-                  placeholder="What does success look like?"
-                  className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue resize-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-ink mb-1.5">Target date</label>
-                  <input
-                    type="date"
-                    value={form.targetDate}
-                    onChange={(e) => setForm({ ...form, targetDate: e.target.value })}
-                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-ink mb-1.5">Status</label>
-                  <select
-                    value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value as "active" })}
-                    className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue cursor-pointer"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="active">Active</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={creating}
-                  className="flex-1 bg-blue text-white rounded-xl py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {creating ? <><Loader2 size={14} className="animate-spin" /> Creating…</> : "Create goal"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowCreate(false)}
-                  className="px-5 border border-border rounded-xl text-sm text-slate hover:bg-offwhite transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <NewGoalModal
+          workspaceId={workspaceId}
+          extended
+          onClose={() => setShowCreate(false)}
+          onCreated={(newGoal) => {
+            setGoals((prev) => [newGoal as unknown as Goal, ...prev]);
+            router.refresh();
+          }}
+        />
       )}
 
       {/* Goals grid */}

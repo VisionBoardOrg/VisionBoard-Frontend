@@ -305,7 +305,7 @@ export async function sendInviteEmail(
 ------------------------------------------------------------------------
 To: ${email} (${fullName})
 Subject: ${subject}
-Invite URL: ${signupUrl}
+Note: Configure RESEND_API_KEY to send real emails. Token delivered via email only.
 ========================================================================
   `);
   return true;

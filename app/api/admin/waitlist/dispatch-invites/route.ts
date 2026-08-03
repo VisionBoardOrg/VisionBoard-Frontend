@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
 import { dispatchInvites } from "@/lib/waitlist/store";
 import { sendInviteEmail } from "@/lib/waitlist/email";
+import { verifyAdminSession } from "@/lib/auth/admin-session";
+import { cookies } from "next/headers";
 
 export async function POST(request: Request) {
+  // Defense-in-depth: verify admin session in-route, not only in middleware
+  const cookieStore = await cookies();
+  const adminCookie = cookieStore.get("admin_session")?.value;
+  if (!(await verifyAdminSession(adminCookie))) {
+    return NextResponse.json({ success: false, message: "Unauthorized access" }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
     const { ids } = body;
@@ -46,9 +55,9 @@ export async function POST(request: Request) {
       },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Failed to dispatch invitations";
+    console.error("[dispatch-invites]", error);
     return NextResponse.json(
-      { success: false, message },
+      { success: false, message: "Failed to dispatch invitations" },
       { status: 500 }
     );
   }

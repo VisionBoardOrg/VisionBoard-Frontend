@@ -193,7 +193,8 @@ To: ${email}
 Invited By: ${inviterName}
 Workspace: ${workspaceName} (Role: ${roleTitle})
 Subject: ${subject}
-Invitation URL: ${inviteUrl}
+Note: Configure RESEND_API_KEY or SMTP_* env vars to send real emails.
+      The invite URL is NOT logged here to avoid token leakage in server logs.
 ========================================================================
   `);
 

@@ -4,6 +4,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Resend } from "resend";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const requestSchema = z.object({
   email: z.string().email(),
@@ -11,12 +12,28 @@ const requestSchema = z.object({
 
 const resetSchema = z.object({
   token: z.string().min(1),
-  password: z.string().min(8),
+  password: z
+    .string()
+    .min(12, "Password must be at least 12 characters")
+    .max(100)
+    .refine(
+      (p) => /[^a-zA-Z]/.test(p),
+      "Password must contain at least one number or symbol"
+    ),
 });
 
 // POST /api/auth/reset-password — request a reset link
 // POST /api/auth/reset-password?action=reset — consume token & set new password
 export async function POST(request: NextRequest) {
+  // Rate limit both actions — 5 attempts per 15 minutes per IP
+  const rateLimit = checkRateLimit(request, "password-reset", {
+    windowMs: 15 * 60 * 1000,
+    max: 5,
+  });
+  if (!rateLimit.allowed && rateLimit.response) {
+    return rateLimit.response;
+  }
+
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
 
@@ -51,6 +68,10 @@ export async function POST(request: NextRequest) {
     const hashedPassword = await bcrypt.hash(password, 12);
     await prisma.user.update({ where: { email }, data: { hashedPassword } });
     await prisma.verificationToken.delete({ where: { token } });
+
+    // Invalidate all existing sessions so the attacker cannot retain access
+    // after a victim changes their password.
+    await prisma.session.deleteMany({ where: { userId: user.id } });
 
     return NextResponse.json({ success: true, message: "Password updated successfully." });
   }
@@ -91,7 +112,7 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  const origin = request.headers.get("origin") || "http://localhost:3000";
+  const origin = process.env.NEXTAUTH_URL || process.env.APP_URL || "http://localhost:3000";
   const resetUrl = `${origin}/reset-password?token=${token}`;
 
   // Send email
@@ -134,7 +155,9 @@ export async function POST(request: NextRequest) {
       console.error("[reset-password] Resend error:", err);
     }
   } else {
-    console.log(`[DEV] Password reset link for ${email}: ${resetUrl}`);
+    // In development without Resend configured, log only that a reset was
+    // triggered — never log the token or full URL (they appear in server logs).
+    console.log(`[DEV] Password reset requested for ${email}. Configure RESEND_API_KEY to send real emails.`);
   }
 
   return NextResponse.json({ success: true, message: "If that email exists, a reset link has been sent." });

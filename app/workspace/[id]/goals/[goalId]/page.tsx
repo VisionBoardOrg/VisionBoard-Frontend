@@ -11,23 +11,42 @@ export default async function GoalPage({ params }: GoalPageProps) {
   if (!session) redirect("/auth/login");
   const { id, goalId } = await params;
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-  });
-  if (!member) redirect("/dashboard");
-
-  const goal = await prisma.goal.findUnique({
-    where: { id: goalId },
-    include: {
-      milestones: {
-        include: { tasks: { orderBy: { order: "asc" } } },
-        orderBy: { order: "asc" },
+  // Fetch membership + goal in parallel — avoids two sequential round trips.
+  // We include a minimal workspace-check field on the goal so we can verify
+  // it belongs to this workspace without a separate query.
+  const [member, goal] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
+    }),
+    prisma.goal.findUnique({
+      where: { id: goalId },
+      include: {
+        milestones: {
+          include: { tasks: { orderBy: { order: "asc" } } },
+          orderBy: { order: "asc" },
+        },
+        // Only fetch document metadata on the detail page — the content JSONB
+        // blob is only needed inside the editor, not in the goal detail sidebar.
+        documents: {
+          select: {
+            id: true,
+            title: true,
+            updatedAt: true,
+            linkedGoalId: true,
+            linkedMilestoneId: true,
+            linkedTaskId: true,
+            author: { select: { id: true, name: true } },
+          },
+        },
+        comments: {
+          include: { author: { select: { id: true, name: true, image: true } } },
+          orderBy: { createdAt: "asc" },
+        },
       },
-      documents: { include: { author: { select: { id: true, name: true } } } },
-      comments: { include: { author: { select: { id: true, name: true, image: true } } }, orderBy: { createdAt: "asc" } },
-    },
-  });
+    }),
+  ]);
 
+  if (!member) redirect("/dashboard");
   if (!goal || goal.workspaceId !== id) redirect(`/workspace/${id}/board`);
 
   return (

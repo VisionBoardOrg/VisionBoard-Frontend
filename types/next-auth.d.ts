@@ -21,5 +21,7 @@ declare module "next-auth/jwt" {
     role: string | null;
     workspaceId: string | null;
     workspacePlan: string | null;
+    /** Unix timestamp (ms) of the last membership DB fetch — used for periodic re-validation */
+    membershipFetchedAt?: number;
   }
 }

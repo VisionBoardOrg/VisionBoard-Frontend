@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
         referralLink,
         referralCount: result.record.referralCount,
         status: result.record.status,
-        inviteToken: result.record.inviteToken,
+        // inviteToken is intentionally NOT returned here — it is delivered via email only
         isNew: result.isNew,
         vipBypass: result.vipBypass,
       },
@@ -61,9 +61,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const message = error instanceof Error ? error.message : "Failed to join waitlist";
+    console.error("[api/waitlist/join]", error);
     return NextResponse.json(
-      { success: false, message },
+      { success: false, message: "Failed to join waitlist" },
       { status: 500 }
     );
   }

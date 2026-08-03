@@ -1,5 +1,12 @@
 import { PlanTier } from "@prisma/client";
 
+/**
+ * WorkspaceContext carries the plan and a generic "current count" field.
+ *
+ * `aiCreditsUsed` is kept for backwards-compatibility but is conceptually
+ * overloaded — each call site passes the relevant count (credits, members,
+ * documents, workspaces) as this field.
+ */
 interface WorkspaceContext {
   plan: PlanTier;
   aiCreditsUsed: number;
@@ -18,7 +25,8 @@ type Feature =
   | "integrations"
   | "sso"
   | "invite_member"
-  | "create_document";
+  | "create_document"
+  | "create_workspace";
 
 interface PlanLimitDef {
   workspaces: number | "unlimited";
@@ -91,7 +99,6 @@ export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCh
     case "sso":
       return limits.sso ? { allowed: true } : { allowed: false, reason: "SSO/SAML requires Enterprise plan.", upgradePrompt: upgrade };
     case "invite_member": {
-      // ctx.aiCreditsUsed is overloaded to carry member count here
       const max = limits.members;
       if (max === -1 || max === "unlimited") return { allowed: true };
       if (ctx.aiCreditsUsed >= (max as number)) {
@@ -104,13 +111,24 @@ export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCh
       return { allowed: true };
     }
     case "create_document": {
-      // ctx.aiCreditsUsed carries current document count
       const max = limits.documents;
       if (max === -1) return { allowed: true };
       if (ctx.aiCreditsUsed >= max) {
         return {
           allowed: false,
           reason: `Your ${ctx.plan} plan allows up to ${max} documents per workspace.`,
+          upgradePrompt: upgrade,
+        };
+      }
+      return { allowed: true };
+    }
+    case "create_workspace": {
+      const max = limits.workspaces;
+      if (max === -1 || max === "unlimited") return { allowed: true };
+      if (ctx.aiCreditsUsed >= (max as number)) {
+        return {
+          allowed: false,
+          reason: `Your ${ctx.plan} plan allows up to ${max} workspace${(max as number) === 1 ? "" : "s"}.`,
           upgradePrompt: upgrade,
         };
       }
@@ -124,6 +142,11 @@ export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCh
 /**
  * Estimate storage used by an array of document content blobs (Tiptap JSON).
  * Returns megabytes.
+ *
+ * NOTE: This is an approximation based on JSON serialisation length.
+ * It is intentionally kept as a fast in-memory estimate. For accurate tracking
+ * at scale, store a pre-computed `storageUsedBytes` column on Workspace and
+ * increment/decrement it atomically on document create/delete.
  */
 export function estimateDocStorageMb(contents: unknown[]): number {
   const bytes = contents.reduce<number>((sum, c) => {

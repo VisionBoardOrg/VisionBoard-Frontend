@@ -26,11 +26,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     }
 
-    // Check plan limit — count existing owned workspaces
+    // Check plan limit — count existing owned workspaces against the user's actual plan.
+    // We look up the user's plan from their first workspace membership; new users with
+    // no workspaces yet default to "free".
     const existingCount = await prisma.workspace.count({ where: { ownerId: session.user.id } });
+
+    // Fetch the user's current plan from any existing workspace they own
+    const existingWorkspace = await prisma.workspace.findFirst({
+      where: { ownerId: session.user.id },
+      select: { plan: true },
+    });
+    const userPlan = existingWorkspace?.plan ?? ("free" as PlanTier);
+
     const limitCheck = checkPlanLimit(
-      { plan: "free" as PlanTier, aiCreditsUsed: existingCount },
-      "invite_member"
+      { plan: userPlan, aiCreditsUsed: existingCount },
+      "create_workspace"
     );
     if (!limitCheck.allowed) {
       return NextResponse.json({ error: limitCheck.reason, upgradePrompt: limitCheck.upgradePrompt }, { status: 403 });
@@ -44,10 +54,10 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({ workspace: { id: workspace.id, name: workspace.name, slug: workspace.slug } }, { status: 201 });
-  } catch (err: any) {
+  } catch (err) {
     console.error("[POST /api/workspaces]", err);
     return NextResponse.json(
-      { error: err?.message || "Failed to create workspace. Please try again." },
+      { error: "Failed to create workspace. Please try again." },
       { status: 500 }
     );
   }

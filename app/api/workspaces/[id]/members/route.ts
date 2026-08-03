@@ -129,8 +129,9 @@ export async function POST(
       });
     }
 
-    const origin = request.headers.get("origin") || request.nextUrl.origin || "http://localhost:3000";
-    const inviteUrl = `${origin}/invite/${invite.token}`;
+    // Build invite URL from server-side env — never trust the client-supplied Origin header
+    const appOrigin = process.env.NEXTAUTH_URL || process.env.APP_URL || "http://localhost:3000";
+    const inviteUrl = `${appOrigin}/invite/${invite.token}`;
 
     // Send workspace invitation email via SMTP (if configured) or log to dev console
     const dispatchResult = await sendWorkspaceInviteEmail({
@@ -158,16 +159,16 @@ export async function POST(
           token: invite.token,
           expiresAt: invite.expiresAt,
         },
-        inviteUrl,
+        inviteUrl: appOrigin ? `${appOrigin}/invite/${invite.token}` : undefined,
         emailDispatch: dispatchResult,
         message: dispatchResult.message,
       },
       { status: 201 }
     );
-  } catch (err: any) {
+  } catch (err) {
     console.error("[POST /api/workspaces/[id]/members]", err);
     return NextResponse.json(
-      { error: err?.message || "Failed to send invitation email. Please try again." },
+      { error: "Failed to send invitation email. Please try again." },
       { status: 500 }
     );
   }
@@ -192,12 +193,33 @@ export async function DELETE(
       return NextResponse.json({ error: "inviteId is required" }, { status: 400 });
     }
 
+    // Only admins and PMs may cancel invitations
+    const requesterMember = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
+      include: { workspace: { select: { ownerId: true } } },
+    });
+
+    if (!requesterMember) {
+      return NextResponse.json({ error: "Workspace not found or access denied." }, { status: 404 });
+    }
+
+    const isOwner = requesterMember.workspace.ownerId === session.user.id;
+    const canManage = isOwner || requesterMember.role === "admin" || requesterMember.role === "pm";
+
+    if (!canManage) {
+      return NextResponse.json(
+        { error: "Only admins and PMs can cancel invitations." },
+        { status: 403 }
+      );
+    }
+
     await prisma.workspaceInvite.delete({
       where: { id: inviteId, workspaceId },
     });
 
     return NextResponse.json({ success: true });
-  } catch (err: any) {
-    return NextResponse.json({ error: err?.message || "Failed to cancel invitation" }, { status: 500 });
+  } catch (err) {
+    console.error("[DELETE /api/workspaces/[id]/members]", err);
+    return NextResponse.json({ error: "Failed to cancel invitation." }, { status: 500 });
   }
 }

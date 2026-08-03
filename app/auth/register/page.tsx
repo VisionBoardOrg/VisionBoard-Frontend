@@ -5,13 +5,16 @@ import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/reusables/Logo";
+import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Preserve callbackUrl so invite tokens survive the post-registration redirect
-  const callbackUrl = searchParams.get("callbackUrl") || "/onboarding";
+  const callbackUrl = getSafeCallbackUrl(searchParams.get("callbackUrl"), "/onboarding");
   const prefillEmail = searchParams.get("email") || "";
+  // Waitlist invite token passed via query string from the invite email link
+  const inviteToken = searchParams.get("inviteToken") || "";
 
   const [form, setForm] = useState({ name: "", email: prefillEmail, password: "", confirmPassword: "" });
   const [error, setError] = useState("");
@@ -29,7 +32,7 @@ function RegisterForm() {
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: form.name, email: form.email, password: form.password }),
+      body: JSON.stringify({ name: form.name, email: form.email, password: form.password, inviteToken: inviteToken || undefined }),
     });
 
     const data = await res.json();
@@ -118,8 +121,8 @@ function RegisterForm() {
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
-                placeholder="Minimum 8 characters"
-                minLength={8}
+                placeholder="Minimum 12 characters, include a number or symbol"
+                minLength={12}
               />
             </div>
 

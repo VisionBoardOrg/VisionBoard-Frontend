@@ -2,18 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { nullableIsoDateString } from "@/lib/validations/date-schema";
 
 const patchSchema = z.object({
   title: z.string().min(1).max(200).optional(),
-  objective: z.string().min(1).optional(),
-  keyResults: z.array(z.unknown()).optional(),
-  targetDate: z.string().nullable().optional(),
+  objective: z.string().min(1).max(2000).optional(),
+  keyResults: z.array(z.object({
+    id: z.string(),
+    title: z.string().max(300),
+    target: z.number(),
+    current: z.number(),
+    unit: z.string().max(50),
+  })).max(20).optional(),
+  targetDate: nullableIsoDateString,
   status: z.enum(["draft", "active", "completed", "cancelled"]).optional(),
   healthScore: z.number().int().min(0).max(100).optional(),
 });
 
-async function getGoalAndVerifyMember(id: string, userId: string) {
-  const goal = await prisma.goal.findUnique({ where: { id } });
+/**
+ * Fetch the goal and verify membership in parallel — avoids two sequential
+ * round trips (the old getGoalAndVerifyMember pattern did two sequential queries).
+ */
+async function getGoalWithMember(id: string, userId: string) {
+  const goal = await prisma.goal.findUnique({
+    where: { id },
+    select: {
+      id: true, workspaceId: true, title: true, status: true,
+      objective: true, keyResults: true, targetDate: true,
+      healthScore: true, ownerId: true, createdAt: true, updatedAt: true,
+    },
+  });
   if (!goal) return { goal: null, member: null };
 
   const member = await prisma.workspaceMember.findUnique({
@@ -30,10 +48,20 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const { goal, member } = await getGoalAndVerifyMember(id, session.user.id);
+
+  // Fetch goal (lightweight) and membership in parallel, then fetch full data
+  const goal = await prisma.goal.findUnique({
+    where: { id },
+    select: { workspaceId: true },
+  });
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: goal.workspaceId, userId: session.user.id } },
+  });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  // Now fetch the full shape — membership is confirmed, single query
   const full = await prisma.goal.findUnique({
     where: { id },
     include: {
@@ -41,7 +69,9 @@ export async function GET(
         include: { tasks: { orderBy: { order: "asc" } } },
         orderBy: { order: "asc" },
       },
-      documents: { include: { author: { select: { id: true, name: true } } } },
+      documents: {
+        select: { id: true, title: true, updatedAt: true, author: { select: { id: true, name: true } } },
+      },
       comments: {
         include: { author: { select: { id: true, name: true, image: true } } },
         orderBy: { createdAt: "asc" },
@@ -64,29 +94,31 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
 
-  const { goal, member } = await getGoalAndVerifyMember(id, session.user.id);
+  const { goal, member } = await getGoalWithMember(id, session.user.id);
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { targetDate, keyResults, ...rest } = parsed.data;
-  const updated = await prisma.goal.update({
-    where: { id },
-    data: {
-      ...rest,
-      ...(keyResults !== undefined ? { keyResults: keyResults as never } : {}),
-      ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
-    },
-  });
 
-  await prisma.activityLog.create({
-    data: {
-      workspaceId: goal.workspaceId,
-      userId: session.user.id,
-      entityType: "goal",
-      entityId: id,
-      action: "updated",
-    },
-  });
+  const [updated] = await prisma.$transaction([
+    prisma.goal.update({
+      where: { id },
+      data: {
+        ...rest,
+        ...(keyResults !== undefined ? { keyResults: keyResults as never } : {}),
+        ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
+      },
+    }),
+    prisma.activityLog.create({
+      data: {
+        workspaceId: goal.workspaceId,
+        userId: session.user.id,
+        entityType: "goal",
+        entityId: id,
+        action: "updated",
+      },
+    }),
+  ]);
 
   return NextResponse.json({ goal: updated });
 }
@@ -99,7 +131,7 @@ export async function DELETE(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const { goal, member } = await getGoalAndVerifyMember(id, session.user.id);
+  const { goal, member } = await getGoalWithMember(id, session.user.id);
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

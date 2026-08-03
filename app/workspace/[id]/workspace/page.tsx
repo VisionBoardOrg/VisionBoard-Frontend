@@ -41,6 +41,7 @@ const ROLE_META: Record<
 
 export async function generateMetadata({ params }: WorkspacePageProps) {
   const { id } = await params;
+  // Keep this lean — the page query below fetches full workspace data anyway.
   const workspace = await prisma.workspace.findUnique({ where: { id }, select: { name: true } });
   return { title: `Workspace — ${workspace?.name ?? "VisionBoard"}` };
 }
@@ -51,6 +52,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
 
   const { id } = await params;
 
+  // Single query — member lookup with full workspace includes in one round-trip.
   const member = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
     include: {

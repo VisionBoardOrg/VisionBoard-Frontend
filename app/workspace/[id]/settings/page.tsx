@@ -5,6 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { InviteMemberModal } from "@/components/settings/InviteMemberModal";
 import { PendingInvitesList } from "@/components/settings/PendingInvitesList";
 import { WorkspaceRenameInline } from "@/components/settings/WorkspaceRenameInline";
+import { InviteLinkSection } from "@/components/settings/InviteLinkSection";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import Link from "next/link";
 import {
@@ -42,14 +43,12 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
 
   // Auto-correct: workspace owner must always have admin role.
   // Handles accounts created before this rule was enforced.
-  const isOwnerWithWrongRole =
-    member.workspace.ownerId === session.user.id && member.role !== "admin";
-  if (isOwnerWithWrongRole) {
-    await prisma.workspaceMember.update({
+  // Fire-and-forget — does not block page render; mutates in-memory for this render.
+  if (member.workspace.ownerId === session.user.id && member.role !== "admin") {
+    prisma.workspaceMember.update({
       where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
       data: { role: "admin" },
-    });
-    // Reload the member object with corrected role
+    }).catch((err) => console.error("[settings] owner-role auto-correct failed:", err));
     member.role = "admin";
   }
 
@@ -61,10 +60,16 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   const canManage  = isOwner || member.role === "admin" || member.role === "pm";
   const canRename  = isOwner || member.role === "admin";
 
-  const pendingInvites = workspace.invites.map((inv) => ({
-    id: inv.id, email: inv.email, role: inv.role,
-    token: inv.token, createdAt: inv.createdAt.toISOString(),
-  }));
+  const pendingInvites = workspace.invites
+    .filter((inv) => inv.email !== "__invite_link__")
+    .map((inv) => ({
+      id: inv.id, email: inv.email, role: inv.role,
+      token: inv.token, createdAt: inv.createdAt.toISOString(),
+    }));
+
+  // Fetch the existing open invite token (if any) to pre-populate the UI
+  const openInvite = workspace.invites.find((inv) => inv.email === "__invite_link__");
+  const openInviteToken = openInvite?.token ?? null;
 
   const TIER_NAMES  = { free: "Free", startup: "Startup", growth: "Growth", enterprise: "Enterprise" };
   const TIER_COLORS = {
@@ -75,7 +80,10 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   };
 
   return (
-    <AppShell workspaceId={id} role={session.user.role} plan={plan}>
+    <AppShell workspaceId={id} role={session.user.role} plan={plan}
+      aiCreditsUsed={workspace.aiCreditsUsed}
+      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
+    >
       <div className="max-w-3xl mx-auto space-y-8">
 
         {/* ── Header ── */}
@@ -161,6 +169,16 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
               Only admins and product managers can invite members.
             </p>
           )}
+
+          {/* ── Invite link / sharing ── */}
+          <div className="mt-5 pt-5 border-t border-border">
+            <InviteLinkSection
+              workspaceId={id}
+              initialToken={openInviteToken}
+              canManage={canManage}
+              canAdmin={canRename}
+            />
+          </div>
         </section>
 
         {/* ── Plan & Billing ── */}

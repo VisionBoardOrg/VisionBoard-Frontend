@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  CheckCircle2, Circle, Clock, AlertTriangle, ChevronDown, Check,
+  CheckCircle2, Circle, Clock, AlertTriangle, ChevronDown, Check, X,
 } from "lucide-react";
 
 type TaskStatus = "todo" | "in_progress" | "in_review" | "blocked" | "done";
@@ -21,18 +21,20 @@ const STATUSES = Object.keys(STATUS_META) as TaskStatus[];
 interface Props {
   taskId: string;
   initialStatus: TaskStatus;
-  milestoneId: string;
-  workspaceId: string;
+  initialBlockedReason?: string | null;
 }
 
-export function TaskStatusDropdown({ taskId, initialStatus, milestoneId, workspaceId }: Props) {
+export function TaskStatusDropdown({ taskId, initialStatus, initialBlockedReason }: Props) {
   const [status, setStatus] = useState<TaskStatus>(initialStatus);
+  const [blockedReason, setBlockedReason] = useState<string>(initialBlockedReason ?? "");
   const [open, setOpen] = useState(false);
+  const [showBlockedModal, setShowBlockedModal] = useState(false);
+  const [pendingReason, setPendingReason] = useState("");
   const [isPending, startTransition] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  // Close on outside click
+  // Close dropdown on outside click
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -41,84 +43,146 @@ export function TaskStatusDropdown({ taskId, initialStatus, milestoneId, workspa
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
-  async function changeStatus(next: TaskStatus) {
-    if (next === status) { setOpen(false); return; }
-
+  async function applyStatusChange(next: TaskStatus, reason?: string) {
     const prev = status;
-    setStatus(next); // optimistic update
+    const prevReason = blockedReason;
+
+    setStatus(next);
+    if (next === "blocked") setBlockedReason(reason ?? "");
+    else setBlockedReason("");
     setOpen(false);
 
     try {
+      const body: Record<string, unknown> = { status: next };
+      if (next === "blocked") body.blockedReason = reason ?? null;
+      else body.blockedReason = null;
+
       const res = await fetch(`/api/tasks/${taskId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
-        setStatus(prev); // revert on failure
+        setStatus(prev);
+        setBlockedReason(prevReason);
         return;
       }
 
-      // Broadcast to the board page via WebSocket so the board store updates live
-      try {
-        const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:4000/ws";
-        const ws = new WebSocket(wsUrl);
-        ws.onopen = () => {
-          ws.send(JSON.stringify({
-            type: "TASK_UPDATED",
-            workspaceId,
-            milestoneId,
-            taskId,
-            status: next,
-          }));
-          ws.close();
-        };
-      } catch {
-        // WS broadcast is best-effort; don't block or revert on WS failure
-      }
-
-      // Refresh the server component so tasks re-group by status
       startTransition(() => router.refresh());
     } catch {
-      setStatus(prev); // revert on network error
+      setStatus(prev);
+      setBlockedReason(prevReason);
     }
+  }
+
+  function changeStatus(next: TaskStatus) {
+    if (next === status) { setOpen(false); return; }
+
+    if (next === "blocked") {
+      setOpen(false);
+      setPendingReason("");
+      setShowBlockedModal(true);
+      return;
+    }
+
+    applyStatusChange(next);
+  }
+
+  function confirmBlocked() {
+    setShowBlockedModal(false);
+    applyStatusChange("blocked", pendingReason.trim() || undefined);
   }
 
   const meta = STATUS_META[status];
 
   return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        disabled={isPending}
-        className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border border-transparent
-          hover:border-current/20 transition-colors select-none
-          ${meta.color} ${isPending ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
-      >
-        <span className={meta.dot}>{meta.icon}</span>
-        {meta.label}
-        <ChevronDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
+    <>
+      <div className="relative" ref={ref}>
+        <button
+          onClick={() => setOpen((o) => !o)}
+          disabled={isPending}
+          className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border border-transparent
+            hover:border-current/20 transition-colors select-none
+            ${meta.color} ${isPending ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
+        >
+          <span className={meta.dot}>{meta.icon}</span>
+          {meta.label}
+          <ChevronDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
 
-      {open && (
-        <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-lg py-1 w-44 min-w-max">
-          {STATUSES.map((s) => {
-            const m = STATUS_META[s];
-            return (
+        {open && (
+          <div className="absolute left-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-lg py-1 w-44 min-w-max">
+            {STATUSES.map((s) => {
+              const m = STATUS_META[s];
+              return (
+                <button
+                  key={s}
+                  onClick={() => changeStatus(s)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-offwhite transition-colors"
+                >
+                  <span className={m.dot}>{m.icon}</span>
+                  <span className={s === status ? "font-semibold text-blue" : "text-ink"}>{m.label}</span>
+                  {s === status && <Check size={11} className="text-blue ml-auto" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Blocked reason modal */}
+      {showBlockedModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setShowBlockedModal(false); }}
+        >
+          <div className="bg-white rounded-2xl shadow-xl border border-border w-full max-w-sm mx-4 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={16} className="text-danger" />
+                <h3 className="font-semibold text-ink text-sm">Mark as Blocked</h3>
+              </div>
               <button
-                key={s}
-                onClick={() => changeStatus(s)}
-                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-offwhite transition-colors"
+                onClick={() => setShowBlockedModal(false)}
+                className="text-muted hover:text-ink transition-colors"
               >
-                <span className={m.dot}>{m.icon}</span>
-                <span className={s === status ? "font-semibold text-blue" : "text-ink"}>{m.label}</span>
-                {s === status && <Check size={11} className="text-blue ml-auto" />}
+                <X size={16} />
               </button>
-            );
-          })}
+            </div>
+
+            <p className="text-xs text-slate mb-3">
+              Optionally describe why this task is blocked.
+            </p>
+
+            <textarea
+              autoFocus
+              value={pendingReason}
+              onChange={(e) => setPendingReason(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) confirmBlocked(); }}
+              placeholder="e.g. Waiting on design handoff, dependency not ready..."
+              rows={3}
+              maxLength={500}
+              className="w-full text-xs border border-border rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue/30 text-ink placeholder:text-muted"
+            />
+
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                onClick={() => setShowBlockedModal(false)}
+                className="text-xs px-4 py-2 rounded-xl border border-border text-slate hover:bg-offwhite transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmBlocked}
+                className="text-xs px-4 py-2 rounded-xl bg-red-50 text-danger font-semibold hover:bg-red-100 transition-colors"
+              >
+                Mark Blocked
+              </button>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

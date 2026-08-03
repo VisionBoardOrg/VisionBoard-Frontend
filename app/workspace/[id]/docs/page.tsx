@@ -18,10 +18,24 @@ export default async function DocsPage({ params }: DocsPageProps) {
   });
   if (!member) redirect("/dashboard");
 
+  // Exclude the `content` JSONB blob — the list view only needs metadata.
+  // content can be megabytes per document (especially with embedded images).
   const docs = await prisma.document.findMany({
     where: { workspaceId: id },
-    include: { author: { select: { id: true, name: true } } },
+    select: {
+      id: true,
+      title: true,
+      authorId: true,
+      workspaceId: true,
+      createdAt: true,
+      updatedAt: true,
+      linkedGoalId: true,
+      linkedMilestoneId: true,
+      linkedTaskId: true,
+      author: { select: { id: true, name: true } },
+    },
     orderBy: { updatedAt: "desc" },
+    take: 100, // safety cap — paginate if needed
   });
 
   return (

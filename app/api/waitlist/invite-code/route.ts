@@ -45,7 +45,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const message = error instanceof Error ? error.message : "Failed to validate VIP code";
+    const message = "Failed to validate VIP code";
+    console.error("[api/waitlist/invite-code]", error);
     return NextResponse.json(
       { success: false, message },
       { status: 500 }

@@ -7,11 +7,15 @@ import { WaitlistEntry } from "@prisma/client";
 // to ensure seamless integration with the rest of the application.
 export type WaitlistRecord = WaitlistEntry;
 
-/** Generates a referral code like "ALEX992" from the user's name. */
+/** Generates a cryptographically random referral code.
+ *  Format: 4 uppercase alpha chars + 6 hex chars, e.g. "WAIT3f9a12"
+ *  Using randomBytes ensures the code is not guessable or brute-forceable
+ *  (previous name-prefix + 3 digit pattern had only ~900 combinations per name).
+ */
 function generateReferralCode(name: string): string {
-  const cleanName = name.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 4) || "WAIT";
-  const num = Math.floor(100 + Math.random() * 900);
-  return `${cleanName}${num}`;
+  const cleanName = name.replace(/[^a-zA-Z]/g, "").toUpperCase().slice(0, 4).padEnd(4, "X");
+  const randomHex = randomBytes(3).toString("hex"); // 6 hex chars = 16^6 = 16M combinations
+  return `${cleanName}${randomHex.toUpperCase()}`;
 }
 
 /**
@@ -24,22 +28,21 @@ function generateSecureToken(prefix: string): string {
 
 /**
  * Returns the configured VIP access code from the environment.
- * Falls back to the legacy hardcoded value in non-production environments
- * only, and always warns if using the fallback.
+ * If VIP_ACCESS_CODE is not set in ANY environment the VIP bypass is disabled.
+ * The hardcoded fallback has been removed — it was committed to source and
+ * trivially discoverable by anyone with repository access.
  */
 function getVipCode(): string {
   const envCode = process.env.VIP_ACCESS_CODE;
-  if (envCode && envCode.trim()) return envCode.trim().toUpperCase();
+  if (envCode && envCode.trim().length >= 8) return envCode.trim().toUpperCase();
 
   if (process.env.NODE_ENV !== "production") {
     console.warn(
-      "[waitlist] VIP_ACCESS_CODE env var is not set. Using dev fallback. " +
-        "Set VIP_ACCESS_CODE in production."
+      "[waitlist] VIP_ACCESS_CODE env var is not set or too short (min 8 chars). " +
+        "VIP bypass is DISABLED. Set VIP_ACCESS_CODE in your .env to enable it."
     );
-    return "VISIONBOARD2026VIP";
   }
-
-  // In production, if VIP_ACCESS_CODE is unset, disable VIP bypass entirely
+  // No fallback — VIP bypass is off when the env var is absent
   return "";
 }
 
@@ -308,18 +311,25 @@ export async function deleteWaitlistEntries(ids: string[]): Promise<number> {
 }
 
 /**
- * Re-assigns sequential positions (1, 2, 3...) to all entries ordered by their
- * current position. Run after any bulk delete to remove gaps.
+ * Re-assigns sequential positions (1, 2, 3, …) to all entries ordered by their
+ * current position using a single SQL window-function UPDATE.
+ *
+ * This replaces the previous per-row loop which issued O(n) individual UPDATE
+ * statements and was vulnerable to partial failure on large waitlists.
  */
 export async function normalizePositions(): Promise<void> {
-  const entries = await prisma.waitlistEntry.findMany({
-    orderBy: { position: "asc" },
-    select: { id: true },
-  });
-  for (let i = 0; i < entries.length; i++) {
-    await prisma.waitlistEntry.update({
-      where: { id: entries[i].id },
-      data: { position: i + 1 },
-    });
-  }
+  // Build a CTE that computes the new sequential position for every row, then
+  // UPDATE in one statement — no N+1, no partial-failure window.
+  await prisma.$executeRaw`
+    WITH ranked AS (
+      SELECT id,
+             ROW_NUMBER() OVER (ORDER BY position ASC, "createdAt" ASC) AS new_position
+      FROM   "WaitlistEntry"
+    )
+    UPDATE "WaitlistEntry" we
+    SET    position = ranked.new_position
+    FROM   ranked
+    WHERE  we.id = ranked.id
+      AND  we.position <> ranked.new_position
+  `;
 }

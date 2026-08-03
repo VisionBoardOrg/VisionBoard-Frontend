@@ -54,6 +54,8 @@ export function RoadmapView({ workspaceId, goals, isGated, upgradePrompt, userRo
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<{ milestones: { title: string; description: string; targetDate: string }[]; generationId: string } | null>(null);
   const [aiError, setAiError] = useState("");
+  const [commitGoalId, setCommitGoalId] = useState<string | null>(null);
+  const [commitLoading, setCommitLoading] = useState(false);
 
   // Build timeline bounds
   const today = new Date();
@@ -142,7 +144,7 @@ export function RoadmapView({ workspaceId, goals, isGated, upgradePrompt, userRo
         {aiResult && (
           <div className="mt-5 p-4 bg-blue-faint border border-blue-light rounded-xl">
             <h3 className="text-sm font-semibold text-blue mb-3">Generated milestones — review before applying</h3>
-            <div className="space-y-2">
+            <div className="space-y-2 mb-4">
               {aiResult.milestones.map((m, i) => (
                 <div key={i} className="bg-white rounded-lg border border-border p-3">
                   <div className="font-medium text-ink text-sm">{m.title}</div>
@@ -151,24 +153,53 @@ export function RoadmapView({ workspaceId, goals, isGated, upgradePrompt, userRo
                 </div>
               ))}
             </div>
-            <div className="flex gap-2 mt-4">
+
+            {/* Goal selector */}
+            <div className="mb-4">
+              <label className="text-xs font-semibold text-ink block mb-1.5">Apply to which goal?</label>
+              {goals.length === 0 ? (
+                <p className="text-xs text-danger">No goals found. Create a goal first.</p>
+              ) : (
+                <select
+                  value={commitGoalId ?? ""}
+                  onChange={(e) => setCommitGoalId(e.target.value)}
+                  className="w-full bg-white border border-border rounded-xl px-3 py-2 text-xs font-medium text-ink cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
+                >
+                  <option value="" disabled>Select a goal…</option>
+                  {goals.map((g) => (
+                    <option key={g.id} value={g.id}>{g.title} ({g.status})</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="flex gap-2">
               <button
-                onClick={() => {
-                  // Select which goal to commit to (simplified — take first active goal)
-                  const targetGoal = goals.find(g => g.status === "active") ?? goals[0];
-                  if (!targetGoal) { alert("Create a goal first to commit milestones to."); return; }
-                  fetch("/api/ai/roadmap-generator/commit", {
+                disabled={!commitGoalId || commitLoading}
+                onClick={async () => {
+                  if (!commitGoalId || !aiResult) return;
+                  setCommitLoading(true);
+                  const res = await fetch("/api/ai/roadmap-generator/commit", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ generationId: aiResult.generationId, goalId: targetGoal.id, milestones: aiResult.milestones }),
-                  }).then(() => { setAiResult(null); window.location.reload(); });
+                    body: JSON.stringify({ generationId: aiResult.generationId, goalId: commitGoalId, milestones: aiResult.milestones }),
+                  });
+                  setCommitLoading(false);
+                  if (res.ok) {
+                    setAiResult(null);
+                    setCommitGoalId(null);
+                    window.location.reload();
+                  } else {
+                    const data = await res.json();
+                    setAiError(data.error || "Failed to apply milestones.");
+                  }
                 }}
-                className="flex-1 bg-blue text-white text-sm font-semibold py-2 rounded-lg hover:bg-blue-mid transition-colors"
+                className="flex-1 bg-blue text-white text-sm font-semibold py-2 rounded-lg hover:bg-blue-mid transition-colors disabled:opacity-50"
               >
-                Apply to roadmap
+                {commitLoading ? "Applying…" : "Apply to roadmap"}
               </button>
               <button
-                onClick={() => setAiResult(null)}
+                onClick={() => { setAiResult(null); setCommitGoalId(null); }}
                 className="px-4 border border-border text-sm text-slate rounded-lg hover:bg-offwhite transition-colors"
               >
                 Discard

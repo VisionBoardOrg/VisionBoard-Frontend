@@ -69,6 +69,8 @@ interface Props {
   /** Optional: change another member's role */
   targetUserId?: string;
   targetName?: string;
+  /** Compact single-column list layout — used in the header dropdown */
+  compact?: boolean;
 }
 
 export function RoleSwitcher({
@@ -77,6 +79,7 @@ export function RoleSwitcher({
   isAdmin = false,
   targetUserId,
   targetName,
+  compact = false,
 }: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<MemberRole>(currentRole);
@@ -125,40 +128,74 @@ export function RoleSwitcher({
         </p>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {ROLES.map((r) => {
-          const Icon = r.icon;
-          const isActive = selected === r.value;
-          return (
-            <button
-              key={r.value}
-              disabled={saving}
-              onClick={() => {
-                setSelected(r.value);
-                handleSave(r.value);
-              }}
-              className={`relative text-left rounded-2xl border p-4 transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed ${
-                isActive
-                  ? "border-blue bg-blue-faint shadow-sm ring-1 ring-blue/20"
-                  : "border-border bg-white hover:border-blue/40 hover:shadow-sm"
-              }`}
-            >
-              {isActive && (
-                <CheckCircle2
-                  size={16}
-                  className="absolute top-3 right-3 text-blue"
-                />
-              )}
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${r.color}`}>
-                <Icon size={18} />
-              </div>
-              <div className="font-semibold text-ink text-sm">{r.label}</div>
-              <div className="text-[11px] text-muted mt-0.5 mb-2 font-medium">{r.title}</div>
-              <div className="text-xs text-slate leading-relaxed">{r.description}</div>
-            </button>
-          );
-        })}
-      </div>
+      {compact ? (
+        // Compact single-column list for the header dropdown
+        <div className="space-y-1">
+          {ROLES.map((r) => {
+            const Icon = r.icon;
+            const isActive = selected === r.value;
+            return (
+              <button
+                key={r.value}
+                disabled={saving}
+                onClick={() => { setSelected(r.value); handleSave(r.value); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+                  isActive
+                    ? "bg-blue-faint text-blue"
+                    : "hover:bg-offwhite text-ink"
+                }`}
+              >
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${r.color}`}>
+                  <Icon size={14} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-sm font-medium truncate ${isActive ? "text-blue" : "text-ink"}`}>
+                    {r.label}
+                  </div>
+                  <div className="text-[11px] text-muted truncate">{r.title}</div>
+                </div>
+                {isActive && <CheckCircle2 size={14} className="text-blue shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        // Full 2-column card grid for the settings page
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {ROLES.map((r) => {
+            const Icon = r.icon;
+            const isActive = selected === r.value;
+            return (
+              <button
+                key={r.value}
+                disabled={saving}
+                onClick={() => {
+                  setSelected(r.value);
+                  handleSave(r.value);
+                }}
+                className={`relative text-left rounded-2xl border p-4 transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed ${
+                  isActive
+                    ? "border-blue bg-blue-faint shadow-sm ring-1 ring-blue/20"
+                    : "border-border bg-white hover:border-blue/40 hover:shadow-sm"
+                }`}
+              >
+                {isActive && (
+                  <CheckCircle2
+                    size={16}
+                    className="absolute top-3 right-3 text-blue"
+                  />
+                )}
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${r.color}`}>
+                  <Icon size={18} />
+                </div>
+                <div className="font-semibold text-ink text-sm">{r.label}</div>
+                <div className="text-[11px] text-muted mt-0.5 mb-2 font-medium">{r.title}</div>
+                <div className="text-xs text-slate leading-relaxed">{r.description}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {saving && (
         <div className="flex items-center gap-2 text-xs text-blue mt-2">

@@ -54,6 +54,8 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState(goal.comments);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingBody, setEditingBody] = useState("");
   const [deconstructResult, setDeconstructResult] = useState<DeconstructResult | null>(null);
   const [deconstructLoading, setDeconstructLoading] = useState(false);
 
@@ -263,19 +265,74 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                 <div className="flex items-center justify-between gap-2 mb-0.5">
                   <span className="text-xs font-medium text-ink">{c.author.name}</span>
                   {c.author.id === userId && (
-                    <button
-                      onClick={async () => {
-                        if (!confirm("Delete this comment?")) return;
-                        const res = await fetch(`/api/comments/${c.id}`, { method: "DELETE" });
-                        if (res.ok) setComments((prev) => prev.filter((x) => x.id !== c.id));
-                      }}
-                      className="text-[11px] text-muted hover:text-danger transition-colors"
-                    >
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setEditingCommentId(c.id); setEditingBody(c.body); }}
+                        className="text-[11px] text-muted hover:text-blue transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm("Delete this comment?")) return;
+                          const res = await fetch(`/api/comments/${c.id}`, { method: "DELETE" });
+                          if (res.ok) setComments((prev) => prev.filter((x) => x.id !== c.id));
+                        }}
+                        className="text-[11px] text-muted hover:text-danger transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   )}
                 </div>
-                <p className="text-sm text-slate mt-0.5">{c.body}</p>
+                {editingCommentId === c.id ? (
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      value={editingBody}
+                      onChange={(e) => setEditingBody(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === "Escape") { setEditingCommentId(null); return; }
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          const res = await fetch(`/api/comments/${c.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ body: editingBody }),
+                          });
+                          if (res.ok) {
+                            const data = await res.json();
+                            setComments((prev) => prev.map((x) => x.id === c.id ? data.comment : x));
+                            setEditingCommentId(null);
+                          }
+                        }
+                      }}
+                      className="flex-1 border border-blue/40 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue/20"
+                      autoFocus
+                    />
+                    <button
+                      onClick={async () => {
+                        const res = await fetch(`/api/comments/${c.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ body: editingBody }),
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setComments((prev) => prev.map((x) => x.id === c.id ? data.comment : x));
+                          setEditingCommentId(null);
+                        }
+                      }}
+                      className="text-xs text-blue font-semibold hover:text-blue-mid"
+                    >
+                      Save
+                    </button>
+                    <button onClick={() => setEditingCommentId(null)} className="text-xs text-muted hover:text-ink">
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate mt-0.5">{c.body}</p>
+                )}
               </div>
             </div>
           ))}

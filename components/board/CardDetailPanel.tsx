@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Link2, User, CheckCircle2, Clock, AlertTriangle, Circle, ChevronDown, Check } from "lucide-react";
+import { X, Link2, User, CheckCircle2, Clock, AlertTriangle, Circle, ChevronDown, Check, Plus, Trash2 } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -360,6 +360,194 @@ function TaskRow({
 }
 
 // ──────────────────────────────────────────────────
+// Milestone section — extracted for clarity
+// ──────────────────────────────────────────────────
+function MilestoneSection({
+  localItem,
+  goalOptions,
+  milestoneOptions,
+  localTasks,
+  members,
+  milestoneId,
+  sendEvent,
+  handleMilestoneGoalLink,
+  handleMilestoneLink,
+  setLocalTasks,
+}: {
+  localItem: BoardItemFull;
+  goalOptions: { id: string; label: string; sub?: string }[];
+  milestoneOptions: { id: string; label: string; sub?: string }[];
+  localTasks: TaskSimple[];
+  members: UserSimple[];
+  milestoneId: string | undefined;
+  sendEvent: (evt: Record<string, unknown>) => void;
+  handleMilestoneGoalLink: (goalId: string | null) => Promise<void>;
+  handleMilestoneLink: (milestoneId: string | null) => Promise<void>;
+  setLocalTasks: React.Dispatch<React.SetStateAction<TaskSimple[]>>;
+}) {
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [addingTask, setAddingTask] = useState(false);
+  const [taskInputOpen, setTaskInputOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (taskInputOpen) inputRef.current?.focus();
+  }, [taskInputOpen]);
+
+  async function submitNewTask(e?: React.FormEvent) {
+    e?.preventDefault();
+    const title = newTaskTitle.trim();
+    if (!title || !milestoneId) return;
+
+    // Optimistic update — show task immediately before the API responds
+    const tempId = `temp-${Date.now()}`;
+    const optimisticTask: TaskSimple = {
+      id: tempId,
+      title,
+      status: "todo",
+      priority: "medium",
+      storyPoints: null,
+      assigneeId: null,
+    };
+    setLocalTasks((prev) => [...prev, optimisticTask]);
+    setNewTaskTitle("");
+    setTaskInputOpen(false);
+
+    setAddingTask(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ milestoneId, title }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Swap the temp task for the real one from the server
+        setLocalTasks((prev) =>
+          prev.map((t) => (t.id === tempId ? data.task : t))
+        );
+      } else {
+        // Revert on failure
+        setLocalTasks((prev) => prev.filter((t) => t.id !== tempId));
+      }
+    } catch {
+      setLocalTasks((prev) => prev.filter((t) => t.id !== tempId));
+    } finally {
+      setAddingTask(false);
+    }
+  }
+
+  return (
+    <div>
+      {/* Link to goal */}
+      <div className="relative">
+        <SelectField
+          label="Linked Goal"
+          icon={<Link2 size={11} className="text-blue-500" />}
+          value={localItem.linkedMilestone?.goalId ?? localItem.linkedGoalId ?? null}
+          onChange={async (goalId) => {
+            await handleMilestoneGoalLink(goalId);
+          }}
+          options={goalOptions}
+          placeholder="Link to a goal…"
+        />
+      </div>
+
+      {/* Link milestone board card to a milestone entity — always visible so you can change it */}
+      <div className="relative">
+        <SelectField
+          label="Milestone"
+          icon={<Link2 size={11} className="text-violet-500" />}
+          value={localItem.linkedMilestoneId ?? null}
+          onChange={handleMilestoneLink}
+          options={milestoneOptions}
+          placeholder="Pick a milestone…"
+        />
+      </div>
+
+      {/* Status */}
+      {localItem.linkedMilestone && (
+        <div className="mb-4">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Status</p>
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLORS[localItem.linkedMilestone.status] ?? "bg-slate-100 text-slate-600"}`}>
+            {STATUS_LABELS[localItem.linkedMilestone.status] ?? localItem.linkedMilestone.status}
+          </span>
+        </div>
+      )}
+
+      {/* Tasks */}
+      {localItem.linkedMilestone && (
+        <div>
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center justify-between">
+            Tasks
+            <span className="text-[10px] normal-case font-normal text-slate-400">
+              {localTasks.filter((t) => t.status === "done").length}/{localTasks.length} done
+            </span>
+          </p>
+
+          <div className="space-y-0.5">
+            {localTasks.map((task) => (
+              <TaskRow
+                key={task.id}
+                task={task}
+                members={members}
+                milestoneId={milestoneId}
+                workspaceId={localItem.workspaceId}
+                sendEvent={sendEvent}
+                onUpdate={(updated) =>
+                  setLocalTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+                }
+              />
+            ))}
+          </div>
+
+          {/* Add task input */}
+          {taskInputOpen ? (
+            <form onSubmit={submitNewTask} className="mt-2 flex items-center gap-1.5">
+              <input
+                ref={inputRef}
+                type="text"
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") { setTaskInputOpen(false); setNewTaskTitle(""); } }}
+                placeholder="Task title…"
+                className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
+              />
+              <button
+                type="submit"
+                disabled={!newTaskTitle.trim() || addingTask}
+                className="px-2.5 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {addingTask ? "…" : "Add"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTaskInputOpen(false); setNewTaskTitle(""); }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            </form>
+          ) : (
+            <button
+              onClick={() => setTaskInputOpen(true)}
+              className="mt-2 w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg border border-dashed border-slate-200 hover:border-slate-300 transition-colors"
+            >
+              <Plus size={12} />
+              Add task
+            </button>
+          )}
+        </div>
+      )}
+
+      {!localItem.linkedMilestone && (
+        <p className="text-[12px] text-slate-400 text-center py-4">Pick a milestone above to see its tasks.</p>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────
 // Main CardDetailPanel
 // ──────────────────────────────────────────────────
 
@@ -370,6 +558,7 @@ interface CardDetailPanelProps {
   members: UserSimple[];
   onClose: () => void;
   onItemUpdated: (updatedItem: BoardItemFull) => void;
+  onItemDeleted: (itemId: string) => void;
 }
 
 export function CardDetailPanel({
@@ -379,25 +568,48 @@ export function CardDetailPanel({
   members,
   onClose,
   onItemUpdated,
+  onItemDeleted,
 }: CardDetailPanelProps) {
   const [localItem, setLocalItem] = useState(item);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   // Live task list for milestone cards
   const [localTasks, setLocalTasks] = useState<TaskSimple[]>(
     item.linkedMilestone?.tasks ?? []
   );
+
+  // Simple alias so call-sites are unchanged
+  const setLocalTasksAndSync = setLocalTasks;
   // Label for note cards
   const [noteLabel, setNoteLabel] = useState(item.label ?? "");
 
   const { sendEvent } = useWebSocket(localItem.workspaceId);
 
   // Keep local state in sync if item changes from outside (e.g. drag or WebSocket event)
+  // Only reset localTasks when a *different* card is opened — not on every prop update,
+  // because our own onItemUpdated call would otherwise cause an infinite loop.
   useEffect(() => {
     setLocalItem(item);
-    setLocalTasks(item.linkedMilestone?.tasks ?? []);
     setNoteLabel(item.label ?? "");
   }, [item]);
+
+  // Reset task list only when the user switches to a different card
+  useEffect(() => {
+    setLocalTasks(item.linkedMilestone?.tasks ?? []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  // Propagate task list changes to the canvas AFTER render so the card count stays in sync
+  useEffect(() => {
+    if (!localItem.linkedMilestone) return;
+    onItemUpdated({
+      ...localItem,
+      linkedMilestone: { ...localItem.linkedMilestone, tasks: localTasks },
+    } as BoardItemFull);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localTasks]);
 
   async function patchBoardItem(patch: Record<string, unknown>) {
     setSaving(true);
@@ -449,6 +661,16 @@ export function CardDetailPanel({
       body: JSON.stringify({ goalId }),
     });
     if (res.ok) {
+      // Update local state so the picker reflects the new goal immediately
+      setLocalItem((prev) => ({
+        ...prev,
+        linkedGoalId: goalId,
+        linkedMilestone: prev.linkedMilestone
+          ? { ...prev.linkedMilestone, goalId: goalId ?? "" }
+          : prev.linkedMilestone,
+      }));
+      // Also update the board item's linkedGoalId so connectors redraw correctly
+      await patchBoardItem({ linkedGoalId: goalId });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
     }
@@ -458,6 +680,27 @@ export function CardDetailPanel({
   async function saveNoteLabel() {
     if (noteLabel === localItem.label) return;
     await patchBoardItem({ label: noteLabel });
+  }
+
+  // ── Delete the linked entity (goal or milestone) + remove board card
+  async function handleDelete() {
+    if (!confirmDelete) { setConfirmDelete(true); return; }
+    setDeleting(true);
+    try {
+      // 1. Delete the linked entity from the database
+      if (entityType === "goal" && localItem.linkedGoalId) {
+        await fetch(`/api/goals/${localItem.linkedGoalId}`, { method: "DELETE" });
+      } else if (entityType === "milestone" && localItem.linkedMilestoneId) {
+        await fetch(`/api/milestones/${localItem.linkedMilestoneId}`, { method: "DELETE" });
+      }
+      // 2. Remove the board card itself
+      await fetch(`/api/board-items/${localItem.id}`, { method: "DELETE" });
+      onItemDeleted(localItem.id);
+      onClose();
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
   }
 
   const entityType = localItem.entityType;
@@ -501,10 +744,12 @@ export function CardDetailPanel({
             {entityType}
           </span>
           <h2 className="text-sm font-bold text-white leading-tight truncate max-w-[210px]">
-            {localItem.linkedGoal?.title ??
-              localItem.linkedMilestone?.title ??
-              localItem.label ??
-              "Untitled"}
+            {entityType === "milestone"
+              ? localItem.linkedMilestone?.title ?? localItem.label ?? "Untitled"
+              : localItem.linkedGoal?.title ??
+                localItem.linkedMilestone?.title ??
+                localItem.label ??
+                "Untitled"}
           </h2>
         </div>
         <div className="flex items-center gap-2">
@@ -522,11 +767,49 @@ export function CardDetailPanel({
           >
             <X size={15} />
           </button>
+          {(entityType === "goal" || entityType === "milestone") && (
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              title={confirmDelete ? "Click again to confirm delete" : "Delete"}
+              className={`p-1 rounded-lg transition-colors text-white disabled:opacity-50 ${
+                confirmDelete ? "bg-red-500 hover:bg-red-600" : "hover:bg-white/20"
+              }`}
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4">
+
+        {/* ── DELETE CONFIRMATION ───────── */}
+        {confirmDelete && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl">
+            <p className="text-xs font-semibold text-red-700 mb-2">
+              {entityType === "goal"
+                ? "Delete this goal and all its milestones and tasks?"
+                : "Delete this milestone and all its tasks?"}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-3 py-1.5 text-xs font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {deleting ? "Deleting…" : "Yes, delete"}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── GOAL CARD ─────────────────── */}
         {entityType === "goal" && localItem.linkedGoal && (
@@ -562,76 +845,18 @@ export function CardDetailPanel({
 
         {/* ── MILESTONE CARD ────────────── */}
         {entityType === "milestone" && (
-          <div>
-            {/* Link to goal */}
-            <div className="relative">
-              <SelectField
-                label="Linked Goal"
-                icon={<Link2 size={11} className="text-blue-500" />}
-                value={localItem.linkedMilestone?.goalId ?? null}
-                onChange={async (goalId) => {
-                  await handleMilestoneGoalLink(goalId);
-                }}
-                options={goalOptions}
-                placeholder="Link to a goal…"
-              />
-            </div>
-
-            {/* Link milestone board card to a milestone entity */}
-            {!localItem.linkedMilestoneId && (
-              <div className="relative">
-                <SelectField
-                  label="Milestone"
-                  icon={<Link2 size={11} className="text-violet-500" />}
-                  value={localItem.linkedMilestoneId}
-                  onChange={handleMilestoneLink}
-                  options={milestoneOptions}
-                  placeholder="Pick a milestone…"
-                />
-              </div>
-            )}
-
-            {/* Status */}
-            {localItem.linkedMilestone && (
-              <div className="mb-4">
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Status</p>
-                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_COLORS[localItem.linkedMilestone.status] ?? "bg-slate-100 text-slate-600"}`}>
-                  {STATUS_LABELS[localItem.linkedMilestone.status] ?? localItem.linkedMilestone.status}
-                </span>
-              </div>
-            )}
-
-            {/* Tasks */}
-            {localTasks.length > 0 && (
-              <div>
-                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center justify-between">
-                  Tasks
-                  <span className="text-[10px] normal-case font-normal text-slate-400">
-                    {localTasks.filter((t) => t.status === "done").length}/{localTasks.length} done
-                  </span>
-                </p>
-                <div className="space-y-0.5">
-                  {localTasks.map((task) => (
-                    <TaskRow
-                      key={task.id}
-                      task={task}
-                      members={members}
-                      milestoneId={milestoneId}
-                      workspaceId={localItem.workspaceId}
-                      sendEvent={sendEvent}
-                      onUpdate={(updated) =>
-                        setLocalTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
-                      }
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {localTasks.length === 0 && localItem.linkedMilestone && (
-              <p className="text-[12px] text-slate-400 text-center py-4">No tasks in this milestone yet.</p>
-            )}
-          </div>
+          <MilestoneSection
+            localItem={localItem}
+            goalOptions={goalOptions}
+            milestoneOptions={milestoneOptions}
+            localTasks={localTasks}
+            members={members}
+            milestoneId={milestoneId}
+            sendEvent={sendEvent}
+            handleMilestoneGoalLink={handleMilestoneGoalLink}
+            handleMilestoneLink={handleMilestoneLink}
+            setLocalTasks={setLocalTasksAndSync}
+          />
         )}
 
         {/* ── NOTE CARD ─────────────────── */}
@@ -681,7 +906,7 @@ export function CardDetailPanel({
                       workspaceId={localItem.workspaceId}
                       sendEvent={sendEvent}
                       onUpdate={(updated) =>
-                        setLocalTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+                        setLocalTasksAndSync((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
                       }
                     />
                   ))}

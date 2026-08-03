@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { BoardCard } from "./BoardCard";
 import { BoardToolbar } from "./BoardToolbar";
@@ -19,13 +19,16 @@ interface BoardCanvasProps {
   members: UserSimple[];
 }
 
-export function BoardCanvas({ workspaceId, initialItems, goals, milestones, members }: BoardCanvasProps) {
+export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, milestones: initialMilestones, members }: BoardCanvasProps) {
   const { items, moveItem, setItems } = useBoard(workspaceId, initialItems);
   const { sendEvent } = useWebSocket(workspaceId);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [commandOpen, setCommandOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Goals and milestones are kept in state so newly created ones appear immediately
+  const [goals, setGoals] = useState<GoalSimple[]>(initialGoals);
+  const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // dnd-kit sensor — requires 8px drag threshold to prevent accidental drags on click
@@ -104,11 +107,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
     [items, zoom, moveItem, sendEvent, workspaceId]
   );
 
-  // ── SVG connector lines — shortest-path edge routing ─────────────────────
+  // ── SVG connector lines — O(N) with Map lookups instead of O(N²) finds ───
   type Point = { x: number; y: number };
   type Edge = "right" | "left" | "bottom" | "top";
 
-  /** All four named edge midpoints of a card */
   function cardEdges(item: BoardItemFull): Record<Edge, Point> {
     const w = item.width  ?? 200;
     const h = item.height ?? 120;
@@ -120,84 +122,73 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
     };
   }
 
-  /** Euclidean distance between two points */
   function dist(a: Point, b: Point) {
     return Math.hypot(b.x - a.x, b.y - a.y);
   }
 
-  /**
-   * Pick the pair of edges (one from `src` card, one from `tgt` card) whose
-   * midpoints are closest together, then build a bezier that exits/enters
-   * perpendicular to those edges.
-   */
   function smartConnector(src: BoardItemFull, tgt: BoardItemFull): string {
     const srcEdges = cardEdges(src);
     const tgtEdges = cardEdges(tgt);
-
     const edges: Edge[] = ["right", "left", "bottom", "top"];
     let best = { srcEdge: "right" as Edge, tgtEdge: "left" as Edge, d: Infinity };
-
     for (const se of edges) {
       for (const te of edges) {
-        // Avoid connecting same-side edges (e.g. right→right looks bad)
         if (se === te) continue;
         const d = dist(srcEdges[se], tgtEdges[te]);
         if (d < best.d) best = { srcEdge: se, tgtEdge: te, d };
       }
     }
-
     const p1 = srcEdges[best.srcEdge];
     const p2 = tgtEdges[best.tgtEdge];
-
-    // Control-point offsets: pull outward from each card face
     const CTRL = Math.max(40, best.d * 0.35);
     const offsets: Record<Edge, Point> = {
-      right:  { x:  CTRL, y: 0 },
-      left:   { x: -CTRL, y: 0 },
-      bottom: { x: 0, y:  CTRL },
-      top:    { x: 0, y: -CTRL },
+      right:  { x:  CTRL, y: 0 }, left: { x: -CTRL, y: 0 },
+      bottom: { x: 0, y:  CTRL }, top:  { x: 0, y: -CTRL },
     };
-
     const c1 = { x: p1.x + offsets[best.srcEdge].x, y: p1.y + offsets[best.srcEdge].y };
     const c2 = { x: p2.x + offsets[best.tgtEdge].x, y: p2.y + offsets[best.tgtEdge].y };
-
     return `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
   }
 
-  // Draw arrows: goal → milestone (violet), milestone → task (cyan)
-  const connectors: { path: string; color: string; key: string }[] = [];
+  // Memoised connectors: only recompute when items array changes (not on pan/zoom).
+  // Uses Maps for O(N) lookups instead of O(N²) Array.find() calls.
+  const connectors = useMemo(() => {
+    // Build lookup maps once — O(N)
+    const goalCardByLinkedGoalId = new Map<string, BoardItemFull>();
+    const msCardByLinkedMilestoneId = new Map<string, BoardItemFull>();
 
-  for (const item of items) {
-    // Milestone card → its Goal card
-    if (item.entityType === "milestone") {
-      const milestoneGoalId = item.linkedGoalId ?? item.linkedMilestone?.goalId ?? null;
-      if (milestoneGoalId) {
-        const goalCard = items.find(
-          (i) => i.entityType === "goal" && i.linkedGoalId === milestoneGoalId
-        );
-        if (goalCard) {
-          connectors.push({
-            path: smartConnector(goalCard, item),
-            color: "#6366f1",
-            key: `ms-goal-${item.id}`,
-          });
+    for (const item of items) {
+      if (item.entityType === "goal" && item.linkedGoalId) {
+        goalCardByLinkedGoalId.set(item.linkedGoalId, item);
+      }
+      if (item.entityType === "milestone" && item.linkedMilestoneId) {
+        msCardByLinkedMilestoneId.set(item.linkedMilestoneId, item);
+      }
+    }
+
+    const result: { path: string; color: string; key: string }[] = [];
+
+    for (const item of items) {
+      if (item.entityType === "milestone") {
+        const milestoneGoalId = item.linkedGoalId ?? item.linkedMilestone?.goalId ?? null;
+        if (milestoneGoalId) {
+          const goalCard = goalCardByLinkedGoalId.get(milestoneGoalId);
+          if (goalCard) {
+            result.push({ path: smartConnector(goalCard, item), color: "#6366f1", key: `ms-goal-${item.id}` });
+          }
+        }
+      }
+      if (item.entityType === "task" && item.linkedMilestoneId) {
+        const msCard = msCardByLinkedMilestoneId.get(item.linkedMilestoneId);
+        if (msCard) {
+          result.push({ path: smartConnector(msCard, item), color: "#06b6d4", key: `task-ms-${item.id}` });
         }
       }
     }
-    // Task card → its Milestone card
-    if (item.entityType === "task" && item.linkedMilestoneId) {
-      const msCard = items.find(
-        (i) => i.entityType === "milestone" && i.linkedMilestoneId === item.linkedMilestoneId
-      );
-      if (msCard) {
-        connectors.push({
-          path: smartConnector(msCard, item),
-          color: "#06b6d4",
-          key: `task-ms-${item.id}`,
-        });
-      }
-    }
-  }
+    return result;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]); // smartConnector is defined in render scope but is pure — items is the only dep that matters
+  // ─────────────────────────────────────────────────────────────────────────
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
 
@@ -220,6 +211,8 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
         milestones={milestones}
         currentItems={items}
         onItemAdded={(item) => setItems([...items, item])}
+        onGoalCreated={(goal) => setGoals((prev) => [...prev, goal])}
+        onMilestoneCreated={(ms) => setMilestones((prev) => [...prev, ms])}
       />
 
       {/* Canvas area */}
@@ -304,6 +297,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals, milestones, memb
           onClose={() => setSelectedId(null)}
           onItemUpdated={(updated) => {
             setItems(items.map((i) => (i.id === updated.id ? updated : i)));
+          }}
+          onItemDeleted={(deletedId) => {
+            setItems(items.filter((i) => i.id !== deletedId));
+            setSelectedId(null);
           }}
         />
       )}

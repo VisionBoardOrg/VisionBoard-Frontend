@@ -1,18 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { checkPlanLimit } from "@/lib/plan-limits";
+import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { prisma } from "@/lib/prisma";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { createHash } from "crypto";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+/** Hash a prompt string before logging — avoids storing raw business content verbatim. */
+function hashPrompt(input: string): string {
+  return `sha256:${createHash("sha256").update(input).digest("hex")}`;
+}
+
 const schema = z.object({
   workspaceId: z.string(),
-  objective: z.string().min(10),
+  // Cap length to limit prompt injection surface area
+  objective: z.string().min(10).max(2000),
   targetDate: z.string().optional(),
   keyResults: z
-    .array(z.object({ title: z.string(), target: z.number(), unit: z.string() }))
+    .array(
+      z.object({
+        title: z.string().max(300),
+        target: z.number(),
+        unit: z.string().max(50),
+      })
+    )
+    .max(20)
     .optional(),
 });
 
@@ -28,24 +42,46 @@ export async function POST(request: NextRequest) {
 
   const { workspaceId, objective, targetDate, keyResults } = parsed.data;
 
-  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-  if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
-
+  // Verify membership first — cheapest check, avoids unnecessary workspace fetch
   const member = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const limitCheck = checkPlanLimit(
-    { plan: workspace.plan, aiCreditsUsed: workspace.aiCreditsUsed },
-    "ai_credit"
-  );
-  if (!limitCheck.allowed) {
-    return NextResponse.json(
-      { error: limitCheck.reason, upgradePrompt: limitCheck.upgradePrompt },
-      { status: 403 }
-    );
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+
+  // ── Atomic credit debit (TOCTOU-safe) ──────────────────────────────────────
+  // We increment BEFORE the Anthropic call. If the AI call fails we decrement
+  // in the catch block. This prevents concurrent requests from bypassing the
+  // limit by racing past the read-before-write check.
+  const creditLimit = PLAN_LIMITS[workspace.plan].aiCreditsPerMonth;
+  const isUnlimited = creditLimit === -1 || creditLimit === "unlimited";
+
+  if (!isUnlimited) {
+    // updateMany with a WHERE condition is the atomic compare-and-swap:
+    // only increments if aiCreditsUsed is still under the limit.
+    const debited = await prisma.workspace.updateMany({
+      where: { id: workspaceId, aiCreditsUsed: { lt: creditLimit as number } },
+      data: { aiCreditsUsed: { increment: 1 } },
+    });
+    if (debited.count === 0) {
+      return NextResponse.json(
+        {
+          error: `You've used all ${creditLimit} AI credits this month on the ${workspace.plan} plan.`,
+          upgradePrompt: "Upgrade to unlock more AI credits.",
+        },
+        { status: 403 }
+      );
+    }
+  } else {
+    // Unlimited plan — just increment the counter for audit purposes
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { aiCreditsUsed: { increment: 1 } },
+    });
   }
+  // ───────────────────────────────────────────────────────────────────────────
 
   const systemPrompt = `You are an OKR and sprint planning expert. Given a high-level objective, break it down into actionable sub-tasks, sprint milestones, and owner recommendations.
 Return ONLY valid JSON (no markdown fences):
@@ -98,21 +134,23 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
         workspaceId,
         userId: session.user.id,
         feature: "goal_deconstructor",
-        promptInput: userContent,
+        promptInput: hashPrompt(userContent),
         modelOutput: JSON.stringify(result),
         tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
         accepted: null,
       },
     });
 
-    await prisma.workspace.update({
-      where: { id: workspaceId },
-      data: { aiCreditsUsed: { increment: 1 } },
-    });
-
     return NextResponse.json(result);
   } catch (err) {
     console.error("[api/ai/goal-deconstructor]", err);
+
+    // Refund the credit — the AI call failed so no value was delivered
+    await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { aiCreditsUsed: { decrement: 1 } },
+    }).catch(() => { /* best-effort refund */ });
+
     return NextResponse.json({ error: "AI generation failed." }, { status: 500 });
   }
 }

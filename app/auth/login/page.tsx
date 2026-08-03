@@ -5,11 +5,12 @@ import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/reusables/Logo";
+import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  const callbackUrl = getSafeCallbackUrl(searchParams.get("callbackUrl"), "/dashboard");
   const searchParamError = searchParams.get("error");
   const urlError = searchParamError === "OAuthAccountNotLinked"
     ? "An account already exists with the same email address using a different sign-in method."

@@ -1,3 +1,20 @@
+/**
+ * lib/auth/index.ts — Full NextAuth configuration for Node.js contexts.
+ *
+ * This file imports Prisma, bcryptjs, and the PrismaAdapter.
+ * It must NEVER be imported from proxy.ts (middleware/Edge Runtime).
+ * Middleware uses the lean auth.config.ts instead.
+ *
+ * ⚠️  DEPENDENCY RISK — next-auth v5 beta
+ * The project currently uses next-auth@5.0.0-beta.32, which is a pre-release.
+ * Beta packages may contain unresolved CVEs or breaking API changes.
+ * Action items:
+ *   1. Monitor https://github.com/nextauthjs/next-auth/releases for stable v5.
+ *   2. Run `npm audit` regularly to catch any published vulnerabilities.
+ *   3. Migrate to the stable release as soon as it is available.
+ *   4. Do NOT upgrade using `^` ranges until stable — pin to a known-good beta.
+ */
+
 import NextAuth from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import Credentials from "next-auth/providers/credentials";
@@ -5,25 +22,24 @@ import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { authConfig } from "@/auth.config";
 
 const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  // Match the registration minimum — shorter values can never be valid credentials
+  password: z.string().min(12),
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  secret: process.env.AUTH_SECRET,
+  ...authConfig,
   adapter: PrismaAdapter(prisma),
-  session: { strategy: "jwt" },
-  pages: {
-    signIn: "/auth/login",
-    error: "/auth/error",
-  },
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      allowDangerousEmailAccountLinking: true,
+      // allowDangerousEmailAccountLinking is intentionally NOT set — enabling it
+      // allows account takeover by anyone who can register a Google account with
+      // the same email as an existing credentials user.
     }),
     Credentials({
       name: "credentials",
@@ -48,24 +64,43 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
       if (user && user.id) {
         token.id = user.id;
+        // Clear cached workspace data on fresh sign-in so it re-fetches below
+        token.workspaceId         = undefined;
+        token.role                = undefined;
+        token.workspacePlan       = undefined;
+        token.membershipFetchedAt = undefined;
       }
 
-      // Fetch primary workspace membership:
-      // Re-fetch whenever workspaceId or role isn't cached yet (e.g. fresh login,
-      // just created first workspace during onboarding).
-      if (token.id && (!token.workspaceId || !token.role)) {
+      // Re-fetch workspace membership from DB:
+      // - On initial sign-in (fields not yet populated)
+      // - On explicit session update trigger (e.g. after workspace creation)
+      // - Every 5 minutes to pick up role changes or membership removal
+      //
+      // This callback runs ONLY in Node.js context (API routes, RSC pages).
+      // Middleware uses the lean authConfig whose jwt() callback never touches Prisma.
+      const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+      const now       = Date.now();
+      const lastFetch = (token.membershipFetchedAt as number | undefined) ?? 0;
+      const needsRefresh =
+        !token.workspaceId ||
+        !token.role ||
+        trigger === "update" ||
+        now - lastFetch > REFRESH_INTERVAL_MS;
+
+      if (token.id && needsRefresh) {
         try {
           const membership = await prisma.workspaceMember.findFirst({
             where: { userId: token.id as string },
             include: { workspace: true },
             orderBy: { joinedAt: "asc" },
           });
-          token.role        = membership?.role        ?? null;
-          token.workspaceId = membership?.workspaceId ?? null;
-          token.workspacePlan = membership?.workspace?.plan ?? null;
+          token.role                = membership?.role            ?? null;
+          token.workspaceId         = membership?.workspaceId     ?? null;
+          token.workspacePlan       = membership?.workspace?.plan ?? null;
+          token.membershipFetchedAt = now;
         } catch (error) {
           console.error("[auth] Failed to fetch workspace membership:", error);
         }
@@ -74,9 +109,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return token;
     },
     async session({ session, token }) {
-      session.user.id = token.id as string;
-      session.user.role = token.role as string | null;
-      session.user.workspaceId = token.workspaceId as string | null;
+      session.user.id            = token.id            as string;
+      session.user.role          = token.role          as string | null;
+      session.user.workspaceId   = token.workspaceId   as string | null;
       session.user.workspacePlan = token.workspacePlan as string | null;
       return session;
     },

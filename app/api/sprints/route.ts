@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { isoDateString } from "@/lib/validations/date-schema";
 
 const createSchema = z.object({
   workspaceId: z.string(),
   name: z.string().min(1).max(120),
-  goal: z.string().optional(),
-  startDate: z.string(),
-  endDate: z.string(),
+  goal: z.string().max(500).optional(),
+  startDate: isoDateString,
+  endDate: isoDateString,
   velocity: z.number().int().positive().optional(),
 });
 
@@ -29,28 +30,29 @@ export async function POST(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const sprint = await prisma.sprint.create({
-    data: {
-      workspaceId,
-      name,
-      goal: goal ?? null,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
-      velocity: velocity ?? null,
-      status: "planned",
-    },
-  });
-
-  await prisma.activityLog.create({
-    data: {
-      workspaceId,
-      userId: session.user.id,
-      entityType: "sprint",
-      entityId: sprint.id,
-      action: "created",
-      diff: { name } as never,
-    },
-  });
+  const [sprint] = await prisma.$transaction([
+    prisma.sprint.create({
+      data: {
+        workspaceId,
+        name,
+        goal: goal ?? null,
+        startDate: new Date(startDate),
+        endDate: new Date(endDate),
+        velocity: velocity ?? null,
+        status: "planned",
+      },
+    }),
+    prisma.activityLog.create({
+      data: {
+        workspaceId,
+        userId: session.user.id,
+        entityType: "sprint",
+        entityId: "pending",
+        action: "created",
+        diff: { name } as never,
+      },
+    }),
+  ]);
 
   return NextResponse.json({ sprint }, { status: 201 });
 }
@@ -68,15 +70,27 @@ export async function GET(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const sprints = await prisma.sprint.findMany({
-    where: { workspaceId },
-    include: {
-      tasks: {
-        select: { id: true, title: true, status: true, priority: true, storyPoints: true, assigneeId: true },
-      },
-    },
-    orderBy: { startDate: "desc" },
-  });
+  const page  = Math.max(1, parseInt(searchParams.get("page")  ?? "1",  10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50", 10) || 50));
+  const skip  = (page - 1) * limit;
 
-  return NextResponse.json({ sprints });
+  const [sprints, total] = await Promise.all([
+    prisma.sprint.findMany({
+      where: { workspaceId },
+      include: {
+        tasks: {
+          select: {
+            id: true, title: true, status: true,
+            priority: true, storyPoints: true, assigneeId: true,
+          },
+        },
+      },
+      orderBy: { startDate: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.sprint.count({ where: { workspaceId } }),
+  ]);
+
+  return NextResponse.json({ sprints, total, page, limit });
 }

@@ -2,19 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { nullableIsoDateString } from "@/lib/validations/date-schema";
 
 const createSchema = z.object({
   workspaceId: z.string(),
   title: z.string().min(1).max(200),
-  objective: z.string().min(1),
+  objective: z.string().min(1).max(2000),
   keyResults: z.array(z.object({
     id: z.string(),
-    title: z.string(),
+    title: z.string().max(300),
     target: z.number(),
     current: z.number(),
-    unit: z.string(),
-  })).optional().default([]),
-  targetDate: z.string().nullable().optional(),
+    unit: z.string().max(50),
+  })).max(20).optional().default([]),
+  targetDate: nullableIsoDateString,
   status: z.enum(["draft", "active", "completed", "cancelled"]).optional().default("draft"),
 });
 
@@ -31,27 +32,28 @@ export async function POST(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const goal = await prisma.goal.create({
-    data: {
-      workspaceId: parsed.data.workspaceId,
-      title: parsed.data.title,
-      objective: parsed.data.objective,
-      keyResults: parsed.data.keyResults,
-      targetDate: parsed.data.targetDate ? new Date(parsed.data.targetDate) : null,
-      status: parsed.data.status,
-      ownerId: session.user.id,
-    },
-  });
-
-  await prisma.activityLog.create({
-    data: {
-      workspaceId: parsed.data.workspaceId,
-      userId: session.user.id,
-      entityType: "goal",
-      entityId: goal.id,
-      action: "created",
-    },
-  });
+  const [goal] = await prisma.$transaction([
+    prisma.goal.create({
+      data: {
+        workspaceId: parsed.data.workspaceId,
+        title: parsed.data.title,
+        objective: parsed.data.objective,
+        keyResults: parsed.data.keyResults,
+        targetDate: parsed.data.targetDate ? new Date(parsed.data.targetDate) : null,
+        status: parsed.data.status,
+        ownerId: session.user.id,
+      },
+    }),
+    prisma.activityLog.create({
+      data: {
+        workspaceId: parsed.data.workspaceId,
+        userId: session.user.id,
+        entityType: "goal",
+        entityId: "pending",
+        action: "created",
+      },
+    }),
+  ]);
 
   return NextResponse.json({ goal }, { status: 201 });
 }
@@ -69,17 +71,27 @@ export async function GET(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const goals = await prisma.goal.findMany({
-    where: { workspaceId },
-    include: {
-      milestones: {
-        include: { tasks: true },
-        orderBy: { order: "asc" },
-      },
-      _count: { select: { documents: true, comments: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const page  = Math.max(1, parseInt(searchParams.get("page")  ?? "1",  10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50", 10) || 50));
+  const skip  = (page - 1) * limit;
 
-  return NextResponse.json({ goals });
+  const [goals, total] = await Promise.all([
+    prisma.goal.findMany({
+      where: { workspaceId },
+      include: {
+        milestones: {
+          // Only fetch task summaries for progress calculation — not full task objects
+          include: { tasks: { select: { id: true, status: true, storyPoints: true }, orderBy: { order: "asc" } } },
+          orderBy: { order: "asc" },
+        },
+        _count: { select: { documents: true, comments: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+    prisma.goal.count({ where: { workspaceId } }),
+  ]);
+
+  return NextResponse.json({ goals, total, page, limit });
 }

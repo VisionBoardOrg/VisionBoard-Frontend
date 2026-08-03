@@ -175,7 +175,7 @@ Fetches real-time position, referral stats, and invitation status.
 ---
 
 ### 3. `POST /api/waitlist/invite-code`
-Validates VIP access codes (e.g., `VISIONBOARD2026VIP`) to grant instant access.
+Validates VIP access codes to grant instant access.
 
 ---
 
