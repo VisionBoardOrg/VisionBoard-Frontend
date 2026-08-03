@@ -68,9 +68,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (user && user.id) {
         token.id = user.id;
         // Clear cached workspace data on fresh sign-in so it re-fetches below
-        token.workspaceId         = undefined;
-        token.role                = undefined;
-        token.workspacePlan       = undefined;
+        token.workspaceId         = null;
+        token.role                = null;
+        token.workspacePlan       = null;
         token.membershipFetchedAt = undefined;
       }
 

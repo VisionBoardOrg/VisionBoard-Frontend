@@ -38,12 +38,16 @@ const ALLOWED_MARK_TYPES = new Set([
 const tiptapNode: z.ZodType<unknown> = z.lazy(() =>
   z
     .object({
-      type: z.string().refine(
-        (t) => ALLOWED_NODE_TYPES.has(t),
-        (t) => ({ message: `Disallowed node type: "${t}"` })
-      ),
+      type: z.string().superRefine((t, ctx) => {
+        if (!ALLOWED_NODE_TYPES.has(t)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Disallowed node type: "${t}"`,
+          });
+        }
+      }),
       attrs: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .optional()
         .superRefine((attrs, ctx) => {
           if (!attrs) return;
@@ -64,12 +68,16 @@ const tiptapNode: z.ZodType<unknown> = z.lazy(() =>
       marks: z
         .array(
           z.object({
-            type: z.string().refine(
-              (t) => ALLOWED_MARK_TYPES.has(t),
-              (t) => ({ message: `Disallowed mark type: "${t}"` })
-            ),
+            type: z.string().superRefine((t, ctx) => {
+              if (!ALLOWED_MARK_TYPES.has(t)) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  message: `Disallowed mark type: "${t}"`,
+                });
+              }
+            }),
             attrs: z
-              .record(z.unknown())
+              .record(z.string(), z.unknown())
               .optional()
               .superRefine((attrs, ctx) => {
                 if (!attrs) return;

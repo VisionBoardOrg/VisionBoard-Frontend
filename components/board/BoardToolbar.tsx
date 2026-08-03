@@ -1,6 +1,6 @@
 "use client";
 
-import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check } from "lucide-react";
 import type { GoalSimple, MilestoneWithTasks, BoardItemFull } from "@/types/board";
 import { useState, useRef, useEffect } from "react";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
