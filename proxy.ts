@@ -36,15 +36,10 @@ function generateNonce(): string {
  * Using a per-request nonce removes the need for 'unsafe-inline' on script-src.
  * Next.js injects the nonce automatically when it is present in the CSP header.
  */
-function buildCsp(nonce: string): string {
-  const isDev = process.env.NODE_ENV === "development";
-  const scriptSrc = isDev
-    ? `'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval'`
-    : `'nonce-${nonce}' 'unsafe-inline'`;
-
+function buildCsp(): string {
   return [
     "default-src 'self'",
-    `script-src 'self' ${scriptSrc}`,
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
     "font-src 'self' data:",
@@ -130,7 +125,7 @@ export async function proxy(request: NextRequest) {
   response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
 
   if (isHtmlRoute) {
-    response.headers.set("Content-Security-Policy", buildCsp(nonce));
+    response.headers.set("Content-Security-Policy", buildCsp());
   }
 
   return response;

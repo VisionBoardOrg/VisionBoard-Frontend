@@ -50,9 +50,7 @@ const securityHeaders = [
       // middleware (proxy.ts) for HTML routes. This fallback header covers
       // non-HTML responses and any routes not matched by middleware.
       // Dev retains 'unsafe-eval' for React DevTools / Next.js HMR.
-      isDev
-        ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-        : "script-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",
