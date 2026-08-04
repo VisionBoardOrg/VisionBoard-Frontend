@@ -52,7 +52,7 @@ const securityHeaders = [
       // Dev retains 'unsafe-eval' for React DevTools / Next.js HMR.
       isDev
         ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
-        : "script-src 'self'",
+        : "script-src 'self' 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https: blob:",
       "font-src 'self' data:",

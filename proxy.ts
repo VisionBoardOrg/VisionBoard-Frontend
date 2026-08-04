@@ -39,8 +39,8 @@ function generateNonce(): string {
 function buildCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV === "development";
   const scriptSrc = isDev
-    ? `'nonce-${nonce}' 'unsafe-eval'`
-    : `'nonce-${nonce}'`;
+    ? `'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval'`
+    : `'nonce-${nonce}' 'unsafe-inline'`;
 
   return [
     "default-src 'self'",
