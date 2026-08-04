@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo } from "react";
-import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { DndContext, DragEndEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { BoardCard } from "./BoardCard";
 import { BoardToolbar } from "./BoardToolbar";
 import { NLCommandBar } from "./NLCommandBar";
@@ -31,9 +31,12 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // dnd-kit sensor — requires 8px drag threshold to prevent accidental drags on click
+  // dnd-kit sensors:
+  // - PointerSensor (mouse/stylus): 8px drag threshold to prevent accidental drags on click
+  // - TouchSensor: 250ms long-press delay before drag activates on mobile
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
 
   // Panning with mouse drag on canvas background
@@ -58,6 +61,34 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   function onMouseUp(e: React.MouseEvent) {
     isPanning.current = false;
     (e.currentTarget as HTMLDivElement).style.cursor = "grab";
+  }
+
+  // Touch panning — only activates when the touch did NOT start on a card.
+  // Card touches are handled by dnd-kit's TouchSensor after the long-press delay.
+  const touchOnCard = useRef(false);
+
+  function onTouchStart(e: React.TouchEvent) {
+    const onCard = !!(e.target as HTMLElement).closest("[data-board-card]");
+    touchOnCard.current = onCard;
+    if (onCard) return; // let dnd-kit handle card drags
+    if (e.touches.length !== 1) return;
+    lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    isPanning.current = true;
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    if (!isPanning.current || touchOnCard.current) return;
+    if (e.touches.length !== 1) return;
+    e.preventDefault(); // prevent native scroll while panning the canvas
+    const dx = e.touches[0].clientX - lastPos.current.x;
+    const dy = e.touches[0].clientY - lastPos.current.y;
+    setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+    lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }
+
+  function onTouchEnd() {
+    isPanning.current = false;
+    touchOnCard.current = false;
   }
 
   // Wheel to zoom
@@ -218,12 +249,15 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       {/* Canvas area */}
       <div
         ref={canvasRef}
-        className="absolute inset-0 overflow-hidden"
+        className="absolute inset-0 overflow-hidden touch-none"
         style={{ cursor: "grab" }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onWheel={onWheel}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
         {/* Dot grid background */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden>

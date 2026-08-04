@@ -42,6 +42,8 @@ export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
     zIndex: isDragging ? 100 : isSelected ? 10 : 1,
     opacity: isDragging ? 0.85 : 1,
     transition: isDragging ? "none" : "box-shadow 0.15s",
+    // Prevent browser from intercepting touch events so dnd-kit's TouchSensor fires
+    touchAction: "none",
   };
 
   const entity =
@@ -70,16 +72,18 @@ export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
       ref={setNodeRef}
       style={style}
       data-board-card
+      // Drag listeners on the whole card — desktop uses the header strip as a visual cue,
+      // touch devices activate drag after the 250 ms long-press configured in TouchSensor.
+      {...attributes}
+      {...listeners}
       className={`bg-white rounded-xl border-2 shadow-sm select-none transition-shadow group ${colors.border} ${
         isSelected ? "ring-2 ring-blue ring-offset-2 shadow-md" : "hover:shadow-md"
-      } ${isDragging ? "shadow-primary" : ""}`}
+      } ${isDragging ? "shadow-primary cursor-grabbing" : "cursor-grab"}`}
       onClick={onSelect}
     >
-      {/* Drag handle header strip — grip icon appears on hover */}
+      {/* Drag handle header strip — visual affordance on desktop */}
       <div
-        {...attributes}
-        {...listeners}
-        className={`${colors.header} h-1.5 rounded-t-lg cursor-grab active:cursor-grabbing relative`}
+        className={`${colors.header} h-1.5 rounded-t-lg relative`}
       >
         <GripVertical
           size={12}
@@ -138,7 +142,7 @@ export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
         {/* Hover hint */}
         {!isDragging && (
           <p className="mt-2 text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
-            Click to edit · Drag strip to move
+            Click to edit · Drag to move · Hold on mobile
           </p>
         )}
       </div>
