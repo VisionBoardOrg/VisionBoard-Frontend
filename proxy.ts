@@ -39,11 +39,11 @@ function generateNonce(): string {
 function buildCsp(): string {
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https: wss:",
+    "connect-src 'self' https: wss: https://cloudflareinsights.com",
     "frame-src 'none'",
     "frame-ancestors 'none'",
     "object-src 'none'",

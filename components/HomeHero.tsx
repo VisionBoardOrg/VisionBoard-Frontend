@@ -69,8 +69,8 @@ export default function HomeHero() {
       </div>
 
       {/* Marquee Banner */}
-      <div className="w-full bg-offwhite border-b border-border py-6 overflow-hidden flex whitespace-nowrap">
-        <div className="animate-marquee flex gap-12 text-[20px] font-bold text-slate/40 tracking-tight italic px-6">
+      <div className="w-full bg-offwhite border-b border-border py-4 md:py-6 overflow-hidden flex whitespace-nowrap">
+        <div className="animate-marquee flex gap-8 md:gap-12 text-[15px] md:text-[20px] font-bold text-slate/40 tracking-tight italic px-6">
           <span>Cross Team Planning</span>
           <span>AI Powered Roadmap</span>
           <span>Execution Visibility</span>

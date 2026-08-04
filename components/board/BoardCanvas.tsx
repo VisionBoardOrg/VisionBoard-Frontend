@@ -195,7 +195,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   return (
     <div
       className="relative w-full bg-white overflow-hidden rounded-2xl border border-border"
-      style={{ height: "calc(100vh - 112px)" }}
+      style={{ height: "calc(100dvh - 112px)", minHeight: "400px" }}
       tabIndex={0}
       onKeyDown={onKeyDown}
       aria-label="VisionBoard 2D canvas"

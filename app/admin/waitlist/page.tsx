@@ -252,21 +252,21 @@ export default function AdminWaitlistPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-2xl border border-border p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="bg-white rounded-2xl border border-border p-5 sm:p-6 shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-blue bg-blue-faint px-2.5 py-0.5 rounded-md border border-blue-light uppercase tracking-wider">Admin Console</span>
               <span className="text-xs text-slate">Waitlist Management</span>
             </div>
-            <h1 className="text-2xl font-bold text-ink">Waitlist Dispatcher</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-ink">Waitlist Dispatcher</h1>
             <p className="text-sm text-slate">Inspect candidates, evaluate company size, and dispatch magic sign-up tokens.</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-right">
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            <div className="text-left sm:text-right">
               <p className="text-2xl font-bold text-ink">{totalCount.toLocaleString()}</p>
               <p className="text-xs text-slate font-medium">Total Applicants</p>
             </div>
-            <button onClick={handleDispatchInvites} disabled={selectedCount === 0 || isDispatching} className="flex items-center gap-2 bg-blue text-white px-5 py-2.5 rounded-xl font-semibold text-xs shadow-sm hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            <button onClick={handleDispatchInvites} disabled={selectedCount === 0 || isDispatching} className="flex items-center gap-2 bg-blue text-white px-4 sm:px-5 py-2.5 rounded-xl font-semibold text-xs shadow-sm hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               <Send className="w-4 h-4" />
               <span>{isDispatching ? "Sending..." : `Dispatch Invites (${selectedCount})`}</span>
             </button>
@@ -331,7 +331,8 @@ export default function AdminWaitlistPage() {
         )}
 
         <div className="bg-white rounded-2xl border border-border shadow-sm overflow-hidden">
-          <table className="w-full text-left border-collapse">
+          <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[700px]">
             <thead>
               <tr className="bg-offwhite/60 border-b border-border text-[11px] font-bold text-slate uppercase tracking-wider">
                 <th className="p-4 w-10">
@@ -394,6 +395,7 @@ export default function AdminWaitlistPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </main>
       <Footer />

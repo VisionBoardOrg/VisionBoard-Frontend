@@ -5,9 +5,9 @@ export default function Footer() {
   return (
     <footer className="bg-[#2563EB] text-white w-full pt-14 pb-10 px-8 md:px-16 lg:px-24">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-10 pb-12">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-8 sm:gap-10 pb-12">
           {/* Left Column: Brand, Description & Socials */}
-          <div className="lg:col-span-2 space-y-4">
+          <div className="col-span-2 sm:col-span-3 lg:col-span-2 space-y-4">
             <Link href="/" className="inline-block hover:opacity-95 transition-opacity">
               <Logo markSize={30} textSize={24} inv markBg="transparent" markFg="#FFFFFF" />
             </Link>

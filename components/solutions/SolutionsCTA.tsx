@@ -9,7 +9,7 @@ export default function SolutionsCTA() {
 
   return (
     <section className="py-20 px-6 md:px-12 bg-offwhite border-t border-border flex justify-center">
-      <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-500 w-full max-w-5xl rounded-[32px] p-12 md:p-16 flex flex-col items-center text-center text-white shadow-xl relative overflow-hidden">
+      <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-500 w-full max-w-5xl rounded-[24px] md:rounded-[32px] p-8 sm:p-12 md:p-16 flex flex-col items-center text-center text-white shadow-xl relative overflow-hidden">
         {/* Background glow overlay */}
         <div className="absolute -top-20 -right-20 w-80 h-80 bg-white/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-20 w-80 h-80 bg-cyan-400/20 rounded-full blur-3xl pointer-events-none" />

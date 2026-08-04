@@ -99,9 +99,9 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div className="bg-white rounded-2xl border border-border p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
               <span className={`text-xs font-medium px-2.5 py-0.5 rounded-full capitalize ${
                 goal.status === "active" ? "bg-blue-faint text-blue" :
                 goal.status === "completed" ? "bg-green-100 text-success" : "bg-border text-muted"
@@ -113,7 +113,9 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
             <h1 className="text-xl font-bold text-ink">{goal.title}</h1>
             <p className="text-slate text-sm mt-2">{goal.objective}</p>
           </div>
-          <GoalHealthScore score={health} size="md" />
+          <div className="sm:shrink-0">
+            <GoalHealthScore score={health} size="md" />
+          </div>
         </div>
 
         {/* Key Results */}

@@ -41,12 +41,12 @@ export default async function DocsPage({ params }: DocsPageProps) {
   return (
     <AppShell workspaceId={id} role={session.user.role}>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-ink">Connected Docs</h1>
             <p className="text-slate text-sm mt-1">Rich-text documents linked directly to goals, milestones, and tasks</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <ImportDocButton workspaceId={id} />
             <Link
               href={`/workspace/${id}/docs/new`}

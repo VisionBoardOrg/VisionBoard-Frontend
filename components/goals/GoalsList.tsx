@@ -58,7 +58,7 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-ink">Goals</h1>
           <p className="text-slate text-sm mt-1">
@@ -68,7 +68,7 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
         {canCreate && (
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 bg-blue text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors"
+            className="self-start flex items-center gap-2 bg-blue text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors"
           >
             <Plus size={15} /> New goal
           </button>

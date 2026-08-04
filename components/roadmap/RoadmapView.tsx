@@ -100,14 +100,14 @@ export function RoadmapView({ workspaceId, goals, isGated, upgradePrompt, userRo
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-ink">Roadmap</h1>
           <p className="text-slate text-sm mt-1">Timeline view of goals and milestones</p>
         </div>
         {isGated && (
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
-            <Lock size={14} className="text-amber-500" />
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 sm:px-4 sm:py-2.5 self-start">
+            <Lock size={14} className="text-amber-500 shrink-0" />
             <span className="text-xs text-amber-700">{upgradePrompt ?? "Upgrade to view Gantt timeline"}</span>
           </div>
         )}

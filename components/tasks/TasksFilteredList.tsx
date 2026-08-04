@@ -134,7 +134,7 @@ export function TasksFilteredList({ tasks, workspaceId }: Props) {
                   return (
                     <div
                       key={task.id}
-                      className="bg-white rounded-2xl border border-border px-5 py-4 flex items-start gap-4 hover:border-blue/30 transition-colors"
+                      className="bg-white rounded-2xl border border-border px-4 sm:px-5 py-4 flex items-start gap-4 hover:border-blue/30 transition-colors"
                     >
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-3">
@@ -147,7 +147,7 @@ export function TasksFilteredList({ tasks, workspaceId }: Props) {
                           </p>
                           <div className={`flex items-center gap-1 text-xs shrink-0 ${pm.color}`}>
                             {pm.icon}
-                            <span>{pm.label}</span>
+                            <span className="hidden sm:inline">{pm.label}</span>
                           </div>
                         </div>
 

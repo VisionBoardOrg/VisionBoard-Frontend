@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
-  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown
+  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown, X, Menu
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
@@ -51,9 +51,21 @@ const PLAN_LABEL: Record<string, string> = {
 
 export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiCreditsMax }: AppShellProps) {
   const pathname = usePathname();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // On mobile the sidebar starts closed; on desktop it starts open
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const roleDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Initialise desktop sidebar state after hydration to avoid SSR mismatch
+  useEffect(() => {
+    setSidebarOpen(window.innerWidth >= 768);
+  }, []);
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
   // Close role dropdown on outside click
   useEffect(() => {
@@ -75,17 +87,13 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
     ? "Unlimited credits"
     : `${creditsUsed} / ${creditsMax} credits used`;
 
-  return (
-    <div className="flex h-screen bg-offwhite overflow-hidden">
-      {/* Sidebar */}
-      <aside
-        className={`flex flex-col bg-white border-r border-border transition-all duration-300 ${
-          sidebarOpen ? "w-56" : "w-14"
-        }`}
-      >
+  /** Shared sidebar content — rendered both in the fixed desktop aside and the mobile drawer */
+  function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
+    return (
+      <>
         {/* Logo */}
-        <div className="flex items-center gap-2 px-4 py-4 border-b border-border h-14">
-          {sidebarOpen ? (
+        <div className="flex items-center gap-2 px-4 py-4 border-b border-border h-14 shrink-0">
+          {sidebarOpen || mobileOpen ? (
             <Logo markSize={28} textSize={16} />
           ) : (
             <VBMark size={28} />
@@ -103,11 +111,13 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
                 ? pathname === "/workspaces"
                 : pathname === item.href || pathname.startsWith(item.href + "/");
             const isWorkspace = item.label === "Workspace";
+            const showLabel = sidebarOpen || mobileOpen;
             return (
               <Link
                 key={item.label}
                 href={item.href}
-                title={!sidebarOpen ? item.label : undefined}
+                title={!showLabel ? item.label : undefined}
+                onClick={onNavClick}
                 className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
                   active
                     ? "bg-blue-faint text-blue font-medium"
@@ -115,10 +125,10 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
                 }`}
               >
                 <Icon size={16} className="shrink-0" />
-                {sidebarOpen && (
+                {showLabel && (
                   <span className="flex-1 truncate">{item.label}</span>
                 )}
-                {sidebarOpen && isWorkspace && plan && (
+                {showLabel && isWorkspace && plan && (
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold leading-none ${
                     PLAN_BADGE[plan] ?? "bg-slate-100 text-slate-600"
                   }`}>
@@ -131,8 +141,8 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
         </nav>
 
         {/* AI Credits badge */}
-        {sidebarOpen && (
-          <div className="mx-3 mb-3 p-3 rounded-xl bg-blue-faint border border-blue-light">
+        {(sidebarOpen || mobileOpen) && (
+          <div className="mx-3 mb-3 p-3 rounded-xl bg-blue-faint border border-blue-light shrink-0">
             <div className="flex items-center gap-1.5 mb-1">
               <Zap size={12} className="text-blue" />
               <span className="text-xs font-semibold text-blue">AI Credits</span>
@@ -153,25 +163,76 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
         )}
 
         {/* Sign out */}
-        <div className="border-t border-border p-2">
+        <div className="border-t border-border p-2 shrink-0">
           <button
             onClick={() => signOut({ callbackUrl: "/auth/login" })}
             title="Sign out"
             className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg text-sm text-slate hover:bg-offwhite hover:text-ink transition-colors"
           >
             <LogOut size={16} className="shrink-0" />
-            {sidebarOpen && <span>Sign out</span>}
+            {(sidebarOpen || mobileOpen) && <span>Sign out</span>}
           </button>
         </div>
+      </>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-offwhite overflow-hidden">
+      {/* ── Mobile drawer overlay ── */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          aria-hidden="true"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* ── Mobile drawer ── */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r border-border w-64 transform transition-transform duration-300 md:hidden ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        aria-label="Mobile navigation"
+      >
+        {/* Close button */}
+        <button
+          onClick={() => setMobileOpen(false)}
+          className="absolute top-3 right-3 p-1.5 rounded-lg text-muted hover:text-ink hover:bg-offwhite transition-colors"
+          aria-label="Close navigation"
+        >
+          <X size={18} />
+        </button>
+        <SidebarContent onNavClick={() => setMobileOpen(false)} />
+      </aside>
+
+      {/* ── Desktop sidebar ── */}
+      <aside
+        className={`hidden md:flex flex-col bg-white border-r border-border transition-all duration-300 shrink-0 ${
+          sidebarOpen ? "w-56" : "w-14"
+        }`}
+        aria-label="Desktop navigation"
+      >
+        <SidebarContent />
       </aside>
 
       {/* Main */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Top bar */}
-        <header className="h-14 border-b border-border bg-white flex items-center px-4 gap-4 shrink-0">
+        <header className="h-14 border-b border-border bg-white flex items-center px-4 gap-3 shrink-0">
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="md:hidden text-muted hover:text-ink transition-colors p-1"
+            aria-label="Open navigation"
+          >
+            <Menu size={20} />
+          </button>
+
+          {/* Desktop sidebar toggle */}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="text-muted hover:text-ink transition-colors"
+            className="hidden md:block text-muted hover:text-ink transition-colors"
             aria-label="Toggle sidebar"
           >
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -191,12 +252,13 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
                 className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-blue-faint text-blue font-medium capitalize hover:bg-blue/10 transition-colors cursor-pointer"
                 aria-label="Switch role"
               >
-                {role.replace("_", " ")}
+                <span className="hidden sm:inline">{role.replace("_", " ")}</span>
+                <span className="sm:hidden">{role.charAt(0).toUpperCase()}</span>
                 <ChevronDown size={11} className={`transition-transform ${roleDropdownOpen ? "rotate-180" : ""}`} />
               </button>
 
               {roleDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-border rounded-2xl shadow-xl p-4 w-72">
+                <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-border rounded-2xl shadow-xl p-4 w-64 sm:w-72">
                   <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Switch dashboard view</p>
                   <RoleSwitcher
                     workspaceId={workspaceId}
@@ -210,7 +272,7 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
       </div>
     </div>
   );

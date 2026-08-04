@@ -53,7 +53,7 @@ export function ExecDashboard({ workspace, userName }: ExecDashboardProps) {
       </div>
 
       {/* Team alignment */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="bg-white rounded-2xl border border-border p-5">
           <div className="text-3xl font-bold text-ink">{workspace._count.members}</div>
           <div className="text-sm text-muted mt-1">Team members</div>

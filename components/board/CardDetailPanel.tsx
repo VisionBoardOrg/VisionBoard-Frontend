@@ -727,7 +727,7 @@ export function CardDetailPanel({
 
   return (
     <div
-      className="absolute right-0 top-0 bottom-0 w-80 bg-white border-l border-slate-200 shadow-xl z-30 flex flex-col"
+      className="absolute right-0 top-0 bottom-0 w-full sm:w-80 bg-white border-l border-slate-200 shadow-xl z-30 flex flex-col"
       style={{ animation: "slideInPanel 0.2s ease-out" }}
     >
       <style>{`

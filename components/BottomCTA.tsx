@@ -10,7 +10,7 @@ export default function BottomCTA() {
 
   return (
     <section className="py-24 px-6 flex justify-center">
-      <div className="bg-linear-to-br from-blue-deep to-cyan w-full max-w-5xl rounded-[32px] p-16 flex flex-col items-center text-center text-white shadow-xl relative overflow-hidden">
+      <div className="bg-linear-to-br from-blue-deep to-cyan w-full max-w-5xl rounded-[24px] md:rounded-[32px] p-8 sm:p-12 md:p-16 flex flex-col items-center text-center text-white shadow-xl relative overflow-hidden">
         {/* Accent blob */}
         <div className="absolute top-[-50%] right-[-10%] w-[400px] h-[400px] bg-blue-light/20 blur-[80px] rounded-full pointer-events-none" />
 

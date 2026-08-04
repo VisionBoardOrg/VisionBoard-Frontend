@@ -63,7 +63,7 @@ export default async function TasksPage({ params }: TasksPageProps) {
     <AppShell workspaceId={id} role={session.user.role}>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-ink">My Tasks</h1>
             <p className="text-slate text-sm mt-1">

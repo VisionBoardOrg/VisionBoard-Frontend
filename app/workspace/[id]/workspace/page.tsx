@@ -104,7 +104,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
         </div>
 
         {/* Quick stats */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
             { icon: Users, label: "Members", value: workspace.members.length },
             { icon: Hash, label: "Goals", value: workspace._count.goals },

@@ -192,7 +192,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
             {TIER_NAMES[plan as keyof typeof TIER_NAMES] ?? plan} Plan
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
             {([
               ["Workspaces",    (limits.workspaces as number) < 0   ? "Unlimited" : limits.workspaces],
               ["Team members",  (limits.members as number) < 0      ? "Unlimited" : limits.members],
