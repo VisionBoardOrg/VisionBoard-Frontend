@@ -193,7 +193,7 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
                       <span className="text-4xl lg:text-5xl font-extrabold text-slate-900 tracking-tight">
                         {displayPrice}
                       </span>
-                      <span className="text-sm font-medium text-slate-500">{plan.period}</span>
+                      <span className="text-sm font-medium text-slate-500">{"period" in plan ? plan.period : ""}</span>
                     </div>
                   )}
                   {isAnnual && !("priceCustom" in plan && plan.priceCustom) && !isFree && (

@@ -20,9 +20,6 @@ import { stripe, planFromPriceId } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import type Stripe from "stripe";
 
-// Tell Next.js NOT to parse the body — Stripe needs the raw bytes to verify
-// the webhook signature.
-export const config = { api: { bodyParser: false } };
 
 export async function POST(request: NextRequest) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
