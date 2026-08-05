@@ -43,8 +43,8 @@ function buildCsp(): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
     "font-src 'self' data:",
-    "connect-src 'self' https: wss: https://cloudflareinsights.com",
-    "frame-src 'none'",
+    "connect-src 'self' https: wss: https://cloudflareinsights.com https://api.stripe.com",
+    "frame-src 'none' https://js.stripe.com https://hooks.stripe.com",
     "frame-ancestors 'none'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -63,6 +63,11 @@ export async function proxy(request: NextRequest) {
       url.pathname = "/admin/login";
       return NextResponse.redirect(url);
     }
+  }
+
+  // ── 1b. Stripe Webhook — bypass all auth, must receive raw body ──────────────
+  if (pathname === "/api/stripe/webhook") {
+    return NextResponse.next();
   }
 
   // ── 2. Admin API Protection ────────────────────────────────────────────────

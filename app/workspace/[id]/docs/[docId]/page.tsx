@@ -27,7 +27,9 @@ export default async function EditDocPage({ params }: EditDocPageProps) {
   if (!doc || doc.workspaceId !== id) redirect(`/workspace/${id}/docs`);
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}>
+    <AppShell workspaceId={id} role={session.user.role}
+      userId={session.user.id}
+    >
       <DocEditor
         workspaceId={id}
         initialData={{

@@ -1,37 +1,22 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import PrimaryButton from "./reusables/primaryButton";
-import SecondaryButton from "./reusables/secondaryButton";
-import WaitlistTicker from "./waitlist/WaitlistTicker";
-import WaitlistModal from "./waitlist/WaitlistModal";
+import React from "react";
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import SecondaryButton from "./reusables/secondaryButton";
 
 export default function HomeHero() {
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
-  const [referredBy, setReferredBy] = useState<string>("");
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      const refCode = urlParams.get("ref");
-      if (refCode) {
-        queueMicrotask(() => {
-          setReferredBy(refCode.toUpperCase());
-          setIsWaitlistOpen(true);
-        });
-      }
-    }
-  }, []);
-
   return (
     <section className="relative pt-10 flex flex-col items-center justify-start overflow-hidden bg-offwhite">
       {/* Subtle dot grid */}
       <div className="absolute inset-0 bg-[radial-gradient(#DBEAFE_1.5px,transparent_1.5px)] bg-size-[24px_24px] opacity-70" />
 
       <div className="relative z-10 flex flex-col items-center justify-center gap-6 max-w-4xl text-center px-6 mt-6">
-        {/* Social Proof Waitlist Ticker */}
-        <WaitlistTicker />
+        {/* Social proof badge */}
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-faint border border-blue-light text-blue text-xs font-semibold shadow-sm">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span>Now live — no waitlist, sign up instantly</span>
+        </div>
 
         <h1 className="text-[52px] md:text-[64px] font-extrabold tracking-[-0.03em] text-ink leading-[1.1]">
           Work <span className="text-blue">smarter</span> together with AI, from <span className="text-blue">vision</span> to <span className="text-blue">execution</span>.
@@ -42,21 +27,22 @@ export default function HomeHero() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 mt-4">
-          <PrimaryButton
-            size="md"
-            onClick={() => setIsWaitlistOpen(true)}
-            className="w-full sm:w-auto px-8 py-3 text-base shadow-lg hover:shadow-xl transition-all"
-          >
-            <span className="flex items-center gap-2">
-              Join Exclusive Waitlist <ArrowRight size={18} />
-            </span>
-          </PrimaryButton>
+          <Link href="/auth/register">
+            <button
+              type="button"
+              className="w-full sm:w-auto px-8 py-3 text-base font-bold bg-blue text-white rounded-xl shadow-lg hover:shadow-xl hover:bg-blue-mid transition-all flex items-center gap-2"
+            >
+              Start for free <ArrowRight size={18} />
+            </button>
+          </Link>
           <a href="#features">
             <SecondaryButton size="md" className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm">
               Explore Features
             </SecondaryButton>
           </a>
         </div>
+
+        <p className="text-xs text-muted mt-1">No credit card required · Free plan available · Upgrade anytime</p>
       </div>
 
       {/* Wavy Background Container */}
@@ -102,13 +88,6 @@ export default function HomeHero() {
             }
         `,
         }}
-      />
-
-      {/* Waitlist Modal */}
-      <WaitlistModal
-        isOpen={isWaitlistOpen}
-        onClose={() => setIsWaitlistOpen(false)}
-        defaultReferredBy={referredBy}
       />
     </section>
   );

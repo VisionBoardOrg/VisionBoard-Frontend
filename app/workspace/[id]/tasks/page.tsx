@@ -60,7 +60,9 @@ export default async function TasksPage({ params }: TasksPageProps) {
   const doneCount = tasks.filter((t) => t.status === "done").length;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}>
+    <AppShell workspaceId={id} role={session.user.role}
+      userId={session.user.id}
+    >
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

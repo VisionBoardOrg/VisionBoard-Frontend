@@ -15,18 +15,7 @@ const registerSchema = z.object({
       (p) => /[^a-zA-Z]/.test(p),
       "Password must contain at least one number or symbol"
     ),
-  // Optional invite token — required when the app is in waitlist-only mode
-  inviteToken: z.string().optional(),
 });
-
-/**
- * Returns true when the app is operating in waitlist-only mode.
- * Set WAITLIST_MODE=true in your environment to require an invite token
- * for all new registrations.
- */
-function isWaitlistMode(): boolean {
-  return process.env.WAITLIST_MODE === "true";
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,41 +29,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email, password, inviteToken } = parsed.data;
-
-    // ── Invite token enforcement ──────────────────────────────────────────
-    if (isWaitlistMode()) {
-      if (!inviteToken) {
-        return NextResponse.json(
-          { error: "An invite token is required to register." },
-          { status: 403 }
-        );
-      }
-
-      // Validate and atomically consume the token in a transaction so two
-      // concurrent requests cannot both succeed with the same token.
-      const consumed = await prisma.$transaction(async (tx) => {
-        const entry = await tx.waitlistEntry.findUnique({
-          where: { inviteToken },
-        });
-
-        if (!entry) return null;
-        if (entry.status !== "INVITED") return null;
-        // Prevent token reuse: mark as registered immediately
-        return tx.waitlistEntry.update({
-          where: { id: entry.id },
-          data: { status: "REGISTERED" },
-        });
-      });
-
-      if (!consumed) {
-        return NextResponse.json(
-          { error: "Invalid or already-used invite token." },
-          { status: 403 }
-        );
-      }
-    }
-    // ──────────────────────────────────────────────────────────────────────
+    const { name, email, password } = parsed.data;
 
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {

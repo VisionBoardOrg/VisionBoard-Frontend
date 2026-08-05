@@ -26,7 +26,7 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
   const [member, goals] = await Promise.all([
     prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-      include: { workspace: { select: { plan: true, name: true } } },
+      include: { workspace: { select: { plan: true, name: true, ownerId: true } } },
     }),
     prisma.goal.findMany({
       where: { workspaceId: id },
@@ -42,7 +42,10 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
   const isGated = !limit.allowed;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role} plan={member.workspace.plan}>
+    <AppShell workspaceId={id} role={session.user.role} plan={member.workspace.plan}
+      userId={session.user.id}
+      isOwner={member.workspace.ownerId === session.user.id}
+    >
       <RoadmapView
         workspaceId={id}
         goals={goals as never}

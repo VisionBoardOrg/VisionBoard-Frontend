@@ -5,10 +5,8 @@ import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import Logo from "./reusables/Logo";
 import PrimaryButton from "./reusables/primaryButton";
-import WaitlistModal from "./waitlist/WaitlistModal";
 
 export default function Header() {
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -17,11 +15,6 @@ export default function Header() {
     { name: "Pricing", href: "/pricing" },
     { name: "Resources", href: "/#features" },
   ];
-
-  const handleOpenWaitlist = () => {
-    setIsMobileMenuOpen(false);
-    setIsWaitlistOpen(true);
-  };
 
   return (
     <header className="relative border-b border-border py-3 px-4 sm:px-8 bg-white mx-3 my-3 sm:m-4 rounded-xl border shadow-sm transition-all z-40">
@@ -44,10 +37,13 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/auth/login" className="hidden md:block text-sm font-medium text-slate hover:text-ink transition-colors px-3 py-2">
+            Sign in
+          </Link>
           <div className="hidden md:block">
-            <PrimaryButton size="sm" onClick={() => setIsWaitlistOpen(true)}>
-              Join Waitlist
-            </PrimaryButton>
+            <Link href="/auth/register">
+              <PrimaryButton size="sm">Get Started Free</PrimaryButton>
+            </Link>
           </div>
 
           <button
@@ -78,21 +74,24 @@ export default function Header() {
                   </Link>
                 </li>
               ))}
+              <li>
+                <Link
+                  href="/auth/login"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="block px-3 py-2 text-[15px] font-medium text-slate hover:text-blue hover:bg-slate-50 rounded-md transition-colors"
+                >
+                  Sign in
+                </Link>
+              </li>
             </ul>
           </nav>
-
           <div className="pt-2 border-t border-border">
-            <PrimaryButton size="md" className="w-full" onClick={handleOpenWaitlist}>
-              Join Waitlist
-            </PrimaryButton>
+            <Link href="/auth/register" onClick={() => setIsMobileMenuOpen(false)}>
+              <PrimaryButton size="md" className="w-full">Get Started Free</PrimaryButton>
+            </Link>
           </div>
         </div>
       )}
-
-      <WaitlistModal
-        isOpen={isWaitlistOpen}
-        onClose={() => setIsWaitlistOpen(false)}
-      />
     </header>
   );
 }

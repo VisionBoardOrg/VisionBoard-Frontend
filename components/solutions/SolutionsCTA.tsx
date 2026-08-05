@@ -1,12 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import SecondaryButton from "@/components/reusables/secondaryButton";
-import WaitlistModal from "../waitlist/WaitlistModal";
+import Link from "next/link";
 
 export default function SolutionsCTA() {
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
-
   return (
     <section className="py-20 px-6 md:px-12 bg-offwhite border-t border-border flex justify-center">
       <div className="bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-500 w-full max-w-5xl rounded-[24px] md:rounded-[32px] p-8 sm:p-12 md:p-16 flex flex-col items-center text-center text-white shadow-xl relative overflow-hidden">
@@ -22,18 +20,14 @@ export default function SolutionsCTA() {
           Start building aligned, visible, and high-impact product roadmaps today.
         </p>
 
-        <SecondaryButton
-          size="lg"
-          onClick={() => setIsWaitlistOpen(true)}
-          className="w-full sm:w-auto px-10 bg-white hover:bg-blue-50 text-blue font-bold shadow-md hover:scale-[1.02] transition-transform border-none cursor-pointer"
-        >
-          Join Waitlist
-        </SecondaryButton>
-
-        <WaitlistModal
-          isOpen={isWaitlistOpen}
-          onClose={() => setIsWaitlistOpen(false)}
-        />
+        <Link href="/auth/register">
+          <SecondaryButton
+            size="lg"
+            className="w-full sm:w-auto px-10 bg-white hover:bg-blue-50 text-blue font-bold shadow-md hover:scale-[1.02] transition-transform border-none cursor-pointer"
+          >
+            Get Started Free
+          </SecondaryButton>
+        </Link>
       </div>
     </section>
   );

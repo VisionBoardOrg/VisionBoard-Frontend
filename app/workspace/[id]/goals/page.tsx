@@ -45,7 +45,9 @@ export default async function GoalsPage({ params }: GoalsPageProps) {
   const canCreate = member.role === "admin" || member.role === "pm";
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}>
+    <AppShell workspaceId={id} role={session.user.role}
+      userId={session.user.id}
+    >
       <GoalsList workspaceId={id} goals={goals} canCreate={canCreate} />
     </AppShell>
   );

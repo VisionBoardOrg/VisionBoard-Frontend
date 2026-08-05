@@ -1,16 +1,17 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { Suspense } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { InviteMemberModal } from "@/components/settings/InviteMemberModal";
 import { PendingInvitesList } from "@/components/settings/PendingInvitesList";
 import { WorkspaceRenameInline } from "@/components/settings/WorkspaceRenameInline";
 import { InviteLinkSection } from "@/components/settings/InviteLinkSection";
+import { BillingSection } from "@/components/settings/BillingSection";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
-import Link from "next/link";
 import {
-  Users, CreditCard, Plug, Shield, ChevronRight,
-  MessageSquare, GitBranch, Kanban, Layout, Layers, Check, X, Building2,
+  Users, Plug, Shield, ChevronRight,
+  MessageSquare, GitBranch, Kanban, Layout, Layers, Building2,
 } from "lucide-react";
 
 interface SettingsPageProps { params: Promise<{ id: string }> }
@@ -83,6 +84,8 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
     <AppShell workspaceId={id} role={session.user.role} plan={plan}
       aiCreditsUsed={workspace.aiCreditsUsed}
       aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
+      userId={session.user.id}
+      isOwner={isOwner}
     >
       <div className="max-w-3xl mx-auto space-y-8">
 
@@ -182,48 +185,17 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
         </section>
 
         {/* ── Plan & Billing ── */}
-        <section className="bg-white rounded-2xl border border-border p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <CreditCard size={18} className="text-blue" />
-            <h2 className="font-semibold text-ink">Plan & Billing</h2>
-          </div>
-
-          <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold mb-5 ${TIER_COLORS[plan] ?? TIER_COLORS.free}`}>
-            {TIER_NAMES[plan as keyof typeof TIER_NAMES] ?? plan} Plan
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-            {([
-              ["Workspaces",    (limits.workspaces as number) < 0   ? "Unlimited" : limits.workspaces],
-              ["Team members",  (limits.members as number) < 0      ? "Unlimited" : limits.members],
-              ["AI credits/mo", (limits.aiCreditsPerMonth as number) < 0 ? "Unlimited" : limits.aiCreditsPerMonth],
-              ["Activity log",  (limits.activityLogDays as number) === -1 ? "Forever" : `${limits.activityLogDays} days`],
-              ["Timeline/Gantt",   limits.timelineGantt],
-              ["Sprint tracking",  limits.sprintTracking],
-              ["Integrations",     limits.integrations],
-              ["SSO/SAML",         limits.sso],
-            ] as [string, string | number | boolean][]).map(([label, value]) => (
-              <div key={label} className="flex items-center justify-between bg-offwhite rounded-xl px-4 py-2.5 text-sm">
-                <span className="text-slate">{label}</span>
-                {typeof value === "boolean" ? (
-                  value ? <Check size={16} className="text-emerald-600" /> : <X size={16} className="text-slate-400" />
-                ) : (
-                  <span className="font-semibold text-ink">{String(value)}</span>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {plan !== "enterprise" && (
-            <div className="bg-blue-faint border border-blue-light rounded-xl p-4">
-              <h3 className="font-semibold text-ink text-sm mb-1">Ready to upgrade?</h3>
-              <p className="text-xs text-slate mb-3">Unlock more AI credits, unlimited workspaces, integrations, and priority support.</p>
-              <a href="/pricing" className="inline-flex items-center gap-1 bg-blue text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-blue-mid transition-colors">
-                View pricing <ChevronRight size={14} />
-              </a>
-            </div>
-          )}
-        </section>
+        <Suspense fallback={<div className="bg-white rounded-2xl border border-border p-6 h-48 animate-pulse" />}>
+          <BillingSection
+            workspaceId={id}
+            plan={plan}
+            limits={limits}
+            isOwnerOrAdmin={isOwner || member.role === "admin"}
+            stripeCustomerId={workspace.stripeCustomerId ?? null}
+            stripeCurrentPeriodEnd={workspace.stripeCurrentPeriodEnd?.toISOString() ?? null}
+            stripeCancelAtPeriodEnd={workspace.stripeCancelAtPeriodEnd}
+          />
+        </Suspense>
 
         {/* ── Integrations ── */}
         <section className="bg-white rounded-2xl border border-border p-6">

@@ -127,19 +127,19 @@ export default function Footer() {
             <h3 className="font-bold text-white text-base mb-4">Legal</h3>
             <ul className="space-y-3 text-sm text-blue-100/90">
               <li>
-                <Link href="/" className="hover:text-white transition-colors">
+                <Link href="/privacy" className="hover:text-white transition-colors">
                   Privacy Policy
                 </Link>
               </li>
               <li>
-                <Link href="/" className="hover:text-white transition-colors">
-                  Terms of Use
+                <Link href="/terms" className="hover:text-white transition-colors">
+                  Terms of Service
                 </Link>
               </li>
               <li>
-                <Link href="/" className="hover:text-white transition-colors">
-                  Security
-                </Link>
+                <a href="mailto:legal@visionboard.app" className="hover:text-white transition-colors">
+                  Contact Legal
+                </a>
               </li>
             </ul>
           </div>

@@ -5,15 +5,22 @@ import { z } from "zod";
 
 const roleSchema = z.object({
   role: z.enum(["pm", "exec", "eng", "marketing", "admin"] as const),
-  targetUserId: z.string().optional(),
+  /** The member whose role is being changed. Required — callers pass their own
+   *  id when switching their own dashboard role, or another member's id when
+   *  an owner/admin manages the team. */
+  targetUserId: z.string(),
 });
 
 /**
  * PATCH /api/workspaces/[id]/members/role
  *
- * Only workspace owners and existing admins can change roles.
- * No member may change their own role (prevents self-escalation to admin).
- * Only the workspace owner may grant the "admin" role.
+ * Rules:
+ * - Any member may change their OWN role (dashboard view switch), EXCEPT:
+ *     • they may not self-assign "admin" unless they are already admin or owner.
+ * - Workspace owners and admins may change OTHER members' roles.
+ * - Only the workspace owner may grant "admin" to another member.
+ * - Nobody (including the owner) may use this endpoint to change the workspace
+ *   owner's role — use /transfer-ownership for that.
  */
 export async function PATCH(
   request: NextRequest,
@@ -37,23 +44,9 @@ export async function PATCH(
     }
 
     const { role, targetUserId } = parsed.data;
+    const isSelf = targetUserId === session.user.id;
 
-    // targetUserId must be explicitly provided — self-role-change is disallowed
-    if (!targetUserId) {
-      return NextResponse.json(
-        { error: "targetUserId is required." },
-        { status: 400 }
-      );
-    }
-
-    if (targetUserId === session.user.id) {
-      return NextResponse.json(
-        { error: "You cannot change your own role." },
-        { status: 403 }
-      );
-    }
-
-    // Verify requester is a member of this workspace (re-query DB for current role)
+    // Verify requester is a member of this workspace
     const requester = await prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
       include: { workspace: { select: { ownerId: true } } },
@@ -66,28 +59,39 @@ export async function PATCH(
     const isOwner = requester.workspace.ownerId === session.user.id;
     const isAdmin = requester.role === "admin";
 
-    // Only owners and admins may change roles
-    if (!isOwner && !isAdmin) {
-      return NextResponse.json(
-        { error: "Only workspace admins can change member roles." },
-        { status: 403 }
-      );
-    }
+    if (isSelf) {
+      // Self role switch — allowed for everyone, but non-admin/non-owner cannot
+      // self-escalate to admin.
+      if (role === "admin" && !isOwner && !isAdmin) {
+        return NextResponse.json(
+          { error: "You do not have permission to assign yourself the admin role." },
+          { status: 403 }
+        );
+      }
+    } else {
+      // Changing another member's role — requires owner or admin
+      if (!isOwner && !isAdmin) {
+        return NextResponse.json(
+          { error: "Only workspace admins can change other members' roles." },
+          { status: 403 }
+        );
+      }
 
-    // Only the workspace owner may grant admin role
-    if (role === "admin" && !isOwner) {
-      return NextResponse.json(
-        { error: "Only the workspace owner can grant admin role." },
-        { status: 403 }
-      );
-    }
+      // Only the workspace owner may grant admin to others
+      if (role === "admin" && !isOwner) {
+        return NextResponse.json(
+          { error: "Only the workspace owner can grant the admin role." },
+          { status: 403 }
+        );
+      }
 
-    // Prevent changing the owner's own role via this endpoint
-    if (targetUserId === requester.workspace.ownerId && !isOwner) {
-      return NextResponse.json(
-        { error: "Cannot change the workspace owner's role." },
-        { status: 403 }
-      );
+      // The workspace owner's role is managed via /transfer-ownership, not here
+      if (targetUserId === requester.workspace.ownerId) {
+        return NextResponse.json(
+          { error: "Use the transfer ownership flow to change the owner's role." },
+          { status: 403 }
+        );
+      }
     }
 
     // Verify the target is actually a member of this workspace

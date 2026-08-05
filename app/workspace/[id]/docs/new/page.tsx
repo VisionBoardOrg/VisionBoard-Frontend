@@ -26,7 +26,9 @@ export default async function NewDocPage({ params, searchParams }: NewDocPagePro
   ]);
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}>
+    <AppShell workspaceId={id} role={session.user.role}
+      userId={session.user.id}
+    >
       <DocEditor
         workspaceId={id}
         initialData={{

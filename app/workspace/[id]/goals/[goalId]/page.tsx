@@ -50,7 +50,9 @@ export default async function GoalPage({ params }: GoalPageProps) {
   if (!goal || goal.workspaceId !== id) redirect(`/workspace/${id}/board`);
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}>
+    <AppShell workspaceId={id} role={session.user.role}
+      userId={session.user.id}
+    >
       <GoalDetail goal={goal as never} workspaceId={id} userId={session.user.id} />
     </AppShell>
   );

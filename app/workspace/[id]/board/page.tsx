@@ -33,7 +33,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
     }),
     prisma.workspace.findUnique({
       where: { id },
-      select: { plan: true, aiCreditsUsed: true },
+      select: { plan: true, aiCreditsUsed: true, ownerId: true },
     }),
   ]);
 
@@ -82,6 +82,8 @@ export default async function BoardPage({ params }: BoardPageProps) {
       plan={workspace?.plan}
       aiCreditsUsed={workspace?.aiCreditsUsed}
       aiCreditsMax={workspace?.plan === "free" ? 10 : workspace?.plan === "startup" ? 100 : -1}
+      userId={session.user.id}
+      isOwner={workspace?.ownerId === session.user.id}
     >
       <BoardCanvas
         workspaceId={id}

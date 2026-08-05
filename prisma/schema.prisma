@@ -79,6 +79,12 @@ model Workspace {
   /// Incremented/decremented atomically on document create/delete so storage
   /// checks are O(1) instead of scanning all document content rows.
   storageUsedBytes BigInt         @default(0)
+  // ── Stripe Billing ────────────────────────────────────────────────────────
+  stripeCustomerId       String?  @unique
+  stripeSubscriptionId   String?  @unique
+  stripePriceId          String?
+  stripeCurrentPeriodEnd DateTime?
+  stripeCancelAtPeriodEnd Boolean @default(false)
   aiLogs        AIGenerationLog[]
   activityLogs  ActivityLog[]
   boardItems    BoardItem[]

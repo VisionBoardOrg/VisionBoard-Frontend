@@ -79,7 +79,10 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
   const isOwner = workspace.ownerId === session.user.id;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role} plan={plan}>
+    <AppShell workspaceId={id} role={session.user.role} plan={plan}
+      userId={session.user.id}
+      isOwner={isOwner}
+    >
       <div className="max-w-3xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex items-start gap-4">
@@ -141,6 +144,8 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
             workspaceId={id}
             currentRole={myRole}
             isAdmin={isAdmin}
+            userId={session.user.id}
+            isOwner={isOwner}
           />
         </section>
 

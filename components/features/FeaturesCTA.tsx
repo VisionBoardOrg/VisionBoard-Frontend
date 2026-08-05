@@ -1,11 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
-import WaitlistModal from "../waitlist/WaitlistModal";
+import React from "react";
+import Link from "next/link";
 
 export default function FeaturesCTA() {
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
-
   return (
     <section className="py-20 px-6 flex justify-center max-w-7xl mx-auto">
       <div className="bg-gradient-to-r from-blue-deep via-blue to-[#0EA5E9] w-full max-w-5xl rounded-[28px] sm:rounded-[36px] py-16 px-8 sm:px-14 flex flex-col items-center text-center text-white shadow-xl relative overflow-hidden">
@@ -20,17 +18,14 @@ export default function FeaturesCTA() {
           Join early teams building smarter workflows with VisionBoard.
         </p>
 
-        <button
-          onClick={() => setIsWaitlistOpen(true)}
-          className="bg-white text-blue hover:bg-blue-faint text-[16px] font-bold px-8 py-3.5 rounded-xl shadow-md transition-all cursor-pointer relative z-10"
-        >
-          Join Waitlist
-        </button>
-
-        <WaitlistModal
-          isOpen={isWaitlistOpen}
-          onClose={() => setIsWaitlistOpen(false)}
-        />
+        <Link href="/auth/register">
+          <button
+            type="button"
+            className="bg-white text-blue hover:bg-blue-faint text-[16px] font-bold px-8 py-3.5 rounded-xl shadow-md transition-all cursor-pointer relative z-10"
+          >
+            Get Started Free
+          </button>
+        </Link>
       </div>
     </section>
   );

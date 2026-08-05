@@ -1,13 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { ArrowRight } from "lucide-react";
 import SecondaryButton from "./reusables/secondaryButton";
-import WaitlistModal from "./waitlist/WaitlistModal";
+import Link from "next/link";
 
 export default function BottomCTA() {
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
-
   return (
     <section className="py-24 px-6 flex justify-center">
       <div className="bg-linear-to-br from-blue-deep to-cyan w-full max-w-5xl rounded-[24px] md:rounded-[32px] p-8 sm:p-12 md:p-16 flex flex-col items-center text-center text-white shadow-xl relative overflow-hidden">
@@ -18,22 +16,19 @@ export default function BottomCTA() {
           The future of team execution<br />starts here.
         </h2>
         <p className="text-blue-faint text-[16px] md:text-[18px] font-medium mb-10 max-w-[600px] relative z-10">
-          Join 1,480+ product leaders securing early access to AI-powered roadmaps, connected docs, and visual canvas execution.
+          Join thousands of product leaders using AI-powered roadmaps, connected docs, and visual canvas execution.
         </p>
-        <SecondaryButton
-          size="md"
-          onClick={() => setIsWaitlistOpen(true)}
-          className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm hover:bg-blue-faint transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            Join Early Access Waitlist <ArrowRight size={18} />
-          </span>
-        </SecondaryButton>
-
-        <WaitlistModal
-          isOpen={isWaitlistOpen}
-          onClose={() => setIsWaitlistOpen(false)}
-        />
+        <Link href="/auth/register">
+          <SecondaryButton
+            size="md"
+            className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm hover:bg-blue-faint transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              Get Started Free <ArrowRight size={18} />
+            </span>
+          </SecondaryButton>
+        </Link>
+        <p className="text-blue-faint/70 text-xs mt-4 relative z-10">No credit card required · Free plan available</p>
       </div>
     </section>
   );

@@ -1,122 +1,239 @@
+import React from "react";
 import Link from "next/link";
-import Logo from "@/components/reusables/Logo";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
 
-export const metadata = { title: "Privacy Policy — VisionBoard" };
+export const metadata = {
+  title: "Privacy Policy — VisionBoard",
+  description: "How VisionBoard collects, uses, and protects your personal data.",
+};
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-offwhite">
-      <header className="border-b border-border bg-white px-6 py-4 flex items-center gap-4">
-        <Link href="/"><Logo markSize={28} textSize={16} /></Link>
-        <span className="text-sm text-muted">/ Privacy Policy</span>
-      </header>
+    <div className="min-h-screen bg-offwhite flex flex-col">
+      <Header />
 
-      <main className="max-w-3xl mx-auto px-6 py-12 space-y-8">
-        <div>
-          <h1 className="text-3xl font-extrabold text-ink tracking-tight">Privacy Policy</h1>
-          <p className="text-slate text-sm mt-2">Last updated: August 2, 2026</p>
+      <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-14 space-y-6">
+        {/* Page Header */}
+        <div className="space-y-2">
+          <span className="text-xs font-bold tracking-wider text-blue uppercase bg-blue-faint px-3 py-1 rounded-full border border-blue-light">
+            Legal
+          </span>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-ink tracking-tight mt-3">
+            Privacy Policy
+          </h1>
+          <p className="text-slate text-sm">Last updated: August 5, 2026</p>
         </div>
 
+        <p className="text-slate text-sm leading-relaxed">
+          VisionBoard (&ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;) is committed to protecting your personal
+          information. This Privacy Policy explains what data we collect, how we use it, and your rights
+          regarding that data when you use our platform at{" "}
+          <a href="https://visionboard.app" className="text-blue hover:underline">
+            visionboard.app
+          </a>{" "}
+          (the &ldquo;Service&rdquo;).
+        </p>
+
         <Section title="1. Information We Collect">
-          We collect information you provide directly, including:
-          <ul className="list-disc pl-5 mt-2 space-y-1 text-slate">
-            <li>Account information: name, email address, profile picture.</li>
-            <li>Workspace data: goals, milestones, tasks, documents, and board items you create.</li>
-            <li>Usage data: feature interactions, session durations, and AI credit usage.</li>
-            <li>Communications: support requests and feedback you send us.</li>
+          We collect information you provide directly, as well as data generated through your use of
+          the Service:
+          <ul className="list-disc pl-5 mt-3 space-y-2 text-slate">
+            <li>
+              <strong className="text-ink">Account information:</strong> name, email address, and
+              profile picture provided during registration or OAuth sign-in.
+            </li>
+            <li>
+              <strong className="text-ink">Workspace data:</strong> goals, milestones, sprints, tasks,
+              board items, and documents you create within the Service.
+            </li>
+            <li>
+              <strong className="text-ink">AI interaction data:</strong> prompts submitted to AI
+              features (roadmap generator, goal deconstructor, natural language board editing) and
+              the responses generated. These are stored in an AI generation log.
+            </li>
+            <li>
+              <strong className="text-ink">Usage data:</strong> feature interactions, session
+              durations, page views, and AI credit consumption.
+            </li>
+            <li>
+              <strong className="text-ink">Billing data:</strong> subscription tier and billing
+              history. Payment card details are handled exclusively by Stripe and are never stored
+              on our servers.
+            </li>
+            <li>
+              <strong className="text-ink">Communications:</strong> messages you send to our support
+              team or feedback you submit.
+            </li>
           </ul>
         </Section>
 
         <Section title="2. How We Use Your Information">
-          We use your information to:
-          <ul className="list-disc pl-5 mt-2 space-y-1 text-slate">
-            <li>Provide, maintain, and improve the Service.</li>
-            <li>Process AI requests using Anthropic Claude (server-side only; your API key is never exposed to the browser).</li>
-            <li>Send transactional emails (workspace invitations, password resets) via Resend.</li>
-            <li>Enforce our Terms of Service and prevent abuse.</li>
+          We use your information solely to operate and improve the Service:
+          <ul className="list-disc pl-5 mt-3 space-y-2 text-slate">
+            <li>Provision and maintain your account and workspaces.</li>
+            <li>
+              Process AI requests via OpenRouter API — all calls are made server-side; your
+              data is never sent directly from your browser to OpenRouter or its underlying models.
+            </li>
+            <li>
+              Send transactional emails (workspace invitations, password resets, billing receipts)
+              via Resend.
+            </li>
+            <li>Process subscription payments and manage billing via Stripe.</li>
+            <li>Detect and prevent fraud, abuse, and violations of our Terms of Service.</li>
+            <li>Analyze aggregate usage patterns to improve product features.</li>
           </ul>
+          We do not use your data for advertising and we do not sell your data to any third party.
         </Section>
 
-        <Section title="3. Data Storage">
-          Your data is stored in a PostgreSQL database hosted on Supabase or a compatible PostgreSQL
-          provider. We use PgBouncer for connection pooling. Data is encrypted at rest and in transit
-          via TLS.
+        <Section title="3. Data Storage & Security">
+          <p>
+            Your data is stored in a PostgreSQL database (hosted on Supabase or a compatible
+            PostgreSQL provider) with PgBouncer connection pooling. All data is encrypted at rest
+            and in transit via TLS 1.2+.
+          </p>
+          <p className="mt-3">
+            Additional security measures include:
+          </p>
+          <ul className="list-disc pl-5 mt-2 space-y-2 text-slate">
+            <li>bcrypt hashing for passwords (minimum cost factor 12).</li>
+            <li>HTTP-only, secure, SameSite session cookies.</li>
+            <li>CSRF protection on all state-changing endpoints.</li>
+            <li>Rate limiting on authentication and AI endpoints.</li>
+          </ul>
         </Section>
 
         <Section title="4. Third-Party Services">
-          VisionBoard integrates with the following third parties:
-          <ul className="list-disc pl-5 mt-2 space-y-1 text-slate">
-            <li><strong>Anthropic Claude</strong> — AI roadmap and board features. Prompts and responses are stored in our AI generation log for audit purposes.</li>
-            <li><strong>Resend</strong> — Transactional email delivery (invites, password resets).</li>
-            <li><strong>Google OAuth</strong> — Optional sign-in via Google account.</li>
+          VisionBoard shares data with the following sub-processors solely to deliver the Service:
+          <ul className="list-disc pl-5 mt-3 space-y-2 text-slate">
+            <li>
+              <strong className="text-ink">OpenRouter</strong> — routes AI requests to the
+              underlying language models powering roadmap generation, goal deconstruction, and
+              natural language board editing. Prompts are transmitted server-side only; interaction
+              logs are retained for 90 days.
+            </li>
+            <li>
+              <strong className="text-ink">Stripe</strong> — handles all payment processing and
+              subscription management. We store only your Stripe customer ID and subscription
+              status; card details never touch our servers.
+            </li>
+            <li>
+              <strong className="text-ink">Resend</strong> — delivers transactional emails
+              (invitations, password resets, billing confirmations).
+            </li>
+            <li>
+              <strong className="text-ink">Google OAuth</strong> — optional sign-in via your Google
+              account. We receive only your name, email, and profile picture.
+            </li>
           </ul>
-          We do not sell your data to any third party.
+          No other third parties have access to your personal data.
         </Section>
 
         <Section title="5. Cookies & Sessions">
-          We use a secure, HTTP-only session cookie (JWT-based via NextAuth.js) to maintain your
-          authenticated session. No third-party tracking cookies are used.
+          We use a single secure, HTTP-only session cookie (JWT-based via NextAuth.js) to maintain
+          your authenticated session. This cookie is strictly necessary for the Service to function.
+          We do not use advertising cookies, tracking pixels, or any third-party analytics scripts.
         </Section>
 
         <Section title="6. Data Retention">
-          We retain your account data for as long as your account is active. If you delete your
-          account, your data is permanently removed within 30 days. AI generation logs are retained
-          for 90 days for quality and abuse monitoring.
+          <ul className="list-disc pl-5 mt-2 space-y-2 text-slate">
+            <li>
+              <strong className="text-ink">Active accounts:</strong> data is retained for as long
+              as your account remains active.
+            </li>
+            <li>
+              <strong className="text-ink">Deleted accounts:</strong> personal data is permanently
+              purged within 30 days of account deletion.
+            </li>
+            <li>
+              <strong className="text-ink">AI generation logs:</strong> retained for 90 days for
+              quality assurance and abuse monitoring, then permanently deleted.
+            </li>
+            <li>
+              <strong className="text-ink">Billing records:</strong> retained for 7 years as
+              required by applicable financial regulations.
+            </li>
+          </ul>
         </Section>
 
         <Section title="7. Your Rights">
-          Depending on your location, you may have rights to:
-          <ul className="list-disc pl-5 mt-2 space-y-1 text-slate">
-            <li>Access and export the personal data we hold about you.</li>
-            <li>Correct inaccurate data.</li>
-            <li>Request deletion of your account and associated data.</li>
+          Depending on your jurisdiction (including GDPR and CCPA), you may have the right to:
+          <ul className="list-disc pl-5 mt-3 space-y-2 text-slate">
+            <li>Access a copy of the personal data we hold about you.</li>
+            <li>Correct inaccurate or incomplete data.</li>
+            <li>Request deletion of your account and all associated data.</li>
+            <li>Export your workspace data in a portable format.</li>
             <li>Object to or restrict certain processing activities.</li>
+            <li>Withdraw consent where processing is based on consent.</li>
           </ul>
-          To exercise these rights, contact{" "}
+          <p className="mt-3">
+            To exercise any of these rights, email{" "}
+            <a href="mailto:privacy@visionboard.app" className="text-blue hover:underline">
+              privacy@visionboard.app
+            </a>
+            . We will respond within 30 days.
+          </p>
+        </Section>
+
+        <Section title="8. Children&apos;s Privacy">
+          VisionBoard is intended for users aged 16 and older. We do not knowingly collect personal
+          information from children under 16. If you believe a child has provided us with personal
+          data, please contact{" "}
           <a href="mailto:privacy@visionboard.app" className="text-blue hover:underline">
             privacy@visionboard.app
-          </a>.
+          </a>{" "}
+          and we will promptly delete it.
         </Section>
 
-        <Section title="8. Security">
-          We implement industry-standard security measures including TLS encryption, bcrypt password
-          hashing, CSRF protection, and rate limiting on all authentication endpoints.
-        </Section>
-
-        <Section title="9. Children's Privacy">
-          VisionBoard is not intended for users under the age of 16. We do not knowingly collect
-          personal information from children.
+        <Section title="9. International Transfers">
+          VisionBoard operates from Nigeria. If you are accessing the Service from outside Nigeria,
+          your data may be transferred to and processed in other countries where our sub-processors
+          (including Stripe, Resend, OpenRouter, and Google) operate. We ensure appropriate
+          safeguards are in place for such transfers, including Standard Contractual Clauses where
+          required under applicable data protection law.
         </Section>
 
         <Section title="10. Changes to This Policy">
-          We may update this Privacy Policy periodically. We will notify users of material changes
-          via email or an in-app notice at least 14 days before they take effect.
+          We may update this Privacy Policy from time to time. For material changes, we will notify
+          you by email or via an in-app notice at least 14 days before the changes take effect. The
+          &ldquo;Last updated&rdquo; date at the top of this page always reflects the most recent revision.
         </Section>
 
         <Section title="11. Contact">
-          For privacy-related questions or requests, contact us at{" "}
-          <a href="mailto:privacy@visionboard.app" className="text-blue hover:underline">
-            privacy@visionboard.app
-          </a>.
+          <p>
+            For privacy-related questions, data access requests, or to report a concern, contact us at:
+          </p>
+          <address className="not-italic mt-3 space-y-1 text-slate">
+            <p>VisionBoard Inc.</p>
+            <p>
+              Email:{" "}
+              <a href="mailto:privacy@visionboard.app" className="text-blue hover:underline">
+                privacy@visionboard.app
+              </a>
+            </p>
+          </address>
         </Section>
+
+        {/* Cross-links */}
+        <div className="flex items-center gap-3 pt-2 text-sm text-slate">
+          <span>Related:</span>
+          <Link href="/terms" className="text-blue hover:underline font-medium">
+            Terms of Service
+          </Link>
+        </div>
       </main>
 
-      <footer className="border-t border-border py-8 text-center text-xs text-muted">
-        <p>© 2026 VisionBoard Inc. All rights reserved.</p>
-        <div className="flex items-center justify-center gap-4 mt-2">
-          <Link href="/terms" className="hover:text-ink transition-colors">Terms</Link>
-          <Link href="/privacy" className="hover:text-ink transition-colors">Privacy</Link>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="bg-white rounded-2xl border border-border p-6">
-      <h2 className="font-bold text-ink text-lg mb-3">{title}</h2>
-      <div className="text-slate text-sm leading-relaxed">{children}</div>
+    <section className="bg-white rounded-2xl border border-border p-6 shadow-xs">
+      <h2 className="font-bold text-ink text-base mb-3">{title}</h2>
+      <div className="text-slate text-sm leading-relaxed space-y-2">{children}</div>
     </section>
   );
 }

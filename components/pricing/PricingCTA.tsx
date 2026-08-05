@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 
 export default function PricingCTA() {
   return (
@@ -18,14 +19,23 @@ export default function PricingCTA() {
             Start free with VisionBoard or contact sales for custom setup. Upgrade anytime as your roadmap grows.
           </p>
 
-          <div className="mt-8 flex justify-center">
-            <button
-              type="button"
-              className="bg-white hover:bg-blue-50 text-blue-700 font-bold text-sm md:text-base py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all duration-150 active:scale-[0.98]"
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+            <Link href="/auth/register">
+              <button
+                type="button"
+                className="bg-white hover:bg-blue-50 text-blue-700 font-bold text-sm md:text-base py-3 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all duration-150 active:scale-[0.98]"
+              >
+                Get Started Free
+              </button>
+            </Link>
+            <a
+              href="mailto:sales@visionboard.app"
+              className="text-sm font-semibold text-blue-200 hover:text-white transition-colors underline underline-offset-2"
             >
-              Get Started Free
-            </button>
+              Talk to sales →
+            </a>
           </div>
+          <p className="mt-4 text-xs text-blue-200/70">No credit card required · Free plan available · Cancel anytime</p>
         </div>
       </div>
     </section>

@@ -66,27 +66,39 @@ interface Props {
   currentRole: MemberRole;
   /** If true this user is an admin who can also change others' roles */
   isAdmin?: boolean;
+  /** The current user's own id — used for self role-switch (header dropdown) */
+  userId?: string;
+  /** Whether the current user is the workspace owner */
+  isOwner?: boolean;
   /** Optional: change another member's role */
   targetUserId?: string;
   targetName?: string;
   /** Compact single-column list layout — used in the header dropdown */
   compact?: boolean;
+  /** Called after a successful role save (e.g. to close the dropdown) */
+  onRoleChange?: () => void;
 }
 
 export function RoleSwitcher({
   workspaceId,
   currentRole,
   isAdmin = false,
+  userId,
+  isOwner = false,
   targetUserId,
   targetName,
   compact = false,
+  onRoleChange,
 }: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<MemberRole>(currentRole);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const isSelf = !targetUserId;
+
+  // When no explicit targetUserId is given we're doing a self-switch.
+  // Use the caller's own userId so the API receives a valid targetUserId.
+  const resolvedTargetId = targetUserId ?? userId;
 
   async function handleSave(role: MemberRole) {
     if (role === selected && !saving) {
@@ -97,13 +109,10 @@ export function RoleSwitcher({
     setSaved(false);
 
     try {
-      const body: Record<string, string> = { role };
-      if (targetUserId) body.targetUserId = targetUserId;
-
       const res = await fetch(`/api/workspaces/${workspaceId}/members/role`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ role, targetUserId: resolvedTargetId }),
       });
 
       const data = await res.json();
@@ -111,7 +120,10 @@ export function RoleSwitcher({
 
       setSelected(data.role);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      setTimeout(() => {
+        setSaved(false);
+        onRoleChange?.();
+      }, 1200);
       router.refresh();
     } catch (err: any) {
       setError(err.message);
@@ -206,7 +218,7 @@ export function RoleSwitcher({
       {saved && (
         <div className="flex items-center gap-2 text-xs text-emerald-600 mt-2">
           <CheckCircle2 size={13} />
-          {isSelf ? "Your role has been updated." : `${targetName ?? "Member"}'s role has been updated.`}
+          {!targetUserId ? "Your role has been updated." : `${targetName ?? "Member"}'s role has been updated.`}
         </div>
       )}
       {error && (

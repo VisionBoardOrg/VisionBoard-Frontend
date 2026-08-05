@@ -38,7 +38,10 @@ export default async function TemplatesPage({ params }: TemplatesPageProps) {
   };
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}>
+    <AppShell workspaceId={id} role={session.user.role}
+      userId={session.user.id}
+      isOwner={member.workspace.ownerId === session.user.id}
+    >
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-ink">Workspace Templates</h1>

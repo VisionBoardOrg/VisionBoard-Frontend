@@ -81,6 +81,8 @@ export default async function DashboardPage() {
     <AppShell workspaceId={workspaceId} role={role} plan={workspace.plan}
       aiCreditsUsed={workspace.aiCreditsUsed}
       aiCreditsMax={workspace.plan === "free" ? 10 : workspace.plan === "startup" ? 100 : -1}
+      userId={session.user.id}
+      isOwner={workspace.ownerId === session.user.id}
     >
       {role === "exec" && <ExecDashboard {...dashboardProps} />}
       {role === "eng" && <EngDashboard {...dashboardProps} />}

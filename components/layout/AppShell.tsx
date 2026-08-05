@@ -18,6 +18,10 @@ interface AppShellProps {
   role: string | null;
   plan?: string | null;
   children: React.ReactNode;
+  /** Current user's id — needed so the role switcher can send self-updates */
+  userId?: string | null;
+  /** Whether the current user is the workspace owner */
+  isOwner?: boolean;
   /** Live AI credits used — passed from server so sidebar stays accurate */
   aiCreditsUsed?: number;
   aiCreditsMax?: number;
@@ -49,7 +53,7 @@ const PLAN_LABEL: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
-export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiCreditsMax }: AppShellProps) {
+export function AppShell({ workspaceId, role, plan, children, userId, isOwner, aiCreditsUsed, aiCreditsMax }: AppShellProps) {
   const pathname = usePathname();
   // On mobile the sidebar starts closed; on desktop it starts open
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -252,8 +256,12 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
                 className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-blue-faint text-blue font-medium capitalize hover:bg-blue/10 transition-colors cursor-pointer"
                 aria-label="Switch role"
               >
-                <span className="hidden sm:inline">{role.replace("_", " ")}</span>
-                <span className="sm:hidden">{role.charAt(0).toUpperCase()}</span>
+                <span className="hidden sm:inline">
+                  {isOwner ? "Owner" : role.replace("_", " ")}
+                </span>
+                <span className="sm:hidden">
+                  {isOwner ? "O" : role.charAt(0).toUpperCase()}
+                </span>
                 <ChevronDown size={11} className={`transition-transform ${roleDropdownOpen ? "rotate-180" : ""}`} />
               </button>
 
@@ -263,7 +271,10 @@ export function AppShell({ workspaceId, role, plan, children, aiCreditsUsed, aiC
                   <RoleSwitcher
                     workspaceId={workspaceId}
                     currentRole={role as MemberRole}
+                    userId={userId ?? undefined}
+                    isOwner={isOwner}
                     compact
+                    onRoleChange={() => setRoleDropdownOpen(false)}
                   />
                 </div>
               )}
