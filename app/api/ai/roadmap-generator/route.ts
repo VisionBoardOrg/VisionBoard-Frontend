@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { z } from "zod";
 import { createHash } from "crypto";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openrouter = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free";
 
 const schema = z.object({
   workspaceId: z.string(),
@@ -82,18 +87,49 @@ export async function POST(request: NextRequest) {
 Generate 3-7 milestones. Return ONLY the JSON object.`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+    const response = await openrouter.chat.completions.create({
+      model: OPENROUTER_MODEL,
       max_tokens: 2000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: text }],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: text },
+      ],
     });
 
-    const raw = response.content
-      .filter((c): c is Anthropic.TextBlock => c.type === "text")
-      .map((c) => c.text).join("");
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    const result = JSON.parse(cleaned) as { milestones: unknown[] };
+    const raw = response.choices[0]?.message?.content ?? "";
+
+    // Guard: model returned nothing
+    if (!raw.trim()) {
+      console.warn("[api/ai/roadmap-generator] Model returned empty response. finish_reason:",
+        response.choices[0]?.finish_reason);
+      await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { aiCreditsUsed: { decrement: 1 } },
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: "The AI model returned an empty response. Please try again." },
+        { status: 503 }
+      );
+    }
+
+    // Strip <think>…</think> reasoning blocks
+    const withoutThink = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+    const cleaned = withoutThink.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+
+    let result: { milestones: unknown[] };
+    try {
+      result = JSON.parse(cleaned) as { milestones: unknown[] };
+    } catch {
+      console.warn("[api/ai/roadmap-generator] JSON parse failed. Raw response:", raw);
+      await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { aiCreditsUsed: { decrement: 1 } },
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: "The AI model returned an unreadable response. Please try again." },
+        { status: 422 }
+      );
+    }
 
     const log = await prisma.aIGenerationLog.create({
       data: {
@@ -101,7 +137,8 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
         feature: "roadmap_generator",
         promptInput: hashPrompt(text),
         modelOutput: JSON.stringify(result),
-        tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+        tokensUsed:
+          (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
         accepted: null,
       },
     });

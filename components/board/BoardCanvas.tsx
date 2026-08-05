@@ -8,7 +8,7 @@ import { NLCommandBar } from "./NLCommandBar";
 import { CardDetailPanel } from "./CardDetailPanel";
 import { Kanban } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple } from "@/types/board";
-import { useBoard } from "@/store/board-store";
+import { useBoard, useBoardStore } from "@/store/board-store";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
 interface BoardCanvasProps {
@@ -244,6 +244,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         onItemAdded={(item) => setItems([...items, item])}
         onGoalCreated={(goal) => setGoals((prev) => [...prev, goal])}
         onMilestoneCreated={(ms) => setMilestones((prev) => [...prev, ms])}
+        onItemsSynced={(newItems) => {
+            const current = useBoardStore.getState().items;
+            setItems([...current, ...(newItems as BoardItemFull[])]);
+          }}
       />
 
       {/* Canvas area */}

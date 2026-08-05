@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { prisma } from "@/lib/prisma";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { z } from "zod";
 import { createHash } from "crypto";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openrouter = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free";
 
 /** Hash a prompt string before logging — avoids storing raw business content verbatim. */
 function hashPrompt(input: string): string {
@@ -16,7 +21,7 @@ function hashPrompt(input: string): string {
 const schema = z.object({
   workspaceId: z.string(),
   // Cap length to limit prompt injection surface area
-  objective: z.string().min(10).max(2000),
+  objective: z.string().min(3).max(2000),
   targetDate: z.string().optional(),
   keyResults: z
     .array(
@@ -112,22 +117,53 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     .join("\n\n");
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+    const response = await openrouter.chat.completions.create({
+      model: OPENROUTER_MODEL,
       max_tokens: 2500,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userContent }],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userContent },
+      ],
     });
 
-    const raw = response.content
-      .filter((c): c is Anthropic.TextBlock => c.type === "text")
-      .map((c) => c.text)
-      .join("");
-    const cleaned = raw
+    const raw = response.choices[0]?.message?.content ?? "";
+
+    // Guard: model returned nothing
+    if (!raw.trim()) {
+      console.warn("[api/ai/goal-deconstructor] Model returned empty response. finish_reason:",
+        response.choices[0]?.finish_reason);
+      await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { aiCreditsUsed: { decrement: 1 } },
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: "The AI model returned an empty response. Please try again." },
+        { status: 503 }
+      );
+    }
+
+    // Strip <think>…</think> reasoning blocks
+    const withoutThink = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+
+    const cleaned = withoutThink
       .replace(/^```(?:json)?\s*/i, "")
       .replace(/\s*```\s*$/i, "")
       .trim();
-    const result = JSON.parse(cleaned);
+
+    let result: Record<string, unknown>;
+    try {
+      result = JSON.parse(cleaned);
+    } catch {
+      console.warn("[api/ai/goal-deconstructor] JSON parse failed. Raw response:", raw);
+      await prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { aiCreditsUsed: { decrement: 1 } },
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: "The AI model returned an unreadable response. Please try again." },
+        { status: 422 }
+      );
+    }
 
     await prisma.aIGenerationLog.create({
       data: {
@@ -136,7 +172,8 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
         feature: "goal_deconstructor",
         promptInput: hashPrompt(userContent),
         modelOutput: JSON.stringify(result),
-        tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+        tokensUsed:
+          (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
         accepted: null,
       },
     });

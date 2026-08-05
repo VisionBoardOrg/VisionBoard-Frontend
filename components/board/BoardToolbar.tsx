@@ -1,6 +1,6 @@
 "use client";
 
-import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw } from "lucide-react";
 import type { GoalSimple, MilestoneWithTasks, BoardItemFull } from "@/types/board";
 import { useState, useRef, useEffect } from "react";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
@@ -40,16 +40,46 @@ interface BoardToolbarProps {
   onMilestoneCreated: (milestone: MilestoneWithTasks) => void;
   /** Current board items — used to compute auto-layout positions */
   currentItems: BoardItemFull[];
+  /** Called with newly synced items after a sync */
+  onItemsSynced: (items: BoardItemFull[]) => void;
 }
 
 export function BoardToolbar({
   zoom, onZoomIn, onZoomOut, onZoomReset, onCommandOpen,
   workspaceId, goals, milestones, onItemAdded, onGoalCreated, onMilestoneCreated, currentItems,
+  onItemsSynced,
 }: BoardToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"goal" | "milestone" | null>(null);
   const [adding, setAdding] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Sync state
+  const [syncing, setSyncing] = useState(false);
+
+  // Detect milestones that don't have a board card yet
+  const coveredMilestoneIds = new Set(
+    currentItems.filter((i) => i.linkedMilestoneId).map((i) => i.linkedMilestoneId!)
+  );
+  const hasMissingCards = milestones.some((m) => !coveredMilestoneIds.has(m.id)) ||
+    goals.some((g) => !currentItems.some((i) => i.linkedGoalId === g.id));
+
+  async function syncMissingCards() {
+    setSyncing(true);
+    try {
+      const res = await fetch("/api/board-items/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.items?.length > 0) onItemsSynced(data.items);
+      }
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   // New goal modal state
   const [goalModalOpen, setGoalModalOpen] = useState(false);
@@ -294,6 +324,22 @@ export function BoardToolbar({
         </div>
 
         <div className="w-px h-5 bg-border mx-1" />
+
+        {/* Sync missing cards — only shown when some milestones/goals lack board items */}
+        {hasMissingCards && (
+          <>
+            <button
+              onClick={syncMissingCards}
+              disabled={syncing}
+              title="Add board cards for any goals or milestones that are missing one"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
+              <span>{syncing ? "Syncing…" : "Sync missing cards"}</span>
+            </button>
+            <div className="w-px h-5 bg-border mx-1" />
+          </>
+        )}
 
         {/* AI command bar */}
         <button

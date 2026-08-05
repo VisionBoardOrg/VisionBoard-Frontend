@@ -85,10 +85,13 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
 
   async function deconstructGoal() {
     setDeconstructLoading(true);
+    // Use objective if it has meaningful content, otherwise fall back to the
+    // goal title so very short or untitled goals don't hit the min-length error.
+    const objectiveText = goal.objective?.trim() || goal.title;
     const res = await fetch("/api/ai/goal-deconstructor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId, objective: goal.objective }),
+      body: JSON.stringify({ workspaceId, objective: objectiveText }),
     });
     const data = await res.json();
     if (res.ok) setDeconstructResult(data as DeconstructResult);
