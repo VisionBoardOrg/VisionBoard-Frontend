@@ -9,14 +9,17 @@ datasource db {
 }
 
 model User {
-  id              String            @id @default(cuid())
-  email           String            @unique
-  name            String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  emailVerified   DateTime?
-  image           String?
-  hashedPassword  String?
+  id                  String            @id @default(cuid())
+  email               String            @unique
+  name                String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  emailVerified       DateTime?
+  image               String?
+  hashedPassword      String?
+  /// Set when the user requests account deletion. The account is permanently
+  /// purged 30 days after this date by the nightly cleanup cron job.
+  scheduledDeletion   DateTime?
   aiLogs          AIGenerationLog[]
   accounts        Account[]
   activityLogs    ActivityLog[]

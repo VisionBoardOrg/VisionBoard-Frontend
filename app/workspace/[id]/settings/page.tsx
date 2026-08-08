@@ -43,8 +43,6 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   if (!member) redirect("/dashboard");
 
   // Auto-correct: workspace owner must always have admin role.
-  // Handles accounts created before this rule was enforced.
-  // Fire-and-forget — does not block page render; mutates in-memory for this render.
   if (member.workspace.ownerId === session.user.id && member.role !== "admin") {
     prisma.workspaceMember.update({
       where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
@@ -57,7 +55,6 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   const plan       = workspace.plan;
   const limits     = PLAN_LIMITS[plan];
   const isOwner    = workspace.ownerId === session.user.id;
-  // Owner always has full management rights regardless of stored role
   const canManage  = isOwner || member.role === "admin" || member.role === "pm";
   const canRename  = isOwner || member.role === "admin";
 
@@ -68,17 +65,8 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
       token: inv.token, createdAt: inv.createdAt.toISOString(),
     }));
 
-  // Fetch the existing open invite token (if any) to pre-populate the UI
   const openInvite = workspace.invites.find((inv) => inv.email === "__invite_link__");
   const openInviteToken = openInvite?.token ?? null;
-
-  const TIER_NAMES  = { free: "Free", startup: "Startup", growth: "Growth", enterprise: "Enterprise" };
-  const TIER_COLORS = {
-    free: "bg-slate-100 text-slate-700",
-    startup: "bg-cyan-50 text-cyan-700 border border-cyan-200",
-    growth: "bg-blue-faint text-blue border border-blue-light",
-    enterprise: "bg-violet-50 text-violet-700 border border-violet-200",
-  };
 
   return (
     <AppShell workspaceId={id} role={session.user.role} plan={plan}
@@ -91,11 +79,11 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
 
         {/* ── Header ── */}
         <div>
-          <h1 className="text-2xl font-bold text-ink">Settings</h1>
+          <h1 className="text-2xl font-bold text-ink">Workspace Settings</h1>
           <p className="text-slate text-sm mt-1">{workspace.name}</p>
         </div>
 
-        {/* ── Workspace identity (rename) ── */}
+        {/* ── Workspace identity ── */}
         <section className="bg-white rounded-2xl border border-border p-6">
           <div className="flex items-center gap-2 mb-5">
             <Building2 size={18} className="text-blue" />
@@ -147,7 +135,6 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
 
           <PendingInvitesList workspaceId={id} invites={pendingInvites} />
 
-          {/* Invite section — always visible to admin/pm */}
           {canManage ? (
             <div className="mt-5 pt-5 border-t border-border">
               <div className="flex items-center justify-between mb-3">
@@ -173,7 +160,6 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
             </p>
           )}
 
-          {/* ── Invite link / sharing ── */}
           <div className="mt-5 pt-5 border-t border-border">
             <InviteLinkSection
               workspaceId={id}

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
-  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown, X, Menu
+  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown, X, Menu, UserCircle,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
@@ -36,7 +36,8 @@ const NAV = (workspaceId: string) => [
   { href: `/workspace/${workspaceId}/docs`, label: "Docs", icon: FileText },
   { href: `/workspace/${workspaceId}/templates`, label: "Templates", icon: Layers },
   { href: "/workspaces", label: "Workspaces", icon: Building2 },
-  { href: `/workspace/${workspaceId}/settings`, label: "Settings", icon: Settings },
+  { href: `/workspace/${workspaceId}/settings`, label: "Workspace Settings", icon: Settings },
+  { href: "/account", label: "Account", icon: UserCircle },
 ];
 
 const PLAN_BADGE: Record<string, string> = {

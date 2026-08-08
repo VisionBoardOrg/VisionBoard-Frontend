@@ -457,3 +457,12 @@ BEGIN
   WHERE w.id = sub."workspaceId"
     AND w."storageUsedBytes" = 0;
 END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- 17. User TABLE — add scheduledDeletion for soft-delete / 30-day retention.
+--     Set when a user requests account deletion. A nightly cron job purges
+--     users whose scheduledDeletion date has passed.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "scheduledDeletion" TIMESTAMP(3);

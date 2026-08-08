@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, planFromPriceId } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
+import { sendPaymentConfirmationEmail, sendPaymentFailureEmail } from "@/lib/billing-email";
 import type Stripe from "stripe";
 
 
@@ -113,35 +114,73 @@ export async function POST(request: NextRequest) {
         break;
       }
 
-      // ── Invoice paid → reset monthly AI credits ──────────────────────────
+      // ── Invoice paid → reset monthly AI credits + send confirmation email ──
       case "invoice.payment_succeeded": {
-        const invoice      = event.data.object as Stripe.Invoice;
-        const customer     = invoice.customer as string;
-        // Only reset on subscription renewals, not the first payment
-        // (billing_reason: "subscription_cycle" | "subscription_create" | "manual" | etc.)
+        const invoice       = event.data.object as Stripe.Invoice;
+        const customer      = invoice.customer as string;
         const billingReason = (invoice as Stripe.Invoice & { billing_reason?: string }).billing_reason;
-        if (billingReason !== "subscription_cycle") break;
 
         const workspace = await prisma.workspace.findUnique({
           where: { stripeCustomerId: customer },
+          include: { owner: { select: { email: true } } },
         });
         if (!workspace) break;
 
-        await prisma.workspace.update({
-          where: { id: workspace.id },
-          data:  { aiCreditsUsed: 0 },
+        // Only reset credits on subscription cycle renewals, not the first payment
+        if (billingReason === "subscription_cycle") {
+          await prisma.workspace.update({
+            where: { id: workspace.id },
+            data:  { aiCreditsUsed: 0 },
+          });
+          console.log(`[stripe/webhook] AI credits reset for workspace ${workspace.id} (renewal)`);
+        }
+
+        // Send billing confirmation email to the workspace owner
+        const planLabel = workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1);
+        const amountPaid = invoice.amount_paid
+          ? `$${(invoice.amount_paid / 100).toFixed(2)}`
+          : "—";
+        const periodEnd = workspace.stripeCurrentPeriodEnd
+          ? workspace.stripeCurrentPeriodEnd.toLocaleDateString("en-US", {
+              year: "numeric", month: "long", day: "numeric",
+            })
+          : "—";
+
+        await sendPaymentConfirmationEmail({
+          to:         workspace.owner.email,
+          planLabel,
+          amount:     amountPaid,
+          periodEnd,
+          invoiceUrl: invoice.hosted_invoice_url ?? null,
         });
 
-        console.log(`[stripe/webhook] AI credits reset for workspace ${workspace.id} (renewal)`);
         break;
       }
 
-      // ── Payment failed ────────────────────────────────────────────────────
+      // ── Payment failed — send dunning email ───────────────────────────────
       case "invoice.payment_failed": {
         const invoice  = event.data.object as Stripe.Invoice;
         const customer = invoice.customer as string;
         console.warn("[stripe/webhook] Payment failed for Stripe customer:", customer);
-        // TODO: send a dunning email via Resend
+
+        const workspace = await prisma.workspace.findUnique({
+          where: { stripeCustomerId: customer },
+          include: { owner: { select: { email: true } } },
+        });
+        if (!workspace) break;
+
+        const planLabelFailed = workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1);
+        const amountDue = invoice.amount_due
+          ? `$${(invoice.amount_due / 100).toFixed(2)}`
+          : "—";
+
+        await sendPaymentFailureEmail({
+          to:         workspace.owner.email,
+          planLabel:  planLabelFailed,
+          amount:     amountDue,
+          invoiceUrl: invoice.hosted_invoice_url ?? null,
+        });
+
         break;
       }
 
