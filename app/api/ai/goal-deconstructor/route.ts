@@ -12,6 +12,8 @@ const openrouter = new OpenAI({
 });
 
 const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free";
+/** Hard timeout for the AI call — prevents blocking a Node.js worker indefinitely */
+const AI_TIMEOUT_MS = 25_000;
 
 /** Hash a prompt string before logging — avoids storing raw business content verbatim. */
 function hashPrompt(input: string): string {
@@ -57,7 +59,7 @@ export async function POST(request: NextRequest) {
   if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
   // ── Atomic credit debit (TOCTOU-safe) ──────────────────────────────────────
-  // We increment BEFORE the Anthropic call. If the AI call fails we decrement
+  // We increment BEFORE the AI call. If the AI call fails we decrement
   // in the catch block. This prevents concurrent requests from bypassing the
   // limit by racing past the read-before-write check.
   const creditLimit = PLAN_LIMITS[workspace.plan].aiCreditsPerMonth;
@@ -116,15 +118,22 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     .filter(Boolean)
     .join("\n\n");
 
+  // ── AbortSignal timeout — prevents a hung AI call from blocking the worker ──
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
   try {
-    const response = await openrouter.chat.completions.create({
-      model: OPENROUTER_MODEL,
-      max_tokens: 2500,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
-    });
+    const response = await openrouter.chat.completions.create(
+      {
+        model: OPENROUTER_MODEL,
+        max_tokens: 2500,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent },
+        ],
+      },
+      { signal: controller.signal }
+    );
 
     const raw = response.choices[0]?.message?.content ?? "";
 
@@ -165,7 +174,9 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
       );
     }
 
-    await prisma.aIGenerationLog.create({
+    // Fire-and-forget audit log — failure here should not affect the user response
+    // or roll back the successfully consumed credit.
+    prisma.aIGenerationLog.create({
       data: {
         workspaceId,
         userId: session.user.id,
@@ -176,11 +187,12 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
           (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
         accepted: null,
       },
-    });
+    }).catch((err: unknown) => console.error("[api/ai/goal-deconstructor] Log write failed:", err));
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error("[api/ai/goal-deconstructor]", err);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    console.error("[api/ai/goal-deconstructor]", isTimeout ? "Request timed out" : err);
 
     // Refund the credit — the AI call failed so no value was delivered
     await prisma.workspace.update({
@@ -188,6 +200,11 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
       data: { aiCreditsUsed: { decrement: 1 } },
     }).catch(() => { /* best-effort refund */ });
 
-    return NextResponse.json({ error: "AI generation failed." }, { status: 500 });
+    return NextResponse.json(
+      { error: isTimeout ? "AI request timed out. Please try again." : "AI generation failed." },
+      { status: isTimeout ? 504 : 500 }
+    );
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

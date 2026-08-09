@@ -32,28 +32,28 @@ export async function POST(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const [goal] = await prisma.$transaction([
-    prisma.goal.create({
-      data: {
-        workspaceId: parsed.data.workspaceId,
-        title: parsed.data.title,
-        objective: parsed.data.objective,
-        keyResults: parsed.data.keyResults,
-        targetDate: parsed.data.targetDate ? new Date(parsed.data.targetDate) : null,
-        status: parsed.data.status,
-        ownerId: session.user.id,
-      },
-    }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId: parsed.data.workspaceId,
-        userId: session.user.id,
-        entityType: "goal",
-        entityId: "pending",
-        action: "created",
-      },
-    }),
-  ]);
+  const goal = await prisma.goal.create({
+    data: {
+      workspaceId: parsed.data.workspaceId,
+      title: parsed.data.title,
+      objective: parsed.data.objective,
+      keyResults: parsed.data.keyResults,
+      targetDate: parsed.data.targetDate ? new Date(parsed.data.targetDate) : null,
+      status: parsed.data.status,
+      ownerId: session.user.id,
+    },
+  });
+
+  // Fire-and-forget audit log — non-blocking, now has the real entityId
+  prisma.activityLog.create({
+    data: {
+      workspaceId: parsed.data.workspaceId,
+      userId: session.user.id,
+      entityType: "goal",
+      entityId: goal.id,
+      action: "created",
+    },
+  }).catch((err: unknown) => console.error("[goals POST] Activity log failed:", err));
 
   return NextResponse.json({ goal }, { status: 201 });
 }
@@ -93,5 +93,8 @@ export async function GET(request: NextRequest) {
     prisma.goal.count({ where: { workspaceId } }),
   ]);
 
-  return NextResponse.json({ goals, total, page, limit });
+  return NextResponse.json(
+    { goals, total, page, limit },
+    { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } }
+  );
 }

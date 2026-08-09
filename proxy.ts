@@ -24,12 +24,6 @@ const PROTECTED_PREFIXES = ["/dashboard", "/workspace", "/onboarding"];
 // Routes that authenticated users should not see
 const AUTH_ROUTES = ["/auth/login", "/auth/register"];
 
-/** Generate a cryptographically random nonce for CSP. Edge-compatible. */
-function generateNonce(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes));
-}
 
 /**
  * Build the Content-Security-Policy header value for a given nonce.
@@ -107,22 +101,13 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // ── 4. Security headers + nonce-based CSP ─────────────────────────────────
-  // Skip CSP injection for static assets and API routes (no HTML to nonce)
+  // ── 4. Security headers + CSP ────────────────────────────────────────────
+  // Skip CSP injection for static assets and API routes (no HTML to protect)
   const isHtmlRoute = !pathname.startsWith("/api/") &&
     !pathname.startsWith("/_next/") &&
     !pathname.match(/\.(ico|png|jpg|jpeg|svg|webp|woff2?|ttf|css|js|map)$/);
 
-  const nonce = generateNonce();
-  const response = NextResponse.next({
-    request: {
-      headers: new Headers({
-        ...Object.fromEntries(request.headers.entries()),
-        // Pass nonce to Next.js so it can inject it on <script> tags
-        "x-nonce": nonce,
-      }),
-    },
-  });
+  const response = NextResponse.next();
 
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");

@@ -12,6 +12,8 @@ const openrouter = new OpenAI({
 });
 
 const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free";
+/** Hard timeout for the AI call — prevents blocking a Node.js worker indefinitely */
+const AI_TIMEOUT_MS = 25_000;
 
 const schema = z.object({
   workspaceId: z.string(),
@@ -86,15 +88,22 @@ export async function POST(request: NextRequest) {
 }
 Generate 3-7 milestones. Return ONLY the JSON object.`;
 
+  // ── AbortSignal timeout — prevents a hung AI call from blocking the worker ──
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
   try {
-    const response = await openrouter.chat.completions.create({
-      model: OPENROUTER_MODEL,
-      max_tokens: 2000,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: text },
-      ],
-    });
+    const response = await openrouter.chat.completions.create(
+      {
+        model: OPENROUTER_MODEL,
+        max_tokens: 2000,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: text },
+        ],
+      },
+      { signal: controller.signal }
+    );
 
     const raw = response.choices[0]?.message?.content ?? "";
 
@@ -131,21 +140,29 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
       );
     }
 
-    const log = await prisma.aIGenerationLog.create({
-      data: {
-        workspaceId, userId: session.user.id,
-        feature: "roadmap_generator",
-        promptInput: hashPrompt(text),
-        modelOutput: JSON.stringify(result),
-        tokensUsed:
-          (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
-        accepted: null,
-      },
-    });
+    // Audit log creation with fallback
+    let generationId: string | undefined;
+    try {
+      const log = await prisma.aIGenerationLog.create({
+        data: {
+          workspaceId, userId: session.user.id,
+          feature: "roadmap_generator",
+          promptInput: hashPrompt(text),
+          modelOutput: JSON.stringify(result),
+          tokensUsed:
+            (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
+          accepted: null,
+        },
+      });
+      generationId = log.id;
+    } catch (err) {
+      console.error("[api/ai/roadmap-generator] Log write failed:", err);
+    }
 
-    return NextResponse.json({ milestones: result.milestones, generationId: log.id });
+    return NextResponse.json({ milestones: result.milestones, generationId });
   } catch (err) {
-    console.error("[api/ai/roadmap-generator]", err);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    console.error("[api/ai/roadmap-generator]", isTimeout ? "Request timed out" : err);
 
     // Refund the credit — the AI call failed so no value was delivered
     await prisma.workspace.update({
@@ -153,6 +170,11 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
       data: { aiCreditsUsed: { decrement: 1 } },
     }).catch(() => { /* best-effort refund */ });
 
-    return NextResponse.json({ error: "AI generation failed." }, { status: 500 });
+    return NextResponse.json(
+      { error: isTimeout ? "AI request timed out. Please try again." : "AI generation failed." },
+      { status: isTimeout ? 504 : 500 }
+    );
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { GoalHealthScore } from "@/components/dashboard/GoalHealthScore";
 import { computeGoalHealth } from "@/lib/dashboard-utils";
-import { Zap, FileText, MessageCircle, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle } from "lucide-react";
+import { Zap, FileText, MessageCircle, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, Plus, X } from "lucide-react";
 import Link from "next/link";
 
 interface KeyResult { id: string; title: string; target: number; current: number; unit: string }
@@ -59,9 +59,19 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
   const [deconstructResult, setDeconstructResult] = useState<DeconstructResult | null>(null);
   const [deconstructLoading, setDeconstructLoading] = useState(false);
 
+  // Milestone creation state
+  const [milestones, setMilestones] = useState(goal.milestones);
+  const [showAddMilestone, setShowAddMilestone] = useState(false);
+  const [msTitle, setMsTitle] = useState("");
+  const [msDescription, setMsDescription] = useState("");
+  const [msTargetDate, setMsTargetDate] = useState("");
+  const [msStatus, setMsStatus] = useState("planned");
+  const [msSubmitting, setMsSubmitting] = useState(false);
+  const [msError, setMsError] = useState("");
+
   const health = computeGoalHealth({
     ...goal,
-    milestones: goal.milestones.map((m) => ({
+    milestones: milestones.map((m) => ({
       ...m,
       tasks: m.tasks.map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
     })),
@@ -85,8 +95,6 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
 
   async function deconstructGoal() {
     setDeconstructLoading(true);
-    // Use objective if it has meaningful content, otherwise fall back to the
-    // goal title so very short or untitled goals don't hit the min-length error.
     const objectiveText = goal.objective?.trim() || goal.title;
     const res = await fetch("/api/ai/goal-deconstructor", {
       method: "POST",
@@ -96,6 +104,50 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
     const data = await res.json();
     if (res.ok) setDeconstructResult(data as DeconstructResult);
     setDeconstructLoading(false);
+  }
+
+  async function createMilestone(e: React.FormEvent) {
+    e.preventDefault();
+    if (!msTitle.trim()) {
+      setMsError("Milestone title is required.");
+      return;
+    }
+    setMsSubmitting(true);
+    setMsError("");
+    try {
+      const res = await fetch("/api/milestones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId,
+          goalId: goal.id,
+          title: msTitle.trim(),
+          description: msDescription.trim() || undefined,
+          targetDate: msTargetDate ? new Date(msTargetDate).toISOString() : null,
+          status: msStatus,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        setMsError(data.error ?? "Failed to create milestone.");
+        return;
+      }
+      const data = await res.json();
+      const newMs = {
+        ...data.milestone,
+        tasks: data.milestone.tasks ?? [],
+      };
+      setMilestones((prev) => [...prev, newMs]);
+      setMsTitle("");
+      setMsDescription("");
+      setMsTargetDate("");
+      setMsStatus("planned");
+      setShowAddMilestone(false);
+    } catch {
+      setMsError("An unexpected error occurred.");
+    } finally {
+      setMsSubmitting(false);
+    }
   }
 
   return (
@@ -202,33 +254,125 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
 
       {/* Milestones */}
       <div className="bg-white rounded-2xl border border-border p-6">
-        <h2 className="font-semibold text-ink mb-4">Milestones ({goal.milestones.length})</h2>
-        <div className="space-y-3">
-          {goal.milestones.map((ms) => (
-            <div key={ms.id} className="border border-border rounded-xl p-4">
-              <div className="flex items-center gap-2 mb-2">
-                {STATUS_ICON[ms.status]}
-                <span className="font-medium text-ink text-sm">{ms.title}</span>
-                {ms.targetDate && (
-                  <span className="text-xs text-muted ml-auto">
-                    {new Date(ms.targetDate).toLocaleDateString()}
-                  </span>
-                )}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-ink">Milestones ({milestones.length})</h2>
+          <button
+            onClick={() => setShowAddMilestone(true)}
+            className="text-sm text-blue hover:underline flex items-center gap-1 font-medium transition-colors"
+          >
+            <Plus size={14} /> Add Milestone
+          </button>
+        </div>
+
+        {/* Inline Create Form */}
+        {showAddMilestone && (
+          <form onSubmit={createMilestone} className="mb-4 bg-offwhite border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-semibold text-ink uppercase tracking-wide">New Milestone</h3>
+              <button
+                type="button"
+                onClick={() => { setShowAddMilestone(false); setMsError(""); }}
+                className="text-muted hover:text-ink p-1 rounded-lg transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {msError && (
+              <p className="text-xs text-danger font-medium bg-red-50 border border-red-200 rounded-lg p-2">{msError}</p>
+            )}
+            <div>
+              <input
+                type="text"
+                value={msTitle}
+                onChange={(e) => setMsTitle(e.target.value)}
+                placeholder="Milestone title (e.g. Core Architecture Setup)"
+                className="w-full border border-border bg-white rounded-xl px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue/30"
+                autoFocus
+              />
+            </div>
+            <div>
+              <textarea
+                value={msDescription}
+                onChange={(e) => setMsDescription(e.target.value)}
+                placeholder="Description (optional)"
+                rows={2}
+                className="w-full border border-border bg-white rounded-xl px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue/30"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate mb-1">Target Date</label>
+                <input
+                  type="date"
+                  value={msTargetDate}
+                  onChange={(e) => setMsTargetDate(e.target.value)}
+                  className="w-full border border-border bg-white rounded-xl px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue/30"
+                />
               </div>
-              {ms.description && <p className="text-xs text-slate mb-2">{ms.description}</p>}
-              <div className="flex flex-wrap gap-1.5">
-                {ms.tasks.slice(0, 5).map((t) => (
-                  <span key={t.id} className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                    t.status === "done" ? "bg-green-50 border-green-200 text-success" :
-                    t.status === "blocked" ? "bg-red-50 border-red-200 text-danger" :
-                    "bg-offwhite border-border text-slate"
-                  }`}>{t.title.slice(0, 30)}</span>
-                ))}
-                {ms.tasks.length > 5 && <span className="text-[10px] text-muted">+{ms.tasks.length - 5} more</span>}
+              <div>
+                <label className="block text-xs font-medium text-slate mb-1">Status</label>
+                <select
+                  value={msStatus}
+                  onChange={(e) => setMsStatus(e.target.value)}
+                  className="w-full border border-border bg-white rounded-xl px-3 py-2 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue/30"
+                >
+                  <option value="planned">Planned</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="delayed">Delayed</option>
+                </select>
               </div>
             </div>
-          ))}
-        </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setShowAddMilestone(false); setMsError(""); }}
+                className="px-3 py-1.5 text-xs text-slate hover:text-ink font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={msSubmitting}
+                className="bg-blue text-white px-4 py-1.5 rounded-xl text-xs font-semibold hover:bg-blue-mid disabled:opacity-50 transition-colors"
+              >
+                {msSubmitting ? "Creating…" : "Create Milestone"}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Milestones list */}
+        {milestones.length === 0 ? (
+          <p className="text-sm text-muted">No milestones created for this goal yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {milestones.map((ms) => (
+              <div key={ms.id} className="border border-border rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  {STATUS_ICON[ms.status]}
+                  <span className="font-medium text-ink text-sm">{ms.title}</span>
+                  {ms.targetDate && (
+                    <span className="text-xs text-muted ml-auto">
+                      {new Date(ms.targetDate).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                {ms.description && <p className="text-xs text-slate mb-2">{ms.description}</p>}
+                <div className="flex flex-wrap gap-1.5">
+                  {ms.tasks.slice(0, 5).map((t) => (
+                    <span key={t.id} className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                      t.status === "done" ? "bg-green-50 border-green-200 text-success" :
+                      t.status === "blocked" ? "bg-red-50 border-red-200 text-danger" :
+                      "bg-offwhite border-border text-slate"
+                    }`}>{t.title.slice(0, 30)}</span>
+                  ))}
+                  {ms.tasks.length > 5 && <span className="text-[10px] text-muted">+{ms.tasks.length - 5} more</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Documents */}

@@ -1,7 +1,13 @@
 "use client";
 
 import { Goal, Milestone, Sprint, Task, Workspace, WorkspaceMember, User } from "@prisma/client";
-import { GoalHealthScore } from "./GoalHealthScore";
+import dynamic from "next/dynamic";
+
+const GoalHealthScore = dynamic(
+  () => import("./GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
+  { ssr: false }
+);
+
 import { MetricBar } from "./MetricBar";
 import { AlertBanner } from "./AlertBanner";
 import { computeGoalHealth } from "@/lib/dashboard-utils";

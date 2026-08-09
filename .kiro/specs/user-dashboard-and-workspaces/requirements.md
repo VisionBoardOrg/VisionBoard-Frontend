@@ -56,13 +56,15 @@ The codebase already contains partial implementations (e.g., `app/dashboard/page
 
 #### Acceptance Criteria
 
-1. THE Dashboard_Page SHALL display the authenticated user's display name retrieved from `User.name`.
+1. THE Dashboard_Page SHALL display the authenticated user's display name retrieved from `User.name`; IF `User.name` is null or empty, THE Dashboard_Page SHALL display the user's email address as a fallback.
 2. THE Dashboard_Page SHALL display the authenticated user's email address retrieved from `User.email`.
 3. THE Dashboard_Page SHALL display the total count of workspaces the user belongs to, computed as the number of distinct `WorkspaceMember` records whose `userId` matches the current user.
 4. THE Dashboard_Page SHALL display the total count of tasks assigned to the current user, computed as the number of `Task` records whose `assigneeId` matches the current user across all workspaces the user is a member of.
 5. THE Dashboard_Page SHALL display the task completion rate, computed as `(count of assigned tasks with status = "done") / (total assigned tasks) × 100`, rounded to one decimal place.
 6. IF the user has zero assigned tasks, THEN THE Dashboard_Page SHALL display a task completion rate of 0.0%.
-7. THE Dashboard_Page SHALL render the Navigation Menu for authenticated users via the `AppShell` component.
+7. IF the user has one or more assigned tasks and none have `status = "done"`, THEN THE Dashboard_Page SHALL display a task completion rate of 0.0%.
+8. THE Dashboard_Page SHALL render the Navigation Menu for authenticated users via the `AppShell` component.
+9. IF the data fetch for profile, workspace count, or task metrics fails, THEN THE Dashboard_Page SHALL display an error state for the affected widget and SHALL NOT crash the entire page.
 
 ---
 
@@ -73,11 +75,13 @@ The codebase already contains partial implementations (e.g., `app/dashboard/page
 #### Acceptance Criteria
 
 1. THE Navigation_Menu SHALL include a link to `/dashboard` labelled "Dashboard".
-2. THE Navigation_Menu SHALL include a link to the active workspace's board view at `/workspace/{workspaceId}/board`.
+2. THE Navigation_Menu SHALL include a link to the active workspace's board view at `/workspace/{workspaceId}/board` labelled "Board".
 3. THE Navigation_Menu SHALL include a link to `/workspaces` labelled "Workspaces".
 4. THE Navigation_Menu SHALL include a link to `/account` labelled "Account".
-5. THE Navigation_Menu SHALL include a sign-out action that, when activated, calls `signOut` and redirects the user to `/auth/login`.
-6. WHILE the user is viewing a page whose path matches a navigation item's `href`, THE Navigation_Menu SHALL render that item in its active/highlighted state.
+5. WHEN the user activates the sign-out action, THE Navigation_Menu SHALL call `signOut` and redirect the user to `/auth/login`.
+6. IF the redirect to `/auth/login` fails after sign-out, THE Auth_System SHALL keep the user signed out regardless and SHALL NOT restore the session.
+7. WHEN the current page path exactly matches a navigation item's `href`, OR the current path starts with the item's `href` followed by `/`, THE Navigation_Menu SHALL render that item in its active/highlighted state.
+8. IF no active workspace exists at the time the Navigation_Menu renders, THEN the board link SHALL be hidden or rendered in a disabled state rather than pointing to an invalid URL.
 
 ---
 
@@ -91,7 +95,7 @@ The codebase already contains partial implementations (e.g., `app/dashboard/page
 2. THE Workspaces_Page SHALL display for each workspace: workspace name, plan badge, the user's role in that workspace, an owner indicator (if the user is the owner), member count, goal count, and document count.
 3. THE Workspaces_Page SHALL display the count of workspaces the user owns alongside the user's plan workspace quota (e.g., "2 of 5 owned workspaces used on the Startup plan").
 4. WHEN the user clicks the "Open" action on a workspace card, THE Workspaces_Page SHALL navigate to `/workspace/{workspaceId}/board`.
-5. IF no workspaces exist for the user, THEN THE Workspaces_Page SHALL render an empty-state message with a prompt to create the first workspace.
+5. IF no workspaces exist for the user, or all workspaces the user is a member of have been deleted or are otherwise inaccessible, THEN THE Workspaces_Page SHALL render an empty-state message with a prompt to create the first workspace.
 6. IF the session is absent when `/workspaces` is requested, THEN THE Workspaces_Page SHALL redirect to `/auth/login`.
 
 ---
@@ -102,10 +106,11 @@ The codebase already contains partial implementations (e.g., `app/dashboard/page
 
 #### Acceptance Criteria
 
-1. WHEN a user navigates to `/workspace/{workspaceId}/tasks`, THE Workspace_API SHALL return only `Task` records that belong to milestones scoped to goals within the specified workspace.
+1. WHEN a user navigates to `/workspace/{workspaceId}/tasks`, THE Workspace_API SHALL apply workspace scoping before returning any tasks; THE tasks view SHALL NOT display tasks until workspace filtering has been applied.
 2. THE tasks view at `/workspace/{workspaceId}/tasks` SHALL display the task title, status, priority, and assignee name for each task in the workspace.
 3. WHILE viewing the tasks for a specific workspace, THE Navigation_Menu SHALL highlight the "My Tasks" link as active.
-4. IF the user is not a member of the specified workspace, THEN THE Dashboard_Page SHALL return a 403 response or redirect to `/dashboard`.
+4. IF the user is not a member of the specified workspace at the time of the request, THEN THE tasks view SHALL return a 403 response or redirect the user to `/dashboard`.
+5. WHEN a user loses workspace membership while actively viewing the workspace tasks page, THE tasks view SHALL immediately redirect the user to `/dashboard` or render a 403 error.
 
 ---
 
@@ -118,10 +123,13 @@ The codebase already contains partial implementations (e.g., `app/dashboard/page
 1. WHEN a user on the `free` plan attempts to create a workspace and already owns 1 or more workspaces, THE Workspace_API SHALL return a 403 response with a message indicating the plan limit has been reached.
 2. WHEN a user on the `free` plan owns zero workspaces, THE Workspace_API SHALL allow the creation of exactly 1 workspace.
 3. WHEN a user on the `startup` plan attempts to create a workspace and already owns 5 or more workspaces, THE Workspace_API SHALL return a 403 response with a message indicating the plan limit has been reached.
-4. WHEN a user on the `growth` plan or `enterprise` plan attempts to create a workspace, THE Workspace_API SHALL allow workspace creation without a quota restriction on owned workspaces.
-5. WHEN any plan-tier user is invited to a workspace as a member, THE Workspace_API SHALL allow the user to join the workspace regardless of how many workspaces the user already owns.
-6. THE Plan_Limit_Service SHALL evaluate only owned workspaces (where `Workspace.ownerId = user.id`) when checking the `create_workspace` quota; member workspaces SHALL NOT count toward the creation limit.
-7. IF a 403 response is returned due to quota exhaustion, THEN THE Workspace_API SHALL include an `upgradePrompt` field in the response body directing the user to upgrade their plan.
+4. WHEN a user on the `startup` plan owns fewer than 5 workspaces, THE Workspace_API SHALL allow workspace creation.
+5. WHEN a user on the `growth` plan or `enterprise` plan attempts to create a workspace, THE Workspace_API SHALL allow workspace creation without a quota restriction on owned workspaces.
+6. WHEN any plan-tier user is invited to a workspace as a member, THE Workspace_API SHALL allow the user to join the workspace regardless of how many workspaces the user already owns.
+7. IF evaluating the workspace creation quota, THE Plan_Limit_Service SHALL count only workspaces where `Workspace.ownerId = user.id`; member workspaces SHALL NOT count toward the creation limit.
+8. IF a 403 response is returned due to quota exhaustion, THEN THE Workspace_API SHALL include an `upgradePrompt` field in the response body containing a non-empty string directing the user to upgrade their plan.
+9. WHEN workspace creation succeeds and the user has exactly 1 remaining workspace slot for their plan, THE Workspace_API SHALL include an `upgradePrompt` field in the 201 response body containing a non-empty string informing the user they are approaching their limit.
+10. IF the Plan_Limit_Service returns an error or is otherwise unavailable when checking the `create_workspace` quota, THEN THE Workspace_API SHALL block workspace creation and return a 403 response.
 
 ---
 
@@ -132,19 +140,18 @@ The codebase already contains partial implementations (e.g., `app/dashboard/page
 #### Acceptance Criteria
 
 1. THE Template_Registry SHALL include a `blank` template option with the name "Blank", a description indicating it starts with no content, and an empty `goals` array and empty `sprints` array.
-2. WHEN a workspace is created using the `blank` template, THE Seed_Service SHALL create the workspace and its owner `WorkspaceMember` record but SHALL NOT create any `Goal`, `Milestone`, `Task`, `Sprint`, or `BoardItem` records.
+2. WHEN a workspace is created using the `blank` template, THE Seed_Service SHALL create the workspace record and its owner `WorkspaceMember` record but SHALL NOT create any `Goal`, `Milestone`, `Task`, `Sprint`, or `BoardItem` records.
 3. THE Workspaces_Page creation modal SHALL display the `blank` template as a selectable option alongside the existing templates.
 4. THE Onboarding flow at `/onboarding` SHALL display the `blank` template as a selectable option in the template selection step.
-5. WHEN the `blank` template is selected, THE Dashboard_Page (or workspace board view after creation) SHALL render an empty-state indicator prompting the user to create their first goal or task.
+5. WHEN the `blank` template is selected and the workspace is opened, the board view SHALL render an empty-state indicator prompting the user to create their first goal or task.
 
 ---
 
 ### Requirement 8: Workspace Creation — Consistent Post-Creation Redirect
 
-**User Story:** As a user who has just created a workspace, I want to be taken directly to the new workspace, so that I can start working without extra navigation steps.
+**User Story:** As a user who has just created a workspace, I want to be taken directly to the new workspace from any creation entry point, so that I can start working without extra navigation steps.
 
 #### Acceptance Criteria
 
-1. WHEN a workspace is successfully created via the Workspaces_Page modal, THE Workspaces_Page SHALL navigate the user to `/workspace/{newWorkspaceId}/board`.
-2. WHEN a workspace is successfully created via the Onboarding flow, THE Onboarding flow SHALL navigate the user to `/workspace/{newWorkspaceId}/board`.
-3. WHEN a workspace creation request fails due to a plan limit, THE Workspace_API SHALL return a 403 response and THE UI SHALL display the error message without navigating away from the current page.
+1. WHEN a workspace is successfully created from any entry point (Workspaces_Page modal, Onboarding flow, or any future creation surface), THE creating flow SHALL navigate the user to `/workspace/{newWorkspaceId}/board`.
+2. WHEN a workspace creation request fails due to a plan limit, THE Workspace_API SHALL return a 403 response and THE creating UI SHALL display the error message without navigating away from the current page.

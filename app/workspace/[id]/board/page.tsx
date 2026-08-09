@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -8,14 +9,20 @@ interface BoardPageProps {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * React.cache() deduplicates this query within a single request — both
+ * generateMetadata and the page component call it, but Prisma only runs once.
+ */
+const getWorkspace = cache((id: string) =>
+  prisma.workspace.findUnique({
+    where: { id },
+    select: { name: true, plan: true, aiCreditsUsed: true, ownerId: true },
+  })
+);
+
 export async function generateMetadata({ params }: BoardPageProps) {
   const { id } = await params;
-  // Reuse the same select shape fetched in the page to avoid an extra connection.
-  // Next.js deduplicates fetch/cache calls but not Prisma — keep it minimal.
-  const workspace = await prisma.workspace.findUnique({
-    where: { id },
-    select: { name: true },
-  });
+  const workspace = await getWorkspace(id);
   return { title: `Board — ${workspace?.name ?? "VisionBoard"}` };
 }
 
@@ -25,16 +32,13 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
   const { id } = await params;
 
-  // Fold the membership check into the workspace query so we use one fewer
-  // connection, then run the remaining data queries in parallel.
+  // Membership check + workspace data run in parallel.
+  // getWorkspace is deduplicated with generateMetadata's call via React.cache().
   const [memberCheck, workspace] = await Promise.all([
     prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
     }),
-    prisma.workspace.findUnique({
-      where: { id },
-      select: { plan: true, aiCreditsUsed: true, ownerId: true },
-    }),
+    getWorkspace(id),
   ]);
 
   if (!memberCheck) redirect("/dashboard");
@@ -71,9 +75,12 @@ export default async function BoardPage({ params }: BoardPageProps) {
         tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true } },
       },
     }),
+    // Hard cap on members — enterprise workspaces with 500+ members would load
+    // all user records on every board load. The assignee picker loads on-demand.
     prisma.workspaceMember.findMany({
       where: { workspaceId: id },
       include: { user: { select: { id: true, name: true, image: true } } },
+      take: 100,
     }),
   ]);
 

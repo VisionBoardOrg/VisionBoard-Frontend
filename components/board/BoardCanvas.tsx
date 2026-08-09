@@ -1,15 +1,75 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo } from "react";
+import { useSession } from "next-auth/react";
 import { DndContext, DragEndEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { BoardCard } from "./BoardCard";
 import { BoardToolbar } from "./BoardToolbar";
 import { NLCommandBar } from "./NLCommandBar";
 import { CardDetailPanel } from "./CardDetailPanel";
+import { LiveCursorsCanvas } from "./LiveCursorsCanvas";
 import { Kanban } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple } from "@/types/board";
 import { useBoard, useBoardStore } from "@/store/board-store";
-import { useWebSocket } from "@/hooks/useWebSocket";
+import { useWebSocket, type RemoteCursor } from "@/hooks/useWebSocket";
+
+// ── Module-level pure functions — defined outside the component so they are
+// stable references and do not cause useMemo dependencies to change every render.
+
+type Point = { x: number; y: number };
+type Edge = "right" | "left" | "bottom" | "top";
+
+const COLOR_PALETTE = [
+  "#2563EB", "#10B981", "#F59E0B", "#EC4899", "#8B5CF6", "#06B6D4", "#F97316", "#14B8A6"
+];
+
+function getUserColor(id?: string | null): string {
+  if (!id) return "#2563EB";
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return COLOR_PALETTE[Math.abs(hash) % COLOR_PALETTE.length];
+}
+
+function cardEdges(item: BoardItemFull): Record<Edge, Point> {
+  const w = item.width  ?? 200;
+  const h = item.height ?? 120;
+  return {
+    right:  { x: item.x + w,     y: item.y + h / 2 },
+    left:   { x: item.x,         y: item.y + h / 2 },
+    bottom: { x: item.x + w / 2, y: item.y + h     },
+    top:    { x: item.x + w / 2, y: item.y          },
+  };
+}
+
+function dist(a: Point, b: Point) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function smartConnector(src: BoardItemFull, tgt: BoardItemFull): string {
+  const srcEdges = cardEdges(src);
+  const tgtEdges = cardEdges(tgt);
+  const edges: Edge[] = ["right", "left", "bottom", "top"];
+  let best = { srcEdge: "right" as Edge, tgtEdge: "left" as Edge, d: Infinity };
+  for (const se of edges) {
+    for (const te of edges) {
+      if (se === te) continue;
+      const d = dist(srcEdges[se], tgtEdges[te]);
+      if (d < best.d) best = { srcEdge: se, tgtEdge: te, d };
+    }
+  }
+  const p1 = srcEdges[best.srcEdge];
+  const p2 = tgtEdges[best.tgtEdge];
+  const CTRL = Math.max(40, best.d * 0.35);
+  const offsets: Record<Edge, Point> = {
+    right:  { x:  CTRL, y: 0 }, left: { x: -CTRL, y: 0 },
+    bottom: { x: 0, y:  CTRL }, top:  { x: 0, y: -CTRL },
+  };
+  const c1 = { x: p1.x + offsets[best.srcEdge].x, y: p1.y + offsets[best.srcEdge].y };
+  const c2 = { x: p2.x + offsets[best.tgtEdge].x, y: p2.y + offsets[best.tgtEdge].y };
+  return `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
+}
 
 interface BoardCanvasProps {
   workspaceId: string;
@@ -21,7 +81,17 @@ interface BoardCanvasProps {
 
 export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, milestones: initialMilestones, members }: BoardCanvasProps) {
   const { items, moveItem, setItems } = useBoard(workspaceId, initialItems);
-  const { sendEvent } = useWebSocket(workspaceId);
+
+  // Read current logged-in user session for presence broadcasting
+  const { data: session } = useSession();
+  const currentUserId = session?.user?.id;
+  const currentUserName = session?.user?.name || "Teammate";
+  const currentUserImage = session?.user?.image;
+  const currentUserColor = useMemo(() => getUserColor(currentUserId), [currentUserId]);
+
+  // ── Single WebSocket instance for this board session ─────────────────────
+  const { sendEvent, cursors } = useWebSocket(workspaceId);
+
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [commandOpen, setCommandOpen] = useState(false);
@@ -31,9 +101,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // dnd-kit sensors:
-  // - PointerSensor (mouse/stylus): 8px drag threshold to prevent accidental drags on click
-  // - TouchSensor: 250ms long-press delay before drag activates on mobile
+  // dnd-kit sensors
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
@@ -42,6 +110,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   // Panning with mouse drag on canvas background
   const isPanning = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
+  const lastCursorEmitRef = useRef<number>(0);
 
   function onMouseDown(e: React.MouseEvent) {
     if ((e.target as HTMLElement).closest("[data-board-card]")) return;
@@ -51,11 +120,35 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   }
 
   function onMouseMove(e: React.MouseEvent) {
-    if (!isPanning.current) return;
-    const dx = e.clientX - lastPos.current.x;
-    const dy = e.clientY - lastPos.current.y;
-    setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
-    lastPos.current = { x: e.clientX, y: e.clientY };
+    if (isPanning.current) {
+      const dx = e.clientX - lastPos.current.x;
+      const dy = e.clientY - lastPos.current.y;
+      setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    }
+
+    // Broadcast mouse position in canvas coordinates (throttled to ~25fps / 40ms)
+    if (currentUserId && canvasRef.current) {
+      const now = Date.now();
+      if (now - lastCursorEmitRef.current >= 40) {
+        lastCursorEmitRef.current = now;
+        const rect = canvasRef.current.getBoundingClientRect();
+        const canvasX = (e.clientX - rect.left - pan.x) / zoom;
+        const canvasY = (e.clientY - rect.top - pan.y) / zoom;
+
+        sendEvent({
+          type: "CURSOR_MOVED",
+          workspaceId,
+          userId: currentUserId,
+          userName: currentUserName,
+          userColor: currentUserColor,
+          userImage: currentUserImage,
+          x: canvasX,
+          y: canvasY,
+          selectedCardId: selectedId,
+        });
+      }
+    }
   }
 
   function onMouseUp(e: React.MouseEvent) {
@@ -63,14 +156,13 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     (e.currentTarget as HTMLDivElement).style.cursor = "grab";
   }
 
-  // Touch panning — only activates when the touch did NOT start on a card.
-  // Card touches are handled by dnd-kit's TouchSensor after the long-press delay.
+  // Touch panning
   const touchOnCard = useRef(false);
 
   function onTouchStart(e: React.TouchEvent) {
     const onCard = !!(e.target as HTMLElement).closest("[data-board-card]");
     touchOnCard.current = onCard;
-    if (onCard) return; // let dnd-kit handle card drags
+    if (onCard) return;
     if (e.touches.length !== 1) return;
     lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     isPanning.current = true;
@@ -79,7 +171,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   function onTouchMove(e: React.TouchEvent) {
     if (!isPanning.current || touchOnCard.current) return;
     if (e.touches.length !== 1) return;
-    e.preventDefault(); // prevent native scroll while panning the canvas
+    e.preventDefault();
     const dx = e.touches[0].clientX - lastPos.current.x;
     const dy = e.touches[0].clientY - lastPos.current.y;
     setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
@@ -109,6 +201,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     }
   }
 
+  // Persist drag — debounced 400 ms
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, delta } = event;
@@ -121,70 +216,46 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
 
       moveItem(itemId, newX, newY);
 
-      // Broadcast card move to other WebSocket clients
+      // Broadcast card move to other WebSocket clients immediately
       sendEvent({
         type: "CARD_UPDATED",
         workspaceId,
         boardItem: { ...item, x: newX, y: newY },
       });
 
-      // Persist to backend
-      fetch(`/api/board-items/${itemId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ x: newX, y: newY }),
-      });
+      // Debounce DB write
+      if (persistTimer.current) clearTimeout(persistTimer.current);
+      persistTimer.current = setTimeout(() => {
+        fetch(`/api/board-items/${itemId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ x: newX, y: newY }),
+        });
+      }, 400);
     },
     [items, zoom, moveItem, sendEvent, workspaceId]
   );
 
-  // ── SVG connector lines — O(N) with Map lookups instead of O(N²) finds ───
-  type Point = { x: number; y: number };
-  type Edge = "right" | "left" | "bottom" | "top";
-
-  function cardEdges(item: BoardItemFull): Record<Edge, Point> {
-    const w = item.width  ?? 200;
-    const h = item.height ?? 120;
-    return {
-      right:  { x: item.x + w,     y: item.y + h / 2 },
-      left:   { x: item.x,         y: item.y + h / 2 },
-      bottom: { x: item.x + w / 2, y: item.y + h     },
-      top:    { x: item.x + w / 2, y: item.y          },
-    };
-  }
-
-  function dist(a: Point, b: Point) {
-    return Math.hypot(b.x - a.x, b.y - a.y);
-  }
-
-  function smartConnector(src: BoardItemFull, tgt: BoardItemFull): string {
-    const srcEdges = cardEdges(src);
-    const tgtEdges = cardEdges(tgt);
-    const edges: Edge[] = ["right", "left", "bottom", "top"];
-    let best = { srcEdge: "right" as Edge, tgtEdge: "left" as Edge, d: Infinity };
-    for (const se of edges) {
-      for (const te of edges) {
-        if (se === te) continue;
-        const d = dist(srcEdges[se], tgtEdges[te]);
-        if (d < best.d) best = { srcEdge: se, tgtEdge: te, d };
+  // Map remote viewers selecting cards
+  const remoteViewersByCardId = useMemo(() => {
+    const map = new Map<string, RemoteCursor[]>();
+    for (const cursor of Object.values(cursors)) {
+      if (cursor.userId && cursor.userId !== currentUserId && cursor.selectedCardId) {
+        const existing = map.get(cursor.selectedCardId) ?? [];
+        existing.push(cursor);
+        map.set(cursor.selectedCardId, existing);
       }
     }
-    const p1 = srcEdges[best.srcEdge];
-    const p2 = tgtEdges[best.tgtEdge];
-    const CTRL = Math.max(40, best.d * 0.35);
-    const offsets: Record<Edge, Point> = {
-      right:  { x:  CTRL, y: 0 }, left: { x: -CTRL, y: 0 },
-      bottom: { x: 0, y:  CTRL }, top:  { x: 0, y: -CTRL },
-    };
-    const c1 = { x: p1.x + offsets[best.srcEdge].x, y: p1.y + offsets[best.srcEdge].y };
-    const c2 = { x: p2.x + offsets[best.tgtEdge].x, y: p2.y + offsets[best.tgtEdge].y };
-    return `M ${p1.x} ${p1.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${p2.x} ${p2.y}`;
-  }
+    return map;
+  }, [cursors, currentUserId]);
 
-  // Memoised connectors: only recompute when items array changes (not on pan/zoom).
-  // Uses Maps for O(N) lookups instead of O(N²) Array.find() calls.
+  // Active remote collaborators online right now
+  const activeCollaborators = useMemo(() => {
+    return Object.values(cursors).filter((c) => c.userId && c.userId !== currentUserId);
+  }, [cursors, currentUserId]);
+
+  // SVG connector lines
   const connectors = useMemo(() => {
-    // Build lookup maps once — O(N)
     const goalCardByLinkedGoalId = new Map<string, BoardItemFull>();
     const msCardByLinkedMilestoneId = new Map<string, BoardItemFull>();
 
@@ -217,11 +288,13 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       }
     }
     return result;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items]); // smartConnector is defined in render scope but is pure — items is the only dep that matters
-  // ─────────────────────────────────────────────────────────────────────────
+  }, [items]);
 
-  const selectedItem = items.find((i) => i.id === selectedId) ?? null;
+  const itemsById = useMemo(
+    () => new Map(items.map((i) => [i.id, i])),
+    [items]
+  );
+  const selectedItem = selectedId ? (itemsById.get(selectedId) ?? null) : null;
 
   return (
     <div
@@ -245,9 +318,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         onGoalCreated={(goal) => setGoals((prev) => [...prev, goal])}
         onMilestoneCreated={(ms) => setMilestones((prev) => [...prev, ms])}
         onItemsSynced={(newItems) => {
-            const current = useBoardStore.getState().items;
-            setItems([...current, ...(newItems as BoardItemFull[])]);
-          }}
+          setItems([...items, ...(newItems as BoardItemFull[])]);
+        }}
+        activeCollaborators={activeCollaborators}
       />
 
       {/* Canvas area */}
@@ -283,7 +356,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
             height: 3000,
           }}
         >
-          {/* SVG connector lines — drawn under the cards */}
+          {/* Real-time remote cursors layer */}
+          <LiveCursorsCanvas cursors={cursors} currentUserId={currentUserId} />
+
+          {/* SVG connector lines */}
           {connectors.length > 0 && (
             <svg
               style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
@@ -317,6 +393,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
                 key={item.id}
                 item={item}
                 isSelected={selectedId === item.id}
+                remoteViewers={remoteViewersByCardId.get(item.id)}
                 onSelect={() => setSelectedId(selectedId === item.id ? null : item.id)}
               />
             ))}
@@ -332,6 +409,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           goals={goals}
           milestones={milestones}
           members={members}
+          sendEvent={sendEvent}
           onClose={() => setSelectedId(null)}
           onItemUpdated={(updated) => {
             setItems(items.map((i) => (i.id === updated.id ? updated : i)));

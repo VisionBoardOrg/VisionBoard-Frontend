@@ -27,8 +27,8 @@ export default function AdminLoginPage() {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        // Redirect to admin dashboard
-        window.location.href = "/admin/waitlist";
+        // Redirect to dashboard
+        window.location.href = "/dashboard";
       } else {
         setError(data.message || "Invalid credentials, please try again.");
       }
@@ -61,7 +61,7 @@ export default function AdminLoginPage() {
               Admin Portal
             </h2>
             <p className="text-xs text-slate font-medium">
-              Enter credentials to access the waitlist control center.
+              Enter credentials to access the admin control center.
             </p>
           </div>
 

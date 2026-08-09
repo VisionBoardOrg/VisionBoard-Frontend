@@ -1,10 +1,15 @@
 "use client";
 
 import { Goal, Milestone, Sprint, Task, Workspace, WorkspaceMember, User } from "@prisma/client";
-import { VelocityChart } from "./VelocityChart";
+import dynamic from "next/dynamic";
 import { AlertBanner } from "./AlertBanner";
 import { computeSprintVelocity, taskStatusCounts } from "@/lib/dashboard-utils";
 import Link from "next/link";
+
+const VelocityChart = dynamic(
+  () => import("./VelocityChart").then((m) => ({ default: m.VelocityChart })),
+  { ssr: false }
+);
 
 type FullWorkspace = Workspace & {
   goals: (Goal & { milestones: (Milestone & { tasks: Task[] })[] })[];

@@ -32,6 +32,9 @@ db-inspect.cjs
 # misc
 .DS_Store
 *.pem
+.kiro/
+.kito/
+
 
 # debug
 npm-debug.log*

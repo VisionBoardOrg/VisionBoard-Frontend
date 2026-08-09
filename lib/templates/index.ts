@@ -306,9 +306,23 @@ export const sprintBoardTemplate: TemplateData = {
   ],
 };
 
-export type TemplateName = "okr_board" | "product_roadmap" | "quarterly_plan" | "sprint_board";
+export type TemplateName = "okr_board" | "product_roadmap" | "quarterly_plan" | "sprint_board" | "blank";
+
+// ──────────────────────────────────────────────────────────
+// BLANK TEMPLATE — completely empty workspace, no seeded data
+// ──────────────────────────────────────────────────────────
+export const blankTemplate: TemplateData = {
+  goals: [],
+  sprints: [],
+};
 
 export const TEMPLATES: Record<TemplateName, { name: string; description: string; icon: string; data: TemplateData }> = {
+  blank: {
+    name: "Blank",
+    description: "Start with a completely empty workspace — no pre-added goals, tasks, or sprints",
+    icon: "LayoutTemplate",
+    data: blankTemplate,
+  },
   okr_board: {
     name: "OKR Board",
     description: "Set objectives, define measurable key results, track quarterly progress",

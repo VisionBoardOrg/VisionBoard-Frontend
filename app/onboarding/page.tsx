@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { MemberRole } from "@prisma/client";
 import { TemplateName } from "@/lib/templates";
 import Logo from "@/components/reusables/Logo";
-import { Target, Building2, Settings, TrendingUp, Map, ClipboardList, Zap, ArrowRight } from "lucide-react";
+import { Target, Building2, Settings, TrendingUp, Map, ClipboardList, Zap, ArrowRight, LayoutTemplate } from "lucide-react";
 
 type Step = 1 | 2 | 3;
 
@@ -17,6 +17,7 @@ const ROLES: { value: MemberRole; label: string; icon: React.ElementType; descri
 ];
 
 const TEMPLATES: { value: TemplateName; label: string; icon: React.ElementType; description: string; tags: string[] }[] = [
+  { value: "blank", label: "Blank", icon: LayoutTemplate, description: "Start with a completely empty workspace — build your own structure from scratch.", tags: ["Empty", "Custom"] },
   { value: "okr_board", label: "OKR Board", icon: Target, description: "Objectives & key results with quarterly tracking and progress rings.", tags: ["Q3", "Goals", "KRs"] },
   { value: "product_roadmap", label: "Product Roadmap", icon: Map, description: "Connect feedback → features → releases on a visual timeline.", tags: ["Milestones", "Releases", "Features"] },
   { value: "quarterly_plan", label: "Quarterly Plan", icon: ClipboardList, description: "Multi-team goals mapped to resource allocation and bandwidth.", tags: ["Teams", "Resources", "Q-plan"] },

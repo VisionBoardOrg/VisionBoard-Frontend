@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardItemFull } from "@/types/board";
@@ -21,16 +23,21 @@ const ENTITY_COLORS: Record<string, { border: string; header: string; badge: str
   note:      { border: "border-amber-300",  header: "bg-amber-400",  badge: "bg-amber-50 text-amber-700" },
 };
 
+import type { RemoteCursor } from "@/hooks/useWebSocket";
+
 interface BoardCardProps {
   item: BoardItemFull;
   isSelected: boolean;
   onSelect: () => void;
+  remoteViewers?: RemoteCursor[];
 }
 
-export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
+function BoardCardInner({ item, isSelected, onSelect, remoteViewers = [] }: BoardCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
   });
+
+  const primaryViewer = remoteViewers[0];
 
   const style: React.CSSProperties = {
     position: "absolute",
@@ -39,11 +46,11 @@ export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
     width: item.width,
     minHeight: item.height,
     transform: CSS.Translate.toString(transform),
-    zIndex: isDragging ? 100 : isSelected ? 10 : 1,
+    zIndex: isDragging ? 100 : isSelected ? 10 : remoteViewers.length > 0 ? 5 : 1,
     opacity: isDragging ? 0.85 : 1,
-    transition: isDragging ? "none" : "box-shadow 0.15s",
-    // Prevent browser from intercepting touch events so dnd-kit's TouchSensor fires
+    transition: isDragging ? "none" : "box-shadow 0.15s, border-color 0.2s",
     touchAction: "none",
+    borderColor: primaryViewer ? primaryViewer.userColor : undefined,
   };
 
   const entity =
@@ -72,15 +79,46 @@ export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
       ref={setNodeRef}
       style={style}
       data-board-card
-      // Drag listeners on the whole card — desktop uses the header strip as a visual cue,
-      // touch devices activate drag after the 250 ms long-press configured in TouchSensor.
       {...attributes}
       {...listeners}
-      className={`bg-white rounded-xl border-2 shadow-sm select-none transition-shadow group ${colors.border} ${
-        isSelected ? "ring-2 ring-blue ring-offset-2 shadow-md" : "hover:shadow-md"
+      className={`bg-white rounded-xl border-2 shadow-sm select-none transition-shadow group relative ${colors.border} ${
+        isSelected
+          ? "ring-2 ring-blue ring-offset-2 shadow-md"
+          : primaryViewer
+          ? "ring-2 ring-offset-1 shadow-md"
+          : "hover:shadow-md"
       } ${isDragging ? "shadow-primary cursor-grabbing" : "cursor-grab"}`}
       onClick={onSelect}
     >
+      {/* Remote Viewers Avatar Stack Badge */}
+      {remoteViewers.length > 0 && (
+        <div className="absolute -top-3 right-2 z-20 flex items-center -space-x-1.5 pointer-events-none">
+          {remoteViewers.map((viewer) => (
+            <div
+              key={viewer.userId}
+              className="relative group/viewer"
+              title={`${viewer.userName} is viewing`}
+            >
+              {viewer.userImage ? (
+                <img
+                  src={viewer.userImage}
+                  alt={viewer.userName}
+                  className="w-5 h-5 rounded-full object-cover border-2 border-white shadow-sm"
+                  style={{ borderColor: viewer.userColor }}
+                />
+              ) : (
+                <span
+                  className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center border-2 border-white shadow-sm uppercase"
+                  style={{ backgroundColor: viewer.userColor }}
+                >
+                  {viewer.userName.charAt(0)}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Drag handle header strip — visual affordance on desktop */}
       <div
         className={`${colors.header} h-1.5 rounded-t-lg relative`}
@@ -149,3 +187,11 @@ export function BoardCard({ item, isSelected, onSelect }: BoardCardProps) {
     </div>
   );
 }
+
+/**
+ * Memoised board card — only re-renders when this card's own data, selection
+ * state, or click handler changes. Prevents 500-card re-renders on unrelated
+ * state changes (e.g. another card's task status update).
+ */
+export const BoardCard = memo(BoardCardInner);
+

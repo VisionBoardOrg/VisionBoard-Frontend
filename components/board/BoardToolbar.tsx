@@ -26,6 +26,8 @@ function nextColumnY(
   return maxBottom + ROW_GAP - cardHeight;
 }
 
+import type { RemoteCursor } from "@/hooks/useWebSocket";
+
 interface BoardToolbarProps {
   zoom: number;
   onZoomIn: () => void;
@@ -42,12 +44,14 @@ interface BoardToolbarProps {
   currentItems: BoardItemFull[];
   /** Called with newly synced items after a sync */
   onItemsSynced: (items: BoardItemFull[]) => void;
+  /** Active live remote collaborators on this canvas */
+  activeCollaborators?: RemoteCursor[];
 }
 
 export function BoardToolbar({
   zoom, onZoomIn, onZoomOut, onZoomReset, onCommandOpen,
   workspaceId, goals, milestones, onItemAdded, onGoalCreated, onMilestoneCreated, currentItems,
-  onItemsSynced,
+  onItemsSynced, activeCollaborators = [],
 }: BoardToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"goal" | "milestone" | null>(null);
@@ -351,6 +355,47 @@ export function BoardToolbar({
           <span>AI Edit</span>
           <kbd className="text-[10px] text-muted bg-offwhite border border-border rounded px-1 font-mono">⌘K</kbd>
         </button>
+
+        {/* Live Collaborators Stack */}
+        {activeCollaborators.length > 0 && (
+          <>
+            <div className="w-px h-5 bg-border mx-1" />
+            <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg bg-blue-faint/60 border border-blue-light/50">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+              <div className="flex items-center -space-x-1.5">
+                {activeCollaborators.slice(0, 4).map((c) => (
+                  <div
+                    key={c.userId}
+                    className="relative group"
+                    title={`${c.userName} is online`}
+                  >
+                    {c.userImage ? (
+                      <img
+                        src={c.userImage}
+                        alt={c.userName}
+                        className="w-5 h-5 rounded-full object-cover border border-white shadow-xs"
+                        style={{ borderColor: c.userColor }}
+                      />
+                    ) : (
+                      <span
+                        className="w-5 h-5 rounded-full text-[9px] font-bold text-white flex items-center justify-center border border-white shadow-xs uppercase"
+                        style={{ backgroundColor: c.userColor }}
+                      >
+                        {c.userName.charAt(0)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <span className="text-[11px] font-semibold text-blue-deep pr-0.5">
+                {activeCollaborators.length} online
+              </span>
+            </div>
+          </>
+        )}
       </div>
 
       {/* New Goal modal */}

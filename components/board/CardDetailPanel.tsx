@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import Image from "next/image";
 import { X, Link2, User, CheckCircle2, Clock, AlertTriangle, Circle, ChevronDown, Check, Plus, Trash2 } from "lucide-react";
-import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple } from "@/types/board";
+import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple, WebSocketEvent } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
-import { useWebSocket } from "@/hooks/useWebSocket";
 
 // ──────────────────────────────────────────────────
 // Helpers
@@ -66,12 +66,13 @@ function SelectField({
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!open) return; // only attach listener when the dropdown is actually open
     function handleClick(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+  }, [open]);
 
   const selected = options.find((o) => o.id === value);
 
@@ -119,24 +120,32 @@ function SelectField({
 }
 
 function MemberAvatar({ user, size = 24 }: { user: UserSimple; size?: number }) {
+  // Memoize initials — prevents re-computing string splits on every render
+  const initials = useMemo(
+    () =>
+      (user.name ?? "?")
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase(),
+    [user.name]
+  );
+
   if (user.image) {
     return (
-      <img
+      <Image
         src={user.image}
         alt={user.name ?? "Member"}
         width={size}
         height={size}
         className="rounded-full object-cover border border-white"
         style={{ width: size, height: size }}
+        // Priority false — avatars are below the fold; lazy load them
+        priority={false}
       />
     );
   }
-  const initials = (user.name ?? "?")
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
   return (
     <div
       className="rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-white font-bold border border-white"
@@ -556,6 +565,8 @@ interface CardDetailPanelProps {
   goals: GoalSimple[];
   milestones: MilestoneWithTasks[];
   members: UserSimple[];
+  /** sendEvent from the parent BoardCanvas — prevents a second WebSocket connection */
+  sendEvent: (event: WebSocketEvent) => void;
   onClose: () => void;
   onItemUpdated: (updatedItem: BoardItemFull) => void;
   onItemDeleted: (itemId: string) => void;
@@ -566,6 +577,7 @@ export function CardDetailPanel({
   goals,
   milestones,
   members,
+  sendEvent,
   onClose,
   onItemUpdated,
   onItemDeleted,
@@ -585,7 +597,7 @@ export function CardDetailPanel({
   // Label for note cards
   const [noteLabel, setNoteLabel] = useState(item.label ?? "");
 
-  const { sendEvent } = useWebSocket(localItem.workspaceId);
+  // sendEvent comes from BoardCanvas as a prop — no second WebSocket connection needed.
 
   // Keep local state in sync if item changes from outside (e.g. drag or WebSocket event)
   // Only reset localTasks when a *different* card is opened — not on every prop update,
@@ -711,17 +723,21 @@ export function CardDetailPanel({
     note: "from-amber-400 to-amber-500",
   };
 
-  // Options for selects
-  const goalOptions = goals.map((g) => ({
-    id: g.id,
-    label: g.title,
-    sub: g.status,
-  }));
-  const milestoneOptions = milestones.map((m) => ({
-    id: m.id,
-    label: m.title,
-    sub: `${m.tasks.filter((t) => t.status === "done").length}/${m.tasks.length} done`,
-  }));
+  // Memoize options — recomputing these on every render (including task status clicks)
+  // causes unnecessary array map + filter operations across all goals/milestones.
+  const goalOptions = useMemo(
+    () => goals.map((g) => ({ id: g.id, label: g.title, sub: g.status })),
+    [goals]
+  );
+  const milestoneOptions = useMemo(
+    () =>
+      milestones.map((m) => ({
+        id: m.id,
+        label: m.title,
+        sub: `${m.tasks.filter((t) => t.status === "done").length}/${m.tasks.length} done`,
+      })),
+    [milestones]
+  );
 
   const milestoneId = localItem.linkedMilestoneId ?? localItem.linkedMilestone?.id;
 
@@ -730,12 +746,7 @@ export function CardDetailPanel({
       className="absolute right-0 top-0 bottom-0 w-full sm:w-80 bg-white border-l border-slate-200 shadow-xl z-30 flex flex-col"
       style={{ animation: "slideInPanel 0.2s ease-out" }}
     >
-      <style>{`
-        @keyframes slideInPanel {
-          from { transform: translateX(100%); opacity: 0; }
-          to   { transform: translateX(0);   opacity: 1; }
-        }
-      `}</style>
+      {/* slideInPanel keyframe is defined once in globals.css */}
 
       {/* Header */}
       <div className={`bg-gradient-to-r ${headerColors[entityType] ?? "from-slate-400 to-slate-500"} px-4 py-3 flex items-center justify-between`}>

@@ -30,6 +30,7 @@ interface WorkspacesClientProps {
   workspaceLimit: number | null;
   plan: string;
   userId: string;
+  inAppShell?: boolean;
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -56,6 +57,7 @@ export function WorkspacesClient({
   workspaceLimit,
   plan,
   userId,
+  inAppShell = false,
 }: WorkspacesClientProps) {
   const router = useRouter();
   const [workspaces, setWorkspaces] = useState(initialWorkspaces);
@@ -64,7 +66,7 @@ export function WorkspacesClient({
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState<"pm" | "exec" | "eng" | "marketing" | "admin">("pm");
-  const [newTemplate, setNewTemplate] = useState<"okr_board" | "product_roadmap" | "quarterly_plan" | "sprint_board">("okr_board");
+  const [newTemplate, setNewTemplate] = useState<"blank" | "okr_board" | "product_roadmap" | "quarterly_plan" | "sprint_board">("blank");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
@@ -156,21 +158,23 @@ export function WorkspacesClient({
   }
 
   return (
-    <div className="min-h-screen bg-offwhite">
-      {/* Top nav */}
-      <header className="h-14 border-b border-border bg-white flex items-center px-6 gap-4">
-        <Link href="/dashboard">
-          <Logo markSize={28} textSize={16} />
-        </Link>
-        <span className="text-muted text-sm">/</span>
-        <span className="text-sm font-semibold text-ink">Workspaces</span>
-        <div className="flex-1" />
-        <Link href="/dashboard" className="text-sm text-slate hover:text-ink transition-colors flex items-center gap-1.5">
-          <ChevronRight size={14} className="rotate-180" /> Dashboard
-        </Link>
-      </header>
+    <div className={inAppShell ? "max-w-4xl mx-auto space-y-8" : "min-h-screen bg-offwhite"}>
+      {/* Top nav — only rendered when outside AppShell */}
+      {!inAppShell && (
+        <header className="h-14 border-b border-border bg-white flex items-center px-6 gap-4">
+          <Link href="/dashboard">
+            <Logo markSize={28} textSize={16} />
+          </Link>
+          <span className="text-muted text-sm">/</span>
+          <span className="text-sm font-semibold text-ink">Workspaces</span>
+          <div className="flex-1" />
+          <Link href="/dashboard" className="text-sm text-slate hover:text-ink transition-colors flex items-center gap-1.5">
+            <ChevronRight size={14} className="rotate-180" /> Dashboard
+          </Link>
+        </header>
+      )}
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8">
+      <main className={inAppShell ? "space-y-8" : "max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8"}>
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -413,6 +417,7 @@ export function WorkspacesClient({
                   onChange={(e) => setNewTemplate(e.target.value as typeof newTemplate)}
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink bg-white focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue cursor-pointer"
                 >
+                  <option value="blank">Blank (empty workspace)</option>
                   <option value="okr_board">OKR Board</option>
                   <option value="product_roadmap">Product Roadmap</option>
                   <option value="quarterly_plan">Quarterly Plan</option>

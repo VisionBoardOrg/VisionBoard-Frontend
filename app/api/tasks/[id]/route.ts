@@ -53,19 +53,19 @@ export async function PATCH(
     updateData.blockedReason = null;
   }
 
-  const [updated] = await prisma.$transaction([
-    prisma.task.update({ where: { id }, data: updateData as never }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId,
-        userId: session.user.id,
-        entityType: "task",
-        entityId: id,
-        action: "updated",
-        diff: parsed.data as never,
-      },
-    }),
-  ]);
+  const updated = await prisma.task.update({ where: { id }, data: updateData as never });
+
+  // Fire-and-forget audit log — non-blocking
+  prisma.activityLog.create({
+    data: {
+      workspaceId,
+      userId: session.user.id,
+      entityType: "task",
+      entityId: id,
+      action: "updated",
+      diff: parsed.data as never,
+    },
+  }).catch((err: unknown) => console.error("[tasks/[id] PATCH] Activity log failed:", err));
 
   return NextResponse.json({ task: updated });
 }

@@ -49,37 +49,40 @@ export async function GET(
 
   const { id } = await params;
 
-  // Fetch goal (lightweight) and membership in parallel, then fetch full data
-  const goal = await prisma.goal.findUnique({
-    where: { id },
-    select: { workspaceId: true },
-  });
-  if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // Fetch workspace membership and the full goal in a single round-trip via parallel queries.
+  // We first need the workspaceId so we can check membership — fetch that in a lightweight query,
+  // then run the membership check and full-data fetch in parallel.
+  const slim = await prisma.goal.findUnique({ where: { id }, select: { workspaceId: true } });
+  if (!slim) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: goal.workspaceId, userId: session.user.id } },
-  });
+  const [member, full] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: slim.workspaceId, userId: session.user.id } },
+    }),
+    prisma.goal.findUnique({
+      where: { id },
+      include: {
+        milestones: {
+          include: { tasks: { orderBy: { order: "asc" } } },
+          orderBy: { order: "asc" },
+        },
+        documents: {
+          select: { id: true, title: true, updatedAt: true, author: { select: { id: true, name: true } } },
+        },
+        comments: {
+          include: { author: { select: { id: true, name: true, image: true } } },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    }),
+  ]);
+
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  // Now fetch the full shape — membership is confirmed, single query
-  const full = await prisma.goal.findUnique({
-    where: { id },
-    include: {
-      milestones: {
-        include: { tasks: { orderBy: { order: "asc" } } },
-        orderBy: { order: "asc" },
-      },
-      documents: {
-        select: { id: true, title: true, updatedAt: true, author: { select: { id: true, name: true } } },
-      },
-      comments: {
-        include: { author: { select: { id: true, name: true, image: true } } },
-        orderBy: { createdAt: "asc" },
-      },
-    },
-  });
-
-  return NextResponse.json({ goal: full });
+  return NextResponse.json(
+    { goal: full },
+    { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } }
+  );
 }
 
 export async function PATCH(
@@ -100,25 +103,25 @@ export async function PATCH(
 
   const { targetDate, keyResults, ...rest } = parsed.data;
 
-  const [updated] = await prisma.$transaction([
-    prisma.goal.update({
-      where: { id },
-      data: {
-        ...rest,
-        ...(keyResults !== undefined ? { keyResults: keyResults as never } : {}),
-        ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
-      },
-    }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId: goal.workspaceId,
-        userId: session.user.id,
-        entityType: "goal",
-        entityId: id,
-        action: "updated",
-      },
-    }),
-  ]);
+  const updated = await prisma.goal.update({
+    where: { id },
+    data: {
+      ...rest,
+      ...(keyResults !== undefined ? { keyResults: keyResults as never } : {}),
+      ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
+    },
+  });
+
+  // Fire-and-forget audit log — non-blocking
+  prisma.activityLog.create({
+    data: {
+      workspaceId: goal.workspaceId,
+      userId: session.user.id,
+      entityType: "goal",
+      entityId: id,
+      action: "updated",
+    },
+  }).catch((err: unknown) => console.error("[goals/[id] PATCH] Activity log failed:", err));
 
   return NextResponse.json({ goal: updated });
 }

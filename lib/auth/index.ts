@@ -84,10 +84,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
       const now       = Date.now();
       const lastFetch = (token.membershipFetchedAt as number | undefined) ?? 0;
+      // Refresh workspace membership only on explicit trigger, initial login (lastFetch === 0),
+      // or after 5 minutes — avoiding redundant DB queries on every request when workspaceId is null.
       const needsRefresh =
-        !token.workspaceId ||
-        !token.role ||
         trigger === "update" ||
+        lastFetch === 0 ||
         now - lastFetch > REFRESH_INTERVAL_MS;
 
       if (token.id && needsRefresh) {

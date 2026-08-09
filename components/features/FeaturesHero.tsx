@@ -1,27 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
+import Link from "next/link";
 import PrimaryButton from "../reusables/primaryButton";
 import SecondaryButton from "../reusables/secondaryButton";
-import WaitlistModal from "../waitlist/WaitlistModal";
 
 export default function FeaturesHero() {
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
-  const [referredBy, setReferredBy] = useState<string>("");
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlParams = new URLSearchParams(window.location.search);
-      const refCode = urlParams.get("ref");
-      if (refCode) {
-        queueMicrotask(() => {
-          setReferredBy(refCode.toUpperCase());
-          setIsWaitlistOpen(true);
-        });
-      }
-    }
-  }, []);
-
   return (
     <section className="relative pt-12 flex flex-col items-center justify-start overflow-hidden bg-offwhite">
       {/* Subtle dot grid */}
@@ -40,20 +24,22 @@ export default function FeaturesHero() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 mt-4">
-          <PrimaryButton
-            size="md"
-            onClick={() => setIsWaitlistOpen(true)}
-            className="w-full sm:w-auto px-8 py-3 text-base shadow-md hover:shadow-lg transition-all"
-          >
-            Join Waitlist
-          </PrimaryButton>
-          <SecondaryButton
-            size="md"
-            onClick={() => setIsWaitlistOpen(true)}
-            className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm hover:bg-blue-faint transition-colors"
-          >
-            Request Demo
-          </SecondaryButton>
+          <Link href="/auth/register" className="w-full sm:w-auto">
+            <PrimaryButton
+              size="md"
+              className="w-full sm:w-auto px-8 py-3 text-base shadow-md hover:shadow-lg transition-all"
+            >
+              Get Started Free
+            </PrimaryButton>
+          </Link>
+          <Link href="/dashboard" className="w-full sm:w-auto">
+            <SecondaryButton
+              size="md"
+              className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm hover:bg-blue-faint transition-colors"
+            >
+              Explore Demo Workspace
+            </SecondaryButton>
+          </Link>
         </div>
       </div>
 
@@ -114,13 +100,7 @@ export default function FeaturesHero() {
         `,
         }}
       />
-
-      {/* Waitlist Modal */}
-      <WaitlistModal
-        isOpen={isWaitlistOpen}
-        onClose={() => setIsWaitlistOpen(false)}
-        defaultReferredBy={referredBy}
-      />
     </section>
   );
 }
+

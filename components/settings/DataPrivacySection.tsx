@@ -13,27 +13,23 @@ import { useState } from "react";
 import { Download, Trash2, ShieldCheck, AlertCircle, Loader2, X } from "lucide-react";
 
 interface DataPrivacySectionProps {
-  workspaceId: string;
-  userEmail:   string;
+  userEmail: string;
 }
 
-export function DataPrivacySection({ workspaceId, userEmail }: DataPrivacySectionProps) {
+export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
   const [deleteOpen,    setDeleteOpen]    = useState(false);
   const [confirmEmail,  setConfirmEmail]  = useState("");
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError,   setDeleteError]   = useState("");
   const [deleteSuccess, setDeleteSuccess] = useState(false);
-  const [exportLoading, setExportLoading] = useState<"personal" | "workspace" | null>(null);
+  const [exportLoading, setExportLoading] = useState<"personal" | null>(null);
 
   // ── Data downloads ──────────────────────────────────────────────────────
 
-  async function handleDownload(type: "personal" | "workspace") {
+  async function handleDownload(type: "personal") {
     setExportLoading(type);
     try {
-      const url =
-        type === "personal"
-          ? "/api/user/data-export"
-          : `/api/workspaces/${workspaceId}/export`;
+      const url = "/api/user/data-export";
 
       const res = await fetch(url);
       if (!res.ok) {
@@ -109,7 +105,7 @@ export function DataPrivacySection({ workspaceId, userEmail }: DataPrivacySectio
           <button
             onClick={() => handleDownload("personal")}
             disabled={exportLoading !== null}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border border-border text-ink hover:bg-white transition-colors disabled:opacity-50 shrink-0"
+            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border border-border text-ink hover:bg-white transition-colors disabled:opacity-50 shrink-0 cursor-pointer"
           >
             {exportLoading === "personal"
               ? <Loader2 size={13} className="animate-spin" />
@@ -118,25 +114,6 @@ export function DataPrivacySection({ workspaceId, userEmail }: DataPrivacySectio
           </button>
         </div>
 
-        {/* ── Workspace data export ── */}
-        <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-offwhite border border-border">
-          <div>
-            <p className="text-sm font-semibold text-ink">Export workspace data</p>
-            <p className="text-xs text-muted mt-0.5">
-              A portable JSON file with all goals, milestones, tasks, documents, and sprints for this workspace.
-            </p>
-          </div>
-          <button
-            onClick={() => handleDownload("workspace")}
-            disabled={exportLoading !== null}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border border-border text-ink hover:bg-white transition-colors disabled:opacity-50 shrink-0"
-          >
-            {exportLoading === "workspace"
-              ? <Loader2 size={13} className="animate-spin" />
-              : <Download size={13} />}
-            {exportLoading === "workspace" ? "Exporting…" : "Export"}
-          </button>
-        </div>
 
         {/* ── Account deletion ── */}
         <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-red-50 border border-red-200">

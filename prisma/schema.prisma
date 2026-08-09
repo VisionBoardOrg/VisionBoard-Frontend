@@ -310,30 +310,6 @@ model AIGenerationLog {
   @@index([createdAt])
 }
 
-model WaitlistEntry {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  fullName        String
-  company         String?
-  teamSize        String?
-  role            String
-  painPoint       String?
-  referralCode    String    @unique
-  referredBy      String?
-  referralCount   Int       @default(0)
-  position        Int
-  status          String    @default("PENDING") // PENDING | INVITED | REGISTERED
-  inviteToken     String?   @unique
-  invitedAt       DateTime?
-  sharedPlatforms String    @default("")
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  @@index([email])
-  @@index([status])
-  @@index([position])
-}
-
 model WorkspaceInvite {
   id          String    @id @default(cuid())
   workspaceId String

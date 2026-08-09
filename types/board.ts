@@ -58,3 +58,6 @@ export interface AIBoardAction {
   changes: Record<string, unknown>;
   description: string; // human-readable summary for confirmation UI
 }
+
+/** Typed payload sent over the WebSocket channel. */
+export type WebSocketEvent = Record<string, unknown>;

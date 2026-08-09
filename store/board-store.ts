@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useEffect, useRef } from "react";
 import type { BoardItemFull, TaskSimple } from "@/types/board";
 
 interface BoardState {
@@ -47,19 +48,22 @@ export const useBoardStore = create<BoardState>((set) => ({
 /**
  * Hook that initialises the store with server-side data on first mount or when
  * the workspace changes.
- *
- * Fix: both fields (workspaceId and items) are set in a single atomic setState
- * call to avoid the race condition where two separate setState calls produced
- * two React re-renders, causing a transient flicker where items belonged to the
- * wrong workspaceId.
  */
 export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
   const store = useBoardStore();
+  const initialized = useRef(false);
 
-  if (store.workspaceId !== workspaceId) {
-    // Single atomic update — no intermediate render with mismatched state
+  // Synchronise store state when workspace changes or on initial mount
+  if (!initialized.current || store.workspaceId !== workspaceId) {
+    initialized.current = true;
     useBoardStore.setState({ workspaceId, items: initialItems });
   }
+
+  useEffect(() => {
+    if (store.workspaceId !== workspaceId) {
+      useBoardStore.setState({ workspaceId, items: initialItems });
+    }
+  }, [workspaceId, initialItems, store.workspaceId]);
 
   return store;
 }

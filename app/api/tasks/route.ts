@@ -52,27 +52,27 @@ export async function POST(request: NextRequest) {
   });
   const order = (maxOrderResult._max.order ?? -1) + 1;
 
-  const [task] = await prisma.$transaction([
-    prisma.task.create({
-      data: {
-        milestoneId: parsed.data.milestoneId,
-        title: parsed.data.title,
-        priority: parsed.data.priority,
-        assigneeId: parsed.data.assigneeId ?? null,
-        status: "todo",
-        order,
-      },
-    }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId,
-        userId: session.user.id,
-        entityType: "task",
-        entityId: "pending",
-        action: "created",
-      },
-    }),
-  ]);
+  const task = await prisma.task.create({
+    data: {
+      milestoneId: parsed.data.milestoneId,
+      title: parsed.data.title,
+      priority: parsed.data.priority,
+      assigneeId: parsed.data.assigneeId ?? null,
+      status: "todo",
+      order,
+    },
+  });
+
+  // Fire-and-forget audit log with the real entityId — non-blocking
+  prisma.activityLog.create({
+    data: {
+      workspaceId,
+      userId: session.user.id,
+      entityType: "task",
+      entityId: task.id,
+      action: "created",
+    },
+  }).catch((err: unknown) => console.error("[tasks POST] Activity log failed:", err));
 
   return NextResponse.json({ task }, { status: 201 });
 }

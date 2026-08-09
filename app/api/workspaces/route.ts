@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { seedWorkspace } from "@/lib/seed-workspace";
-import { checkPlanLimit } from "@/lib/plan-limits";
+import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
 import { z } from "zod";
 import { MemberRole, PlanTier } from "@prisma/client";
 import { TemplateName } from "@/lib/templates";
@@ -10,7 +10,7 @@ import { TemplateName } from "@/lib/templates";
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   role: z.enum(["pm", "exec", "eng", "marketing", "admin"] as const),
-  template: z.enum(["okr_board", "product_roadmap", "quarterly_plan", "sprint_board"] as const),
+  template: z.enum(["blank", "okr_board", "product_roadmap", "quarterly_plan", "sprint_board"] as const),
 });
 
 export async function POST(request: NextRequest) {
@@ -27,16 +27,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Check plan limit — count existing owned workspaces against the user's actual plan.
-    // We look up the user's plan from their first workspace membership; new users with
-    // no workspaces yet default to "free".
-    const existingCount = await prisma.workspace.count({ where: { ownerId: session.user.id } });
-
-    // Fetch the user's current plan from any existing workspace they own
-    const existingWorkspace = await prisma.workspace.findFirst({
+    // Single query replaces the previous two serial queries (count + findFirst).
+    const existingWorkspaces = await prisma.workspace.findMany({
       where: { ownerId: session.user.id },
       select: { plan: true },
     });
-    const userPlan = existingWorkspace?.plan ?? ("free" as PlanTier);
+    const existingCount = existingWorkspaces.length;
+    const userPlan = existingWorkspaces[0]?.plan ?? ("free" as PlanTier);
 
     const limitCheck = checkPlanLimit(
       { plan: userPlan, aiCreditsUsed: existingCount },
@@ -53,7 +50,20 @@ export async function POST(request: NextRequest) {
       template: parsed.data.template as TemplateName,
     });
 
-    return NextResponse.json({ workspace: { id: workspace.id, name: workspace.name, slug: workspace.slug } }, { status: 201 });
+    // Warn user when they have exactly 1 remaining workspace slot
+    const workspaceLimitNum = typeof PLAN_LIMITS[userPlan].workspaces === "number"
+      ? PLAN_LIMITS[userPlan].workspaces as number
+      : -1;
+    const newCount = existingCount + 1;
+    const upgradePrompt =
+      workspaceLimitNum > 0 && workspaceLimitNum - newCount === 1
+        ? `You have 1 workspace slot remaining on the ${userPlan} plan. Upgrade to create more.`
+        : undefined;
+
+    return NextResponse.json(
+      { workspace: { id: workspace.id, name: workspace.name, slug: workspace.slug }, ...(upgradePrompt ? { upgradePrompt } : {}) },
+      { status: 201 }
+    );
   } catch (err) {
     console.error("[POST /api/workspaces]", err);
     return NextResponse.json(
@@ -73,5 +83,8 @@ export async function GET() {
     orderBy: { createdAt: "asc" },
   });
 
-  return NextResponse.json({ workspaces });
+  return NextResponse.json(
+    { workspaces },
+    { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=60" } }
+  );
 }

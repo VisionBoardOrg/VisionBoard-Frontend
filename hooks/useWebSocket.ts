@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { getSession } from "next-auth/react";
 import { useBoardStore } from "@/store/board-store";
 
@@ -9,11 +9,18 @@ const RECONNECT_DELAY = 5000;
 // Max reconnect attempts before giving up (prevents infinite spam)
 const MAX_ATTEMPTS = 5;
 
-// ── Message validators ────────────────────────────────────────────────────────
-// Validate incoming WebSocket payloads before applying them to local state.
-// This prevents a compromised or MitM'd WebSocket server from injecting
-// arbitrary data into the client store.
+export interface RemoteCursor {
+  userId: string;
+  userName: string;
+  userColor: string;
+  userImage?: string | null;
+  x: number;
+  y: number;
+  selectedCardId?: string | null;
+  lastSeen: number;
+}
 
+// ── Message validators ────────────────────────────────────────────────────────
 const VALID_TASK_STATUSES = new Set(["todo", "in_progress", "in_review", "blocked", "done"]);
 const VALID_PRIORITIES    = new Set(["low", "medium", "high", "urgent"]);
 
@@ -78,6 +85,30 @@ function validateCardUpdated(data: Record<string, unknown>): {
 
   return { id: item.id as string, safeItem };
 }
+
+function validateCursorMoved(data: Record<string, unknown>): RemoteCursor | null {
+  if (!isNonEmptyString(data.userId)) return null;
+  if (typeof data.x !== "number" || !isFinite(data.x)) return null;
+  if (typeof data.y !== "number" || !isFinite(data.y)) return null;
+
+  const userName = isNonEmptyString(data.userName) ? (data.userName as string) : "Teammate";
+  const userColor = isNonEmptyString(data.userColor) && /^#[0-9a-fA-F]{3,8}$/.test(data.userColor as string)
+    ? (data.userColor as string)
+    : "#2563EB";
+  const userImage = isNonEmptyString(data.userImage) ? (data.userImage as string) : undefined;
+  const selectedCardId = isNonEmptyString(data.selectedCardId) ? (data.selectedCardId as string) : null;
+
+  return {
+    userId: data.userId as string,
+    userName,
+    userColor,
+    userImage,
+    x: data.x,
+    y: data.y,
+    selectedCardId,
+    lastSeen: Date.now(),
+  };
+}
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useWebSocket(workspaceId: string | null) {
@@ -85,14 +116,14 @@ export function useWebSocket(workspaceId: string | null) {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectingRef = useRef(false);
   const attemptsRef = useRef(0);
-  // Cache the JWT token so we don't call getSession() on every reconnect
   const tokenRef = useRef<string | null>(null);
+
+  const [cursors, setCursors] = useState<Record<string, RemoteCursor>>({});
 
   const connect = useCallback(async () => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
     if (!wsUrl || !workspaceId) return;
 
-    // Require wss:// in production — reject plain ws:// to prevent MitM
     if (process.env.NODE_ENV === "production" && !wsUrl.startsWith("wss://")) {
       console.warn("[useWebSocket] NEXT_PUBLIC_WS_URL must use wss:// in production. Real-time sync disabled.");
       return;
@@ -107,23 +138,14 @@ export function useWebSocket(workspaceId: string | null) {
 
     if (attemptsRef.current >= MAX_ATTEMPTS) return;
 
-    // Fetch the session JWT to send with the join message for server-side auth.
-    // We use getSession() which reads from the existing cookie — no extra network
-    // request is made if the session is already cached in memory.
     if (!tokenRef.current) {
       try {
         const session = await getSession();
-        // next-auth v5: session doesn't expose the raw JWT to the client.
-        // We use the session user ID as a lightweight identifier and let the
-        // backend verify the cookie-based JWT separately.
-        // If NEXT_PUBLIC_WS_URL is the same origin, pass the session cookie
-        // implicitly. Otherwise, send the user ID and rely on the Upgrade
-        // request carrying the cookie header.
         tokenRef.current = (session as { accessToken?: string })?.accessToken
           ?? (session?.user as { id?: string })?.id
           ?? null;
       } catch {
-        // getSession failed — skip token, server will close the connection
+        // getSession failed
       }
     }
 
@@ -136,13 +158,9 @@ export function useWebSocket(workspaceId: string | null) {
       ws.onopen = () => {
         isConnectingRef.current = false;
         attemptsRef.current = 0;
-        // Include the token in the join message so the backend can authenticate
-        // this connection before accepting workspace room subscriptions.
         ws.send(JSON.stringify({
           type: "join",
           workspaceId,
-          // token may be null if session could not be read; the backend will
-          // close the connection with 1008 in that case.
           token: tokenRef.current,
         }));
       };
@@ -161,8 +179,6 @@ export function useWebSocket(workspaceId: string | null) {
               useBoardStore
                 .getState()
                 .updateTaskInMilestone(validated.milestoneId, validated.taskId, validated.updates);
-            } else {
-              console.warn("[useWebSocket] Invalid TASK_UPDATED message discarded");
             }
           }
 
@@ -170,9 +186,26 @@ export function useWebSocket(workspaceId: string | null) {
             const validated = validateCardUpdated(data);
             if (validated) {
               useBoardStore.getState().updateBoardItem(validated.id, validated.safeItem);
-            } else {
-              console.warn("[useWebSocket] Invalid CARD_UPDATED message discarded");
             }
+          }
+
+          if (data.type === "CURSOR_MOVED") {
+            const validated = validateCursorMoved(data);
+            if (validated) {
+              setCursors((prev) => ({
+                ...prev,
+                [validated.userId]: validated,
+              }));
+            }
+          }
+
+          if (data.type === "CURSOR_LEFT" && isNonEmptyString(data.userId)) {
+            const leftUserId = data.userId as string;
+            setCursors((prev) => {
+              const next = { ...prev };
+              delete next[leftUserId];
+              return next;
+            });
           }
         } catch (err) {
           console.error("[useWebSocket] Error parsing message:", err);
@@ -182,7 +215,6 @@ export function useWebSocket(workspaceId: string | null) {
       ws.onclose = (event) => {
         isConnectingRef.current = false;
         wsRef.current = null;
-        // 1008: Policy Violation — auth failed. Clear cached token and don't retry.
         if (event.code === 1008) {
           tokenRef.current = null;
           console.warn("[useWebSocket] Connection closed: authentication failed");
@@ -213,6 +245,27 @@ export function useWebSocket(workspaceId: string | null) {
     }
   }, [workspaceId]);
 
+  // Clean up idle cursors after 8 seconds of inactivity
+  useEffect(() => {
+    const pruneInterval = setInterval(() => {
+      const now = Date.now();
+      setCursors((prev) => {
+        let changed = false;
+        const next: Record<string, RemoteCursor> = {};
+        for (const [id, cursor] of Object.entries(prev)) {
+          if (now - cursor.lastSeen <= 8000) {
+            next[id] = cursor;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 4000);
+
+    return () => clearInterval(pruneInterval);
+  }, []);
+
   useEffect(() => {
     connect();
     return () => {
@@ -236,5 +289,6 @@ export function useWebSocket(workspaceId: string | null) {
     }
   }, []);
 
-  return { sendEvent };
+  return { sendEvent, cursors };
 }
+

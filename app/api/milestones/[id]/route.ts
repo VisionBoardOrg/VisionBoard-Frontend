@@ -49,25 +49,25 @@ export async function PATCH(
 
   const { targetDate, ...rest } = parsed.data;
 
-  const [updated] = await prisma.$transaction([
-    prisma.milestone.update({
-      where: { id },
-      data: {
-        ...rest,
-        ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
-      },
-    }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId,
-        userId: session.user.id,
-        entityType: "milestone",
-        entityId: id,
-        action: "updated",
-        diff: parsed.data as never,
-      },
-    }),
-  ]);
+  const updated = await prisma.milestone.update({
+    where: { id },
+    data: {
+      ...rest,
+      ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
+    },
+  });
+
+  // Fire-and-forget audit log — non-blocking
+  prisma.activityLog.create({
+    data: {
+      workspaceId,
+      userId: session.user.id,
+      entityType: "milestone",
+      entityId: id,
+      action: "updated",
+      diff: parsed.data as never,
+    },
+  }).catch((err: unknown) => console.error("[milestones/[id] PATCH] Activity log failed:", err));
 
   return NextResponse.json({ milestone: updated });
 }

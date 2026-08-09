@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
-  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown, X, Menu, UserCircle,
+  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown, ChevronLeft, X, Menu, UserCircle, Users,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
@@ -14,7 +14,7 @@ import { RoleSwitcher } from "@/components/workspace/RoleSwitcher";
 import type { MemberRole } from "@/components/workspace/RoleSwitcher";
 
 interface AppShellProps {
-  workspaceId: string;
+  workspaceId: string | null;
   role: string | null;
   plan?: string | null;
   children: React.ReactNode;
@@ -27,17 +27,21 @@ interface AppShellProps {
   aiCreditsMax?: number;
 }
 
-const NAV = (workspaceId: string) => [
+const PERSONAL_NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/workspaces", label: "Workspaces", icon: Building2 },
+  { href: "/account", label: "Account", icon: UserCircle },
+];
+
+const WORKSPACE_NAV = (workspaceId: string) => [
+  { href: `/workspace/${workspaceId}/workspace`, label: "Overview & Team", icon: Users },
   { href: `/workspace/${workspaceId}/board`, label: "Board", icon: Kanban },
   { href: `/workspace/${workspaceId}/goals`, label: "Goals", icon: Target },
   { href: `/workspace/${workspaceId}/tasks`, label: "My Tasks", icon: ListTodo },
   { href: `/workspace/${workspaceId}/roadmap`, label: "Roadmap", icon: Map },
   { href: `/workspace/${workspaceId}/docs`, label: "Docs", icon: FileText },
   { href: `/workspace/${workspaceId}/templates`, label: "Templates", icon: Layers },
-  { href: "/workspaces", label: "Workspaces", icon: Building2 },
   { href: `/workspace/${workspaceId}/settings`, label: "Workspace Settings", icon: Settings },
-  { href: "/account", label: "Account", icon: UserCircle },
 ];
 
 const PLAN_BADGE: Record<string, string> = {
@@ -83,7 +87,8 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const navItems = NAV(workspaceId);
+  const personalItems = PERSONAL_NAV;
+  const workspaceItems = workspaceId ? WORKSPACE_NAV(workspaceId) : [];
 
   // Determine AI credits display
   const creditsUsed = aiCreditsUsed ?? 0;
@@ -94,11 +99,13 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
 
   /** Shared sidebar content — rendered both in the fixed desktop aside and the mobile drawer */
   function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
+    const showLabel = sidebarOpen || mobileOpen;
+
     return (
       <>
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 py-4 border-b border-border h-14 shrink-0">
-          {sidebarOpen || mobileOpen ? (
+          {showLabel ? (
             <Logo markSize={28} textSize={16} />
           ) : (
             <VBMark size={28} />
@@ -106,43 +113,93 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active =
-              item.href === "/dashboard"
-                ? pathname === "/dashboard"
-                : item.href === "/workspaces"
-                ? pathname === "/workspaces"
-                : pathname === item.href || pathname.startsWith(item.href + "/");
-            const isWorkspace = item.label === "Workspace";
-            const showLabel = sidebarOpen || mobileOpen;
-            return (
+        <nav className="flex-1 py-3 px-2 space-y-4 overflow-y-auto">
+          {/* ── PERSONAL SECTION — only when not inside a workspace ── */}
+          {!workspaceId && (
+            <div>
+              {showLabel && (
+                <div className="px-2.5 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">
+                  Personal
+                </div>
+              )}
+              <div className="space-y-0.5">
+                {personalItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+                  return (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      prefetch={false}
+                      title={!showLabel ? item.label : undefined}
+                      onClick={onNavClick}
+                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                        active
+                          ? "bg-blue-faint text-blue font-medium"
+                          : "text-slate hover:bg-offwhite hover:text-ink"
+                      }`}
+                    >
+                      <Icon size={16} className="shrink-0" />
+                      {showLabel && <span className="flex-1 truncate">{item.label}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── WORKSPACE SECTION ── */}
+          {workspaceId && (
+            <div className="space-y-1">
+              {/* Back to personal */}
               <Link
-                key={item.label}
-                href={item.href}
-                title={!showLabel ? item.label : undefined}
+                href="/workspaces"
+                prefetch={false}
                 onClick={onNavClick}
-                className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
-                  active
-                    ? "bg-blue-faint text-blue font-medium"
-                    : "text-slate hover:bg-offwhite hover:text-ink"
-                }`}
+                title={!showLabel ? "My Workspaces" : undefined}
+                className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-slate hover:text-ink hover:bg-offwhite transition-colors group"
               >
-                <Icon size={16} className="shrink-0" />
-                {showLabel && (
-                  <span className="flex-1 truncate">{item.label}</span>
-                )}
-                {showLabel && isWorkspace && plan && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold leading-none ${
-                    PLAN_BADGE[plan] ?? "bg-slate-100 text-slate-600"
-                  }`}>
-                    {PLAN_LABEL[plan] ?? plan}
-                  </span>
-                )}
+                <ChevronLeft size={13} className="shrink-0 text-slate-400 group-hover:text-ink transition-colors" />
+                {showLabel && <span className="truncate">My Workspaces</span>}
               </Link>
-            );
-          })}
+              <div className="mx-1 border-t border-border/60" />
+              {showLabel && (
+                <div className="px-2.5 pb-1.5 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 select-none">
+                  <span>Workspace</span>
+                  {plan && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold leading-none lowercase ${
+                      PLAN_BADGE[plan] ?? "bg-slate-100 text-slate-600"
+                    }`}>
+                      {PLAN_LABEL[plan] ?? plan}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div className="space-y-0.5">
+                {workspaceItems.map((item) => {
+                  const Icon = item.icon;
+                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                  return (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      prefetch={false}
+                      title={!showLabel ? item.label : undefined}
+                      onClick={onNavClick}
+                      className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors ${
+                        active
+                          ? "bg-blue-faint text-blue font-medium"
+                          : "text-slate hover:bg-offwhite hover:text-ink"
+                      }`}
+                    >
+                      <Icon size={16} className="shrink-0" />
+                      {showLabel && <span className="flex-1 truncate">{item.label}</span>}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </nav>
 
         {/* AI Credits badge */}
@@ -161,7 +218,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
                 />
               </div>
             )}
-            <Link href={`/workspace/${workspaceId}/settings`} className="text-[11px] text-blue hover:underline mt-1 block">
+            <Link href={workspaceId ? `/workspace/${workspaceId}/settings` : "/workspaces"} className="text-[11px] text-blue hover:underline mt-1 block">
               {creditsMax >= 0 && creditsUsed >= creditsMax ? "Upgrade for more →" : "Upgrade →"}
             </Link>
           </div>
@@ -250,7 +307,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
           <div className="flex-1" />
 
           {/* Role switcher dropdown */}
-          {role && (
+          {role && workspaceId && (
             <div className="relative" ref={roleDropdownRef}>
               <button
                 onClick={() => setRoleDropdownOpen((o) => !o)}
@@ -270,7 +327,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
                 <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-border rounded-2xl shadow-xl p-4 w-64 sm:w-72">
                   <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Switch dashboard view</p>
                   <RoleSwitcher
-                    workspaceId={workspaceId}
+                    workspaceId={workspaceId!}
                     currentRole={role as MemberRole}
                     userId={userId ?? undefined}
                     isOwner={isOwner}

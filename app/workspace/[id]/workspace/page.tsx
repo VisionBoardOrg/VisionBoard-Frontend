@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { cache } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { RoleSwitcher, type MemberRole } from "@/components/workspace/RoleSwitcher";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
@@ -39,10 +40,17 @@ const ROLE_META: Record<
   admin: { label: "Admin", color: "bg-emerald-50 text-emerald-600" },
 };
 
+/**
+ * React.cache() deduplicates this query within a single request so both
+ * generateMetadata and the page component share the same DB call.
+ */
+const getWorkspaceName = cache((id: string) =>
+  prisma.workspace.findUnique({ where: { id }, select: { name: true } })
+);
+
 export async function generateMetadata({ params }: WorkspacePageProps) {
   const { id } = await params;
-  // Keep this lean — the page query below fetches full workspace data anyway.
-  const workspace = await prisma.workspace.findUnique({ where: { id }, select: { name: true } });
+  const workspace = await getWorkspaceName(id);
   return { title: `Workspace — ${workspace?.name ?? "VisionBoard"}` };
 }
 

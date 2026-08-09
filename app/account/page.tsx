@@ -43,7 +43,7 @@ export default async function AccountPage() {
 
   return (
     <AppShell
-      workspaceId={workspace.id}
+      workspaceId={null}
       role={session.user.role}
       plan={plan}
       aiCreditsUsed={workspace.aiCreditsUsed}
@@ -70,7 +70,6 @@ export default async function AccountPage() {
 
         {/* ── Data & Privacy ── */}
         <DataPrivacySection
-          workspaceId={workspace.id}
           userEmail={user.email}
         />
 

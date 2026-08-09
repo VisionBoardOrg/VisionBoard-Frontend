@@ -11,7 +11,7 @@ import { BillingSection } from "@/components/settings/BillingSection";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import {
   Users, Plug, Shield, ChevronRight,
-  MessageSquare, GitBranch, Kanban, Layout, Layers, Building2,
+  MessageSquare, GitBranch, Kanban, Layout, Layers, Building2, Download,
 } from "lucide-react";
 
 interface SettingsPageProps { params: Promise<{ id: string }> }
@@ -229,7 +229,37 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
           </a>
         </section>
 
+        {/* ── Workspace Data Export ── */}
+        <WorkspaceExportSection workspaceId={id} workspaceName={workspace.name} />
+
       </div>
     </AppShell>
+  );
+}
+
+function WorkspaceExportSection({ workspaceId, workspaceName }: { workspaceId: string; workspaceName: string }) {
+  return (
+    <section className="bg-white rounded-2xl border border-border p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Download size={18} className="text-blue" />
+        <h2 className="font-semibold text-ink">Export Workspace Data</h2>
+      </div>
+      <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-offwhite border border-border">
+        <div>
+          <p className="text-sm font-semibold text-ink">Export {workspaceName}</p>
+          <p className="text-xs text-muted mt-0.5">
+            A portable JSON file with all goals, milestones, tasks, documents, and sprints for this workspace.
+          </p>
+        </div>
+        <a
+          href={`/api/workspaces/${workspaceId}/export`}
+          download
+          className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border border-border text-ink hover:bg-white transition-colors shrink-0 cursor-pointer"
+        >
+          <Download size={13} />
+          Export
+        </a>
+      </div>
+    </section>
   );
 }
