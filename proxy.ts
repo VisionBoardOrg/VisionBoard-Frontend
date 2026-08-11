@@ -94,9 +94,7 @@ export async function proxy(request: NextRequest) {
     }
 
     if (isAuthRoute && session) {
-      const dest = session.user.workspaceId
-        ? `/workspace/${session.user.workspaceId}/board`
-        : "/onboarding";
+      const dest = session.user.workspaceId ? "/dashboard" : "/onboarding";
       return NextResponse.redirect(new URL(dest, request.url));
     }
   }
