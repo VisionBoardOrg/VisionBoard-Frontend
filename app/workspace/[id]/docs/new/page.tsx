@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
-import { DocEditor } from "@/components/docs/DocEditor";
+import { DocEditor } from "@/components/docs/DocEditorDynamic";
 
 interface NewDocPageProps {
   params: Promise<{ id: string }>;

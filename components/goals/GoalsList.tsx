@@ -3,13 +3,18 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   Target, Plus, CheckCircle2, Clock, AlertTriangle, Circle,
   ChevronRight, FileText, MessageCircle,
 } from "lucide-react";
-import { GoalHealthScore } from "@/components/dashboard/GoalHealthScore";
 import { computeGoalHealth } from "@/lib/dashboard-utils";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
+
+const GoalHealthScore = dynamic(
+  () => import("@/components/dashboard/GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
+  { ssr: false }
+);
 
 interface Task {
   id: string; status: string; storyPoints: number | null;

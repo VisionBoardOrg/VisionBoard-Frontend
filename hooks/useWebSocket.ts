@@ -4,10 +4,28 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { getSession } from "next-auth/react";
 import { useBoardStore } from "@/store/board-store";
 
-// Grace period before first reconnect attempt (ms)
-const RECONNECT_DELAY = 5000;
+// Exponential backoff configuration for WebSocket reconnection
+// Prevents thundering herd on mass reconnects (e.g. after backend deploy)
+const RECONNECT_BASE_DELAY = 1000;
+const RECONNECT_MAX_DELAY = 30000;
 // Max reconnect attempts before giving up (prevents infinite spam)
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 8;
+
+/**
+ * Exponential backoff with "full jitter" per AWS best practice.
+ * Formula: Delay = min(MaxDelay, BaseDelay × 2^attempt) + random(0, BaseDelay)
+ *
+ * This spreads reconnects across a wide time window so 1,000 clients do NOT
+ * all strike the server at the exact same millisecond after a deployment.
+ */
+function getReconnectDelayMs(attempt: number): number {
+  const cappedExp = Math.min(
+    RECONNECT_MAX_DELAY,
+    RECONNECT_BASE_DELAY * Math.pow(2, Math.max(0, attempt - 1))
+  );
+  const jitter = Math.floor(Math.random() * RECONNECT_BASE_DELAY);
+  return cappedExp + jitter;
+}
 
 export interface RemoteCursor {
   userId: string;
@@ -222,7 +240,8 @@ export function useWebSocket(workspaceId: string | null) {
         }
         attemptsRef.current += 1;
         if (attemptsRef.current < MAX_ATTEMPTS) {
-          reconnectTimeoutRef.current = setTimeout(connect, RECONNECT_DELAY);
+          const delay = getReconnectDelayMs(attemptsRef.current);
+          reconnectTimeoutRef.current = setTimeout(connect, delay);
         }
       };
 
@@ -240,7 +259,8 @@ export function useWebSocket(workspaceId: string | null) {
       wsRef.current = null;
       attemptsRef.current += 1;
       if (attemptsRef.current < MAX_ATTEMPTS) {
-        reconnectTimeoutRef.current = setTimeout(connect, RECONNECT_DELAY);
+        const delay = getReconnectDelayMs(attemptsRef.current);
+        reconnectTimeoutRef.current = setTimeout(connect, delay);
       }
     }
   }, [workspaceId]);

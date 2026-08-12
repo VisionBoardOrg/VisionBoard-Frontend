@@ -184,6 +184,8 @@ model Task {
   @@index([assigneeId])
   @@index([sprintId])
   @@index([status])
+  @@index([milestoneId, order])
+  @@index([sprintId, status])
 }
 
 model Sprint {
@@ -248,6 +250,9 @@ model BoardItem {
   workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+  @@index([linkedGoalId])
+  @@index([linkedMilestoneId])
+  @@index([linkedTaskId])
 }
 
 model Comment {
@@ -271,6 +276,7 @@ model Comment {
   @@index([goalId])
   @@index([milestoneId])
   @@index([taskId])
+  @@index([documentId])
 }
 
 model ActivityLog {
@@ -288,6 +294,7 @@ model ActivityLog {
   @@index([workspaceId])
   @@index([entityId])
   @@index([createdAt])
+  @@index([workspaceId, createdAt])
 }
 
 model AIGenerationLog {
