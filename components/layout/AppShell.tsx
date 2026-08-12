@@ -66,10 +66,29 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const roleDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Initialise desktop sidebar state after hydration to avoid SSR mismatch
+  // Default side nav to collapsed (not expanded) by default when reloaded
   useEffect(() => {
-    setSidebarOpen(window.innerWidth >= 768);
+    try {
+      const saved = localStorage.getItem("visionboard_sidebar_open");
+      if (saved !== null) {
+        setSidebarOpen(saved === "true");
+      } else {
+        setSidebarOpen(false); // Default collapsed on load/reload
+      }
+    } catch {
+      setSidebarOpen(false);
+    }
   }, []);
+
+  const toggleSidebar = () => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("visionboard_sidebar_open", String(next));
+      } catch {}
+      return next;
+    });
+  };
 
   // Close mobile drawer on route change
   useEffect(() => {
@@ -293,7 +312,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
 
           {/* Desktop sidebar toggle */}
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={toggleSidebar}
             className="hidden md:block text-muted hover:text-ink transition-colors"
             aria-label="Toggle sidebar"
           >
@@ -341,7 +360,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
         </header>
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-4 md:p-6 no-scrollbar">{children}</main>
       </div>
     </div>
   );

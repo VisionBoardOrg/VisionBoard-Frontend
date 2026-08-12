@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { DndContext, DragEndEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { BoardCard } from "./BoardCard";
@@ -8,8 +8,10 @@ import { BoardToolbar } from "./BoardToolbar";
 import { NLCommandBar } from "./NLCommandBar";
 import { CardDetailPanel } from "./CardDetailPanel";
 import { LiveCursorsCanvas } from "./LiveCursorsCanvas";
+import { BoardLayoutSidePanel, type BoardLayoutMode } from "./BoardLayoutSidePanel";
+import { KanbanView } from "./KanbanView";
 import { Kanban } from "lucide-react";
-import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple } from "@/types/board";
+import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple } from "@/types/board";
 import { useBoard, useBoardStore } from "@/store/board-store";
 import { useWebSocket, type RemoteCursor } from "@/hooks/useWebSocket";
 
@@ -96,6 +98,32 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [commandOpen, setCommandOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [layoutMode, setLayoutMode] = useState<BoardLayoutMode>("canvas");
+  const [layoutSidePanelOpen, setLayoutSidePanelOpen] = useState(false);
+
+  // Restore saved layout preference from localStorage on page load
+  useEffect(() => {
+    try {
+      const saved =
+        localStorage.getItem(`visionboard_layout_${workspaceId}`) ||
+        localStorage.getItem("visionboard_preferred_layout");
+      if (saved === "kanban" || saved === "canvas") {
+        setLayoutMode(saved as BoardLayoutMode);
+      }
+    } catch {}
+  }, [workspaceId]);
+
+  // Persist layout selection to localStorage whenever changed
+  const changeLayoutMode = useCallback(
+    (mode: BoardLayoutMode) => {
+      setLayoutMode(mode);
+      try {
+        localStorage.setItem(`visionboard_layout_${workspaceId}`, mode);
+        localStorage.setItem("visionboard_preferred_layout", mode);
+      } catch {}
+    },
+    [workspaceId]
+  );
   // Goals and milestones are kept in state so newly created ones appear immediately
   const [goals, setGoals] = useState<GoalSimple[]>(initialGoals);
   const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
@@ -236,6 +264,174 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     [items, zoom, moveItem, sendEvent, workspaceId]
   );
 
+  const handleDragStart = useCallback(() => {
+    if (typeof window !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate(35);
+      } catch {}
+    }
+  }, []);
+
+  const handleDeleteCard = useCallback(
+    async (itemId: string) => {
+      const item = items.find((i) => i.id === itemId);
+      if (!item) return;
+
+      // Optimistically remove card
+      setItems(items.filter((i) => i.id !== itemId));
+      if (selectedId === itemId) setSelectedId(null);
+
+      // Broadcast over WS
+      if (sendEvent && workspaceId) {
+        sendEvent({
+          type: "CARD_DELETED",
+          workspaceId,
+          id: itemId,
+        });
+      }
+
+      try {
+        if (item.entityType === "goal" && item.linkedGoalId) {
+          await fetch(`/api/goals/${item.linkedGoalId}`, { method: "DELETE" });
+        } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
+          await fetch(`/api/milestones/${item.linkedMilestoneId}`, { method: "DELETE" });
+        }
+        await fetch(`/api/board-items/${itemId}`, { method: "DELETE" });
+      } catch (err) {
+        console.error("[BoardCanvas] Failed to delete board item:", err);
+      }
+    },
+    [items, selectedId, sendEvent, workspaceId, setItems]
+  );
+
+  const handleItemStatusChange = useCallback(
+    async (itemId: string, newStatus: string) => {
+      const item = items.find((i) => i.id === itemId);
+      if (!item) return;
+
+      if (item.entityType === "goal" && item.linkedGoalId) {
+        setGoals((prev) =>
+          prev.map((g) => (g.id === item.linkedGoalId ? { ...g, status: newStatus } : g))
+        );
+        fetch(`/api/goals/${item.linkedGoalId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        }).catch(console.error);
+      } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
+        setMilestones((prev) =>
+          prev.map((m) => (m.id === item.linkedMilestoneId ? { ...m, status: newStatus } : m))
+        );
+        fetch(`/api/milestones/${item.linkedMilestoneId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        }).catch(console.error);
+      } else if (item.entityType === "task" && item.linkedTaskId) {
+        fetch(`/api/tasks/${item.linkedTaskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        }).catch(console.error);
+      }
+
+      if (sendEvent) {
+        sendEvent({
+          type: "CARD_UPDATED",
+          workspaceId,
+          boardItem: item,
+        });
+      }
+    },
+    [items, workspaceId, sendEvent]
+  );
+
+  const handleTaskToggle = useCallback(
+    async (taskId: string, newStatus: string, milestoneId?: string) => {
+      if (milestoneId) {
+        setMilestones((prev) =>
+          prev.map((m) => {
+            if (m.id === milestoneId) {
+              const updatedTasks = m.tasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
+              const allDone = updatedTasks.every((t: TaskSimple) => t.status === "done");
+              const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+              const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
+              return { ...m, status: newMilestoneStatus, tasks: updatedTasks };
+            }
+            return m;
+          })
+        );
+        setItems(
+          items.map((item) => {
+            if (item.entityType === "milestone" && item.linkedMilestoneId === milestoneId && item.linkedMilestone) {
+              const updatedTasks = item.linkedMilestone.tasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
+              const allDone = updatedTasks.every((t: TaskSimple) => t.status === "done");
+              const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+              const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
+              return {
+                ...item,
+                linkedMilestone: {
+                  ...item.linkedMilestone,
+                  status: newMilestoneStatus,
+                  tasks: updatedTasks,
+                },
+              };
+            }
+            return item;
+          })
+        );
+      }
+
+      fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      }).catch(console.error);
+    },
+    [items, setMilestones, setItems]
+  );
+
+  const handleAddTaskToMilestone = useCallback(
+    async (milestoneId: string, title: string) => {
+      try {
+        const res = await fetch(`/api/tasks`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            milestoneId,
+            status: "todo",
+            priority: "medium",
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const newTask = data.task;
+          setMilestones((prev) =>
+            prev.map((m) => (m.id === milestoneId ? { ...m, tasks: [...m.tasks, newTask] } : m))
+          );
+          setItems(
+            items.map((item) => {
+              if (item.entityType === "milestone" && item.linkedMilestoneId === milestoneId && item.linkedMilestone) {
+                return {
+                  ...item,
+                  linkedMilestone: {
+                    ...item.linkedMilestone,
+                    tasks: [...(item.linkedMilestone.tasks ?? []), newTask],
+                  },
+                };
+              }
+              return item;
+            })
+          );
+        }
+      } catch (err) {
+        console.error("Failed to add task to milestone:", err);
+      }
+    },
+    [items, setMilestones, setItems]
+  );
+
   // Map remote viewers selecting cards
   const remoteViewersByCardId = useMemo(() => {
     const map = new Map<string, RemoteCursor[]>();
@@ -321,85 +517,122 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           setItems([...items, ...(newItems as BoardItemFull[])]);
         }}
         activeCollaborators={activeCollaborators}
+        sendEvent={sendEvent}
+        layoutMode={layoutMode}
+        onToggleLayoutSidePanel={() => setLayoutSidePanelOpen((prev) => !prev)}
       />
 
-      {/* Canvas area */}
-      <div
-        ref={canvasRef}
-        className="absolute inset-0 overflow-hidden touch-none"
-        style={{ cursor: "grab" }}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onWheel={onWheel}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-      >
-        {/* Dot grid background */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden>
-          <defs>
-            <pattern id="dots" x={pan.x % (20 * zoom)} y={pan.y % (20 * zoom)} width={20 * zoom} height={20 * zoom} patternUnits="userSpaceOnUse">
-              <circle cx={1} cy={1} r={1} fill="#E2E8F0" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#dots)" />
-        </svg>
+      {/* Board Layout Switcher Side Panel Drawer */}
+      <BoardLayoutSidePanel
+        isOpen={layoutSidePanelOpen}
+        onClose={() => setLayoutSidePanelOpen(false)}
+        currentLayout={layoutMode}
+        onSelectLayout={(newLayout) => {
+          changeLayoutMode(newLayout);
+          setLayoutSidePanelOpen(false);
+        }}
+        columnCount={3}
+        totalItemsCount={items.length}
+      />
 
-        {/* Transformed canvas */}
+      {/* Main Board View: Kanban Status Columns vs Spatial Canvas */}
+      {layoutMode === "kanban" ? (
+        <div className="absolute inset-0 top-[52px] overflow-auto no-scrollbar">
+          <KanbanView
+            workspaceId={workspaceId}
+            items={items}
+            goals={goals}
+            milestones={milestones}
+            members={members}
+            selectedId={selectedId}
+            onSelectCard={(id) => setSelectedId(selectedId === id ? null : id)}
+            onItemAdded={(item) => setItems([...items, item])}
+            onItemStatusChange={handleItemStatusChange}
+            onDeleteCard={handleDeleteCard}
+            onTaskToggle={handleTaskToggle}
+            onAddTaskToMilestone={handleAddTaskToMilestone}
+          />
+        </div>
+      ) : (
+        /* Spatial Canvas area */
         <div
-          style={{
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            transformOrigin: "0 0",
-            position: "absolute",
-            width: 4000,
-            height: 3000,
-          }}
+          ref={canvasRef}
+          className="absolute inset-0 top-[52px] overflow-hidden touch-none"
+          style={{ cursor: "grab" }}
+          onMouseDown={onMouseDown}
+          onMouseMove={onMouseMove}
+          onMouseUp={onMouseUp}
+          onWheel={onWheel}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
         >
-          {/* Real-time remote cursors layer */}
-          <LiveCursorsCanvas cursors={cursors} currentUserId={currentUserId} />
+          {/* Dot grid background */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden>
+            <defs>
+              <pattern id="dots" x={pan.x % (20 * zoom)} y={pan.y % (20 * zoom)} width={20 * zoom} height={20 * zoom} patternUnits="userSpaceOnUse">
+                <circle cx={1} cy={1} r={1} fill="#E2E8F0" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#dots)" />
+          </svg>
 
-          {/* SVG connector lines */}
-          {connectors.length > 0 && (
-            <svg
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
-              aria-hidden
-            >
-              <defs>
-                <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-                  <path d="M0,0 L0,6 L8,3 z" fill="#6366f1" opacity="0.75" />
-                </marker>
-                <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-                  <path d="M0,0 L0,6 L8,3 z" fill="#06b6d4" opacity="0.75" />
-                </marker>
-              </defs>
-              {connectors.map((c) => (
-                <path
-                  key={c.key}
-                  d={c.path}
-                  stroke={c.color}
-                  strokeWidth={1.75}
-                  strokeOpacity={0.6}
-                  fill="none"
-                  markerEnd={c.color === "#6366f1" ? "url(#arrow-violet)" : "url(#arrow-cyan)"}
+          {/* Transformed canvas */}
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transformOrigin: "0 0",
+              position: "absolute",
+              width: 4000,
+              height: 3000,
+            }}
+          >
+            {/* Real-time remote cursors layer */}
+            <LiveCursorsCanvas cursors={cursors} currentUserId={currentUserId} />
+
+            {/* SVG connector lines */}
+            {connectors.length > 0 && (
+              <svg
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
+                aria-hidden
+              >
+                <defs>
+                  <marker id="arrow-violet" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#6366f1" opacity="0.75" />
+                  </marker>
+                  <marker id="arrow-cyan" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
+                    <path d="M0,0 L0,6 L8,3 z" fill="#06b6d4" opacity="0.75" />
+                  </marker>
+                </defs>
+                {connectors.map((c) => (
+                  <path
+                    key={c.key}
+                    d={c.path}
+                    stroke={c.color}
+                    strokeWidth={1.75}
+                    strokeOpacity={0.6}
+                    fill="none"
+                    markerEnd={c.color === "#6366f1" ? "url(#arrow-violet)" : "url(#arrow-cyan)"}
+                  />
+                ))}
+              </svg>
+            )}
+
+            <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+              {items.map((item) => (
+                <BoardCard
+                  key={item.id}
+                  item={item}
+                  isSelected={selectedId === item.id}
+                  remoteViewers={remoteViewersByCardId.get(item.id)}
+                  onSelect={() => setSelectedId(selectedId === item.id ? null : item.id)}
+                  onDelete={handleDeleteCard}
                 />
               ))}
-            </svg>
-          )}
-
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            {items.map((item) => (
-              <BoardCard
-                key={item.id}
-                item={item}
-                isSelected={selectedId === item.id}
-                remoteViewers={remoteViewersByCardId.get(item.id)}
-                onSelect={() => setSelectedId(selectedId === item.id ? null : item.id)}
-              />
-            ))}
-          </DndContext>
+            </DndContext>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Side panel — slides in from right, overlays canvas */}
       {selectedItem && (

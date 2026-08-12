@@ -625,6 +625,19 @@ export function CardDetailPanel({
 
   async function patchBoardItem(patch: Record<string, unknown>) {
     setSaving(true);
+    const mergedOptimistic = { ...localItem, ...patch };
+    setLocalItem(mergedOptimistic as BoardItemFull);
+    onItemUpdated(mergedOptimistic as BoardItemFull);
+
+    // Broadcast card update over WebSocket immediately (optimistic)
+    if (sendEvent && localItem.workspaceId) {
+      sendEvent({
+        type: "CARD_UPDATED",
+        workspaceId: localItem.workspaceId,
+        boardItem: mergedOptimistic,
+      });
+    }
+
     const res = await fetch(`/api/board-items/${localItem.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -635,13 +648,6 @@ export function CardDetailPanel({
       const merged = { ...localItem, ...data.boardItem };
       setLocalItem(merged);
       onItemUpdated(merged as BoardItemFull);
-
-      // Broadcast card update over WebSocket
-      sendEvent({
-        type: "CARD_UPDATED",
-        workspaceId: localItem.workspaceId,
-        boardItem: merged,
-      });
 
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -705,10 +711,19 @@ export function CardDetailPanel({
       } else if (entityType === "milestone" && localItem.linkedMilestoneId) {
         await fetch(`/api/milestones/${localItem.linkedMilestoneId}`, { method: "DELETE" });
       }
-      // 2. Remove the board card itself
-      await fetch(`/api/board-items/${localItem.id}`, { method: "DELETE" });
+      // 2. Broadcast deletion over WebSocket immediately
+      if (sendEvent && localItem.workspaceId) {
+        sendEvent({
+          type: "CARD_DELETED",
+          workspaceId: localItem.workspaceId,
+          id: localItem.id,
+        });
+      }
       onItemDeleted(localItem.id);
       onClose();
+
+      // 3. Remove the board card itself from DB
+      await fetch(`/api/board-items/${localItem.id}`, { method: "DELETE" });
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
@@ -773,23 +788,21 @@ export function CardDetailPanel({
             </span>
           )}
           <button
+            onClick={handleDelete}
+            disabled={deleting}
+            title={confirmDelete ? "Click again to confirm delete" : "Delete card"}
+            className={`p-1 rounded-lg transition-colors text-white disabled:opacity-50 ${
+              confirmDelete ? "bg-red-500 hover:bg-red-600" : "hover:bg-white/20"
+            }`}
+          >
+            <Trash2 size={15} />
+          </button>
+          <button
             onClick={onClose}
             className="p-1 rounded-lg hover:bg-white/20 transition-colors text-white"
           >
             <X size={15} />
           </button>
-          {(entityType === "goal" || entityType === "milestone") && (
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              title={confirmDelete ? "Click again to confirm delete" : "Delete"}
-              className={`p-1 rounded-lg transition-colors text-white disabled:opacity-50 ${
-                confirmDelete ? "bg-red-500 hover:bg-red-600" : "hover:bg-white/20"
-              }`}
-            >
-              <Trash2 size={15} />
-            </button>
-          )}
         </div>
       </div>
 
@@ -802,7 +815,9 @@ export function CardDetailPanel({
             <p className="text-xs font-semibold text-red-700 mb-2">
               {entityType === "goal"
                 ? "Delete this goal and all its milestones and tasks?"
-                : "Delete this milestone and all its tasks?"}
+                : entityType === "milestone"
+                ? "Delete this milestone and all its tasks?"
+                : `Delete this ${entityType}?`}
             </p>
             <div className="flex items-center gap-2">
               <button

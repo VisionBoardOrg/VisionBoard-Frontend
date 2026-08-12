@@ -67,10 +67,15 @@ export const useBoardStore = create<BoardState>((set, get) => ({
     }),
 
   addItem: (item) =>
-    set((state) => ({
-      itemsById: { ...state.itemsById, [item.id]: item },
-      itemOrder: [...state.itemOrder, item.id],
-    })),
+    set((state) => {
+      if (state.itemsById[item.id]) {
+        return { itemsById: { ...state.itemsById, [item.id]: item } };
+      }
+      return {
+        itemsById: { ...state.itemsById, [item.id]: item },
+        itemOrder: [...state.itemOrder, item.id],
+      };
+    }),
 
   removeItem: (id) =>
     set((state) => {

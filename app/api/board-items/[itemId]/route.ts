@@ -45,17 +45,24 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
 
-  // Fetch item + verify membership in parallel
+  // Single query for item lookup + workspace membership check
   const item = await prisma.boardItem.findUnique({
     where: { id: itemId },
-    select: { id: true, workspaceId: true },
+    select: {
+      id: true,
+      workspaceId: true,
+      workspace: {
+        select: {
+          members: {
+            where: { userId: session.user.id },
+            select: { userId: true },
+          },
+        },
+      },
+    },
   });
   if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: item.workspaceId, userId: session.user.id } },
-  });
-  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (item.workspace.members.length === 0) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const updated = await prisma.boardItem.update({
     where: { id: itemId },
@@ -76,14 +83,21 @@ export async function DELETE(
 
   const item = await prisma.boardItem.findUnique({
     where: { id: itemId },
-    select: { id: true, workspaceId: true },
+    select: {
+      id: true,
+      workspaceId: true,
+      workspace: {
+        select: {
+          members: {
+            where: { userId: session.user.id },
+            select: { userId: true },
+          },
+        },
+      },
+    },
   });
   if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: item.workspaceId, userId: session.user.id } },
-  });
-  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (item.workspace.members.length === 0) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   await prisma.boardItem.delete({ where: { id: itemId } });
   return NextResponse.json({ success: true });

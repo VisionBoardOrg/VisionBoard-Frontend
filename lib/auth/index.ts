@@ -23,6 +23,19 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { authConfig } from "@/auth.config";
+import { cache } from "react";
+
+/**
+ * Deduplicate workspace membership queries within a single request lifecycle (RSC / Server Components / layout + page).
+ * Prevents multiple parallel auth() calls in layout + page + metadata from spamming the Prisma connection pool.
+ */
+const getWorkspaceMembership = cache((userId: string) =>
+  prisma.workspaceMember.findFirst({
+    where: { userId },
+    include: { workspace: true },
+    orderBy: { joinedAt: "asc" },
+  })
+);
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -88,16 +101,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // or after 5 minutes — avoiding redundant DB queries on every request when workspaceId is null.
       const needsRefresh =
         trigger === "update" ||
-        lastFetch === 0 ||
-        now - lastFetch > REFRESH_INTERVAL_MS;
+        (token.workspaceId === null && lastFetch === 0) ||
+        (lastFetch > 0 && now - lastFetch > REFRESH_INTERVAL_MS);
 
       if (token.id && needsRefresh) {
         try {
-          const membership = await prisma.workspaceMember.findFirst({
-            where: { userId: token.id as string },
-            include: { workspace: true },
-            orderBy: { joinedAt: "asc" },
-          });
+          const membership = await getWorkspaceMembership(token.id as string);
           token.role                = membership?.role            ?? null;
           token.workspaceId         = membership?.workspaceId     ?? null;
           token.workspacePlan       = membership?.workspace?.plan ?? null;

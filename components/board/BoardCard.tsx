@@ -1,11 +1,11 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useState, useCallback, useRef } from "react";
 
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardItemFull } from "@/types/board";
-import { CheckCircle2, Circle, Clock, AlertTriangle, GripVertical, Link2 } from "lucide-react";
+import { CheckCircle2, Circle, Clock, AlertTriangle, GripVertical, Link2, Trash2 } from "lucide-react";
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
   completed: <CheckCircle2 size={12} className="text-success" />,
@@ -29,15 +29,46 @@ interface BoardCardProps {
   item: BoardItemFull;
   isSelected: boolean;
   onSelect: () => void;
+  onDelete?: (id: string) => void;
   remoteViewers?: RemoteCursor[];
 }
 
-function BoardCardInner({ item, isSelected, onSelect, remoteViewers = [] }: BoardCardProps) {
+function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = [] }: BoardCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
   });
 
+  const [isReadyToMove, setIsReadyToMove] = useState(false);
+  const [isPressing, setIsPressing] = useState(false);
+  const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    // Call dnd-kit pointer listeners if any
+    listeners?.onPointerDown?.(e as never);
+    setIsPressing(true);
+
+    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = setTimeout(() => {
+      setIsReadyToMove(true);
+      if (typeof window !== "undefined" && "vibrate" in navigator) {
+        try {
+          navigator.vibrate(35);
+        } catch {}
+      }
+    }, 240);
+  }, [listeners]);
+
+  const handlePointerUpOrCancel = useCallback(() => {
+    setIsPressing(false);
+    setIsReadyToMove(false);
+    if (holdTimerRef.current) {
+      clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  }, []);
+
   const primaryViewer = remoteViewers[0];
+  const activeMove = isDragging || isReadyToMove;
 
   const style: React.CSSProperties = {
     position: "absolute",
@@ -46,9 +77,9 @@ function BoardCardInner({ item, isSelected, onSelect, remoteViewers = [] }: Boar
     width: item.width,
     minHeight: item.height,
     transform: CSS.Translate.toString(transform),
-    zIndex: isDragging ? 100 : isSelected ? 10 : remoteViewers.length > 0 ? 5 : 1,
-    opacity: isDragging ? 0.85 : 1,
-    transition: isDragging ? "none" : "box-shadow 0.15s, border-color 0.2s",
+    zIndex: activeMove ? 100 : isSelected ? 10 : remoteViewers.length > 0 ? 5 : 1,
+    opacity: isDragging ? 0.92 : 1,
+    transition: isDragging ? "none" : "box-shadow 0.15s, border-color 0.2s, transform 0.15s",
     touchAction: "none",
     borderColor: primaryViewer ? primaryViewer.userColor : undefined,
   };
@@ -81,15 +112,29 @@ function BoardCardInner({ item, isSelected, onSelect, remoteViewers = [] }: Boar
       data-board-card
       {...attributes}
       {...listeners}
-      className={`bg-white rounded-xl border-2 shadow-sm select-none transition-shadow group relative ${colors.border} ${
-        isSelected
-          ? "ring-2 ring-blue ring-offset-2 shadow-md"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUpOrCancel}
+      onPointerCancel={handlePointerUpOrCancel}
+      className={`bg-white rounded-xl border-2 shadow-sm select-none group relative ${colors.border} ${
+        activeMove
+          ? "ring-4 ring-blue-500 shadow-2xl scale-[1.04] cursor-grabbing z-50 bg-blue-50/20"
+          : isPressing
+          ? "scale-[0.98] ring-2 ring-blue-400/50 cursor-grab"
+          : isSelected
+          ? "ring-2 ring-blue ring-offset-2 shadow-md cursor-grab active:scale-[0.98]"
           : primaryViewer
-          ? "ring-2 ring-offset-1 shadow-md"
-          : "hover:shadow-md"
-      } ${isDragging ? "shadow-primary cursor-grabbing" : "cursor-grab"}`}
+          ? "ring-2 ring-offset-1 shadow-md cursor-grab active:scale-[0.98]"
+          : "hover:shadow-md cursor-grab active:scale-[0.98]"
+      }`}
       onClick={onSelect}
     >
+      {/* Draggable Active Indicator Badge */}
+      {activeMove && (
+        <div className="absolute -top-3.5 left-2 z-30 flex items-center gap-1 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg border border-white animate-bounce pointer-events-none">
+          <GripVertical size={12} /> Ready to move
+        </div>
+      )}
+
       {/* Remote Viewers Avatar Stack Badge */}
       {remoteViewers.length > 0 && (
         <div className="absolute -top-3 right-2 z-20 flex items-center -space-x-1.5 pointer-events-none">
@@ -130,7 +175,7 @@ function BoardCardInner({ item, isSelected, onSelect, remoteViewers = [] }: Boar
       </div>
 
       <div className="p-3">
-        {/* Entity type badge + link indicator + status */}
+        {/* Entity type badge + link indicator + status + delete button */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5">
             <span className={`text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded ${colors.badge}`}>
@@ -142,11 +187,26 @@ function BoardCardInner({ item, isSelected, onSelect, remoteViewers = [] }: Boar
               </span>
             )}
           </div>
-          {status && (
-            <span className="flex items-center gap-1">
-              {STATUS_ICON[status]}
-            </span>
-          )}
+          <div className="flex items-center gap-1">
+            {status && (
+              <span className="flex items-center gap-1">
+                {STATUS_ICON[status]}
+              </span>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(item.id);
+                }}
+                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-all pointer-events-auto"
+                title="Delete card"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Title */}

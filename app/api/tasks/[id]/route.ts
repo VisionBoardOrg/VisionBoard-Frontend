@@ -55,6 +55,24 @@ export async function PATCH(
 
   const updated = await prisma.task.update({ where: { id }, data: updateData as never });
 
+  // Auto-sync parent milestone status based on task completion status
+  if (parsed.data.status && task.milestoneId) {
+    const milestoneTasks = await prisma.task.findMany({
+      where: { milestoneId: task.milestoneId },
+      select: { status: true },
+    });
+    if (milestoneTasks.length > 0) {
+      const allDone = milestoneTasks.every((t) => t.status === "done");
+      const anyStarted = milestoneTasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+      const targetMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
+
+      prisma.milestone.update({
+        where: { id: task.milestoneId },
+        data: { status: targetMilestoneStatus },
+      }).catch((err: unknown) => console.error("[tasks/[id] PATCH] Auto milestone update failed:", err));
+    }
+  }
+
   // Fire-and-forget audit log — non-blocking
   prisma.activityLog.create({
     data: {

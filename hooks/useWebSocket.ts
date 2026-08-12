@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { getSession } from "next-auth/react";
+import { useSession } from "next-auth/react";
 import { useBoardStore } from "@/store/board-store";
 
 // Exponential backoff configuration for WebSocket reconnection
@@ -100,6 +100,14 @@ function validateCardUpdated(data: Record<string, unknown>): {
     }
     safeItem.color = item.color;
   }
+  for (const linkKey of ["linkedGoalId", "linkedMilestoneId", "linkedTaskId"] as const) {
+    if (item[linkKey] !== undefined) {
+      safeItem[linkKey] = item[linkKey];
+    }
+  }
+  if (item.linkedGoal !== undefined) safeItem.linkedGoal = item.linkedGoal;
+  if (item.linkedMilestone !== undefined) safeItem.linkedMilestone = item.linkedMilestone;
+  if (item.entityType !== undefined) safeItem.entityType = item.entityType;
 
   return { id: item.id as string, safeItem };
 }
@@ -130,17 +138,26 @@ function validateCursorMoved(data: Record<string, unknown>): RemoteCursor | null
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function useWebSocket(workspaceId: string | null) {
+  const { data: session } = useSession();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isConnectingRef = useRef(false);
   const attemptsRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
 
+  const sessionToken = (session as { accessToken?: string })?.accessToken ?? session?.user?.id ?? null;
+  useEffect(() => {
+    if (sessionToken) {
+      tokenRef.current = sessionToken;
+    }
+  }, [sessionToken]);
+
   const [cursors, setCursors] = useState<Record<string, RemoteCursor>>({});
 
   const connect = useCallback(async () => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
-    if (!wsUrl || !workspaceId) return;
+    const activeToken = tokenRef.current ?? sessionToken;
+    if (!wsUrl || !workspaceId || !activeToken) return;
 
     if (process.env.NODE_ENV === "production" && !wsUrl.startsWith("wss://")) {
       console.warn("[useWebSocket] NEXT_PUBLIC_WS_URL must use wss:// in production. Real-time sync disabled.");
@@ -156,17 +173,6 @@ export function useWebSocket(workspaceId: string | null) {
 
     if (attemptsRef.current >= MAX_ATTEMPTS) return;
 
-    if (!tokenRef.current) {
-      try {
-        const session = await getSession();
-        tokenRef.current = (session as { accessToken?: string })?.accessToken
-          ?? (session?.user as { id?: string })?.id
-          ?? null;
-      } catch {
-        // getSession failed
-      }
-    }
-
     isConnectingRef.current = true;
 
     try {
@@ -179,7 +185,7 @@ export function useWebSocket(workspaceId: string | null) {
         ws.send(JSON.stringify({
           type: "join",
           workspaceId,
-          token: tokenRef.current,
+          token: activeToken,
         }));
       };
 
@@ -205,6 +211,18 @@ export function useWebSocket(workspaceId: string | null) {
             if (validated) {
               useBoardStore.getState().updateBoardItem(validated.id, validated.safeItem);
             }
+          }
+
+          if (data.type === "CARD_CREATED" && data.boardItem) {
+            const item = data.boardItem as Record<string, unknown>;
+            if (item && isNonEmptyString(item.id)) {
+              useBoardStore.getState().addItem(item as never);
+            }
+          }
+
+          if (data.type === "CARD_DELETED" && (isNonEmptyString(data.id) || isNonEmptyString(data.boardItemId))) {
+            const deletedId = ((data.id ?? data.boardItemId) as string);
+            useBoardStore.getState().removeItem(deletedId);
           }
 
           if (data.type === "CURSOR_MOVED") {
@@ -287,10 +305,14 @@ export function useWebSocket(workspaceId: string | null) {
   }, []);
 
   useEffect(() => {
+    const activeToken = tokenRef.current ?? sessionToken;
+    if (!workspaceId || !activeToken) return;
+
+    attemptsRef.current = 0;
     connect();
+
     return () => {
       isConnectingRef.current = false;
-      attemptsRef.current = MAX_ATTEMPTS;
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsRef.current) {
         wsRef.current.onopen = null;
@@ -301,7 +323,7 @@ export function useWebSocket(workspaceId: string | null) {
         wsRef.current = null;
       }
     };
-  }, [connect]);
+  }, [connect, workspaceId, sessionToken]);
 
   const sendEvent = useCallback((event: Record<string, unknown>) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

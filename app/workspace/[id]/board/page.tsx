@@ -84,6 +84,39 @@ export default async function BoardPage({ params }: BoardPageProps) {
     }),
   ]);
 
+  // Auto-sync milestone status based on task completion
+  const updatedMilestones = milestones.map((m) => {
+    if (m.tasks && m.tasks.length > 0) {
+      const allDone = m.tasks.every((t) => t.status === "done");
+      const anyStarted = m.tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+      const targetStatus = allDone ? "completed" : anyStarted && m.status === "planned" ? "in_progress" : m.status;
+
+      if (targetStatus !== m.status) {
+        prisma.milestone.update({
+          where: { id: m.id },
+          data: { status: targetStatus },
+        }).catch((err) => console.error("[board/page] Auto milestone status update failed:", err));
+        return { ...m, status: targetStatus };
+      }
+    }
+    return m;
+  });
+
+  const milestoneStatusById = new Map(updatedMilestones.map((m) => [m.id, m.status]));
+  const updatedBoardItems = boardItems.map((item) => {
+    if (item.linkedMilestone) {
+      const newStatus = milestoneStatusById.get(item.linkedMilestone.id) ?? item.linkedMilestone.status;
+      return {
+        ...item,
+        linkedMilestone: {
+          ...item.linkedMilestone,
+          status: newStatus,
+        },
+      };
+    }
+    return item;
+  });
+
   return (
     <AppShell workspaceId={id} role={session.user.role}
       plan={workspace?.plan}
@@ -94,9 +127,9 @@ export default async function BoardPage({ params }: BoardPageProps) {
     >
       <BoardCanvas
         workspaceId={id}
-        initialItems={boardItems as never}
+        initialItems={updatedBoardItems as never}
         goals={goals as never}
-        milestones={milestones as never}
+        milestones={updatedMilestones as never}
         members={members.map((m) => m.user)}
       />
     </AppShell>

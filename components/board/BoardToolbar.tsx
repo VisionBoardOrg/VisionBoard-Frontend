@@ -1,6 +1,6 @@
 "use client";
 
-import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw } from "lucide-react";
+import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw, LayoutGrid, Kanban, SlidersHorizontal } from "lucide-react";
 import type { GoalSimple, MilestoneWithTasks, BoardItemFull } from "@/types/board";
 import { useState, useRef, useEffect } from "react";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
@@ -46,12 +46,19 @@ interface BoardToolbarProps {
   onItemsSynced: (items: BoardItemFull[]) => void;
   /** Active live remote collaborators on this canvas */
   activeCollaborators?: RemoteCursor[];
+  sendEvent?: (event: Record<string, unknown>) => void;
+  /** Current active layout mode */
+  layoutMode?: "canvas" | "kanban";
+  /** Callback to open/toggle layout side panel */
+  onToggleLayoutSidePanel?: () => void;
 }
 
 export function BoardToolbar({
   zoom, onZoomIn, onZoomOut, onZoomReset, onCommandOpen,
   workspaceId, goals, milestones, onItemAdded, onGoalCreated, onMilestoneCreated, currentItems,
-  onItemsSynced, activeCollaborators = [],
+  onItemsSynced, activeCollaborators = [], sendEvent,
+  layoutMode = "canvas",
+  onToggleLayoutSidePanel,
 }: BoardToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"goal" | "milestone" | null>(null);
@@ -78,7 +85,18 @@ export function BoardToolbar({
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.items?.length > 0) onItemsSynced(data.items);
+        if (data.items?.length > 0) {
+          onItemsSynced(data.items);
+          if (sendEvent) {
+            for (const item of data.items) {
+              sendEvent({
+                type: "CARD_CREATED",
+                workspaceId,
+                boardItem: item,
+              });
+            }
+          }
+        }
       }
     } finally {
       setSyncing(false);
@@ -173,6 +191,13 @@ export function BoardToolbar({
     if (res.ok) {
       const data = await res.json();
       onItemAdded(data.boardItem);
+      if (sendEvent) {
+        sendEvent({
+          type: "CARD_CREATED",
+          workspaceId,
+          boardItem: data.boardItem,
+        });
+      }
     }
     setAdding(false);
   }
@@ -326,6 +351,19 @@ export function BoardToolbar({
             </div>
           )}
         </div>
+
+        <div className="w-px h-5 bg-border mx-1" />
+
+        {/* Layout side panel switcher */}
+        <button
+          onClick={onToggleLayoutSidePanel}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition-colors border border-slate-200/80 shadow-2xs"
+          title="Switch Board Layouts & Open Side Panel"
+        >
+          {layoutMode === "kanban" ? <Kanban size={14} className="text-purple-600" /> : <LayoutGrid size={14} className="text-indigo-600" />}
+          <span>{layoutMode === "kanban" ? "Status Columns" : "Spatial Canvas"}</span>
+          <SlidersHorizontal size={12} className="text-slate-400 ml-0.5" />
+        </button>
 
         <div className="w-px h-5 bg-border mx-1" />
 
