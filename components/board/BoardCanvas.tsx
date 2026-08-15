@@ -10,7 +10,7 @@ import { CardDetailPanel } from "./CardDetailPanel";
 import { LiveCursorsCanvas } from "./LiveCursorsCanvas";
 import { BoardLayoutSidePanel, type BoardLayoutMode } from "./BoardLayoutSidePanel";
 import { KanbanView } from "./KanbanView";
-import { Kanban } from "lucide-react";
+import { Kanban, RotateCcw, X } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple } from "@/types/board";
 import { useBoard, useBoardStore } from "@/store/board-store";
 import { useWebSocket, type RemoteCursor } from "@/hooks/useWebSocket";
@@ -127,6 +127,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   // Goals and milestones are kept in state so newly created ones appear immediately
   const [goals, setGoals] = useState<GoalSimple[]>(initialGoals);
   const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
+  const [undoStack, setUndoStack] = useState<{ item: BoardItemFull; deletedAt: number }[]>([]);
+  const [showUndoToast, setShowUndoToast] = useState(false);
+  const lastDeleted = undoStack[undoStack.length - 1];
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // dnd-kit sensors
@@ -277,6 +280,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       const item = items.find((i) => i.id === itemId);
       if (!item) return;
 
+      // Add to undo stack & show toast
+      setUndoStack((prev) => [...prev, { item, deletedAt: Date.now() }]);
+      setShowUndoToast(true);
+
       // Optimistically remove card
       setItems(items.filter((i) => i.id !== itemId));
       if (selectedId === itemId) setSelectedId(null);
@@ -303,6 +310,143 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     },
     [items, selectedId, sendEvent, workspaceId, setItems]
   );
+
+  const handleUndo = useCallback(async () => {
+    if (undoStack.length === 0) return;
+    const last = undoStack[undoStack.length - 1];
+    const restoredItem = last.item;
+
+    setUndoStack((prev) => prev.slice(0, -1));
+    if (undoStack.length <= 1) {
+      setShowUndoToast(false);
+    }
+
+    // Put item back into state
+    setItems([...items.filter((i) => i.id !== restoredItem.id), restoredItem]);
+
+    // Broadcast over WS
+    if (sendEvent && workspaceId) {
+      sendEvent({
+        type: "CARD_CREATED",
+        workspaceId,
+        boardItem: restoredItem,
+      });
+    }
+
+    try {
+      let restoredMilestoneId = restoredItem.linkedMilestoneId;
+      let restoredGoalId = restoredItem.linkedGoalId;
+
+      if (restoredItem.entityType === "milestone" && restoredItem.linkedMilestone) {
+        const ms = restoredItem.linkedMilestone;
+        const targetGoalId = ms.goalId || (goals.length > 0 ? goals[0].id : null);
+        if (targetGoalId) {
+          const res = await fetch(`/api/milestones`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workspaceId,
+              goalId: targetGoalId,
+              title: ms.title,
+              description: ms.description ?? "",
+              status: ["planned", "in_progress", "completed", "delayed"].includes(ms.status)
+                ? ms.status
+                : "planned",
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.milestone?.id) {
+              restoredMilestoneId = data.milestone.id;
+
+              // Restore tasks if any
+              if (ms.tasks && ms.tasks.length > 0) {
+                for (const t of ms.tasks) {
+                  await fetch(`/api/tasks`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      milestoneId: restoredMilestoneId,
+                      title: t.title,
+                      priority: t.priority ?? "medium",
+                      assigneeId: t.assigneeId,
+                    }),
+                  }).catch(console.error);
+                }
+              }
+            }
+          }
+        }
+      } else if (restoredItem.entityType === "goal" && restoredItem.linkedGoal) {
+        const g = restoredItem.linkedGoal;
+        const res = await fetch(`/api/goals`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workspaceId,
+            title: g.title,
+            objective: g.objective || g.title,
+            status: ["draft", "active", "completed", "cancelled"].includes(g.status)
+              ? g.status
+              : "active",
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.goal?.id) restoredGoalId = data.goal.id;
+        }
+      }
+
+      const resBoardItem = await fetch(`/api/board-items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId,
+          entityType: restoredItem.entityType,
+          x: restoredItem.x,
+          y: restoredItem.y,
+          width: restoredItem.width,
+          height: restoredItem.height,
+          label: restoredItem.label ?? undefined,
+          linkedGoalId: restoredGoalId ?? undefined,
+          linkedMilestoneId: restoredMilestoneId ?? undefined,
+          color: restoredItem.color ?? undefined,
+        }),
+      });
+
+      if (resBoardItem.ok) {
+        const data = await resBoardItem.json();
+        if (data.boardItem) {
+          setItems([...items.filter((i) => i.id !== restoredItem.id), data.boardItem]);
+          if (sendEvent && workspaceId) {
+            sendEvent({
+              type: "CARD_CREATED",
+              workspaceId,
+              boardItem: data.boardItem,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[BoardCanvas] Failed to restore deleted item:", err);
+    }
+  }, [goals, items, undoStack, workspaceId, sendEvent, setItems]);
+
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        const activeTag = document.activeElement?.tagName?.toLowerCase();
+        const isEditable = (document.activeElement as HTMLElement)?.isContentEditable;
+        if (activeTag === "input" || activeTag === "textarea" || isEditable) {
+          return;
+        }
+        e.preventDefault();
+        handleUndo();
+      }
+    }
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [handleUndo]);
 
   const handleItemStatusChange = useCallback(
     async (itemId: string, newStatus: string) => {
@@ -647,10 +791,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           onItemUpdated={(updated) => {
             setItems(items.map((i) => (i.id === updated.id ? updated : i)));
           }}
-          onItemDeleted={(deletedId) => {
-            setItems(items.filter((i) => i.id !== deletedId));
-            setSelectedId(null);
-          }}
+          onItemDeleted={handleDeleteCard}
         />
       )}
 
@@ -713,6 +854,31 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           <Kanban className="w-12 h-12 text-slate-300 mb-3 stroke-[1.5]" />
           <h3 className="text-lg font-semibold text-ink">Your board is empty</h3>
           <p className="text-sm text-muted mt-1">Click &quot;+&quot; to add a Goal, Milestone, or Note card</p>
+        </div>
+      )}
+
+      {/* Undo Toast Notification */}
+      {showUndoToast && lastDeleted && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <RotateCcw size={14} className="text-blue-400 shrink-0" />
+          <span>
+            <strong className="font-semibold text-white capitalize">{lastDeleted.item.entityType}</strong> deleted
+          </span>
+          <div className="flex items-center gap-1.5 ml-2 border-l border-slate-700 pl-3">
+            <button
+              onClick={handleUndo}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+            >
+              Undo <span className="opacity-70 text-[10px] font-mono ml-0.5">Ctrl+Z</span>
+            </button>
+            <button
+              onClick={() => setShowUndoToast(false)}
+              className="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors ml-1 cursor-pointer"
+              title="Dismiss"
+            >
+              <X size={13} />
+            </button>
+          </div>
         </div>
       )}
     </div>

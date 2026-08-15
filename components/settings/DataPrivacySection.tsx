@@ -187,7 +187,6 @@ export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
                       placeholder={userEmail}
                       className="w-full px-3.5 py-2.5 rounded-xl border border-red-300 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500"
                     />
-                    <p className="text-[11px] text-muted mt-1">Enter: <code className="bg-offwhite px-1 rounded">{userEmail}</code></p>
                   </div>
 
                   <div className="flex items-center justify-end gap-3 pt-2">

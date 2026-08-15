@@ -166,6 +166,7 @@ function TaskRow({
   workspaceId,
   sendEvent,
   onUpdate,
+  onDelete,
 }: {
   task: TaskSimple;
   members: UserSimple[];
@@ -173,8 +174,35 @@ function TaskRow({
   workspaceId?: string;
   sendEvent?: (evt: Record<string, unknown>) => void;
   onUpdate: (task: TaskSimple) => void;
+  onDelete: (taskId: string) => void;
 }) {
   const [saving, setSaving] = useState(false);
+  const [deletingTask, setDeletingTask] = useState(false);
+  const [confirmDeleteTask, setConfirmDeleteTask] = useState(false);
+
+  async function deleteTask() {
+    onDelete(task.id);
+    if (milestoneId) {
+      useBoardStore.getState().removeTaskFromMilestone(milestoneId, task.id);
+    }
+    if (sendEvent && workspaceId) {
+      sendEvent({
+        type: "TASK_DELETED",
+        workspaceId,
+        milestoneId,
+        taskId: task.id,
+      });
+    }
+    setDeletingTask(true);
+    try {
+      await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
+    } catch {
+      // ignore
+    } finally {
+      setDeletingTask(false);
+      setConfirmDeleteTask(false);
+    }
+  }
 
   async function assignMember(assigneeId: string | null) {
     const prevAssigneeId = task.assigneeId;
@@ -266,15 +294,61 @@ function TaskRow({
     }
   }
 
+  async function setPriority(priority: string) {
+    const prevPriority = task.priority;
+
+    // 1. Optimistic UI update locally & in Zustand store
+    onUpdate({ ...task, priority });
+    if (milestoneId) {
+      useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { priority });
+    }
+
+    // 2. Broadcast via WebSocket
+    if (sendEvent && workspaceId) {
+      sendEvent({
+        type: "TASK_UPDATED",
+        workspaceId,
+        milestoneId,
+        taskId: task.id,
+        priority,
+      });
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priority }),
+      });
+      if (!res.ok) {
+        onUpdate({ ...task, priority: prevPriority });
+        if (milestoneId) {
+          useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { priority: prevPriority });
+        }
+      }
+    } catch {
+      onUpdate({ ...task, priority: prevPriority });
+      if (milestoneId) {
+        useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { priority: prevPriority });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [priorityOpen, setPriorityOpen] = useState(false);
   const assignRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
+  const priorityRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handle(e: MouseEvent) {
       if (assignRef.current && !assignRef.current.contains(e.target as Node)) setAssignOpen(false);
       if (statusRef.current && !statusRef.current.contains(e.target as Node)) setStatusOpen(false);
+      if (priorityRef.current && !priorityRef.current.contains(e.target as Node)) setPriorityOpen(false);
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
@@ -283,23 +357,23 @@ function TaskRow({
   const assignee = members.find((m) => m.id === task.assigneeId);
 
   return (
-    <div className={`flex items-center gap-2 py-2 px-2 rounded-lg hover:bg-slate-50 group transition-colors ${saving ? "opacity-75" : ""}`}>
+    <div className={`flex items-center gap-2 py-2.5 px-2.5 sm:py-2 sm:px-2 rounded-lg hover:bg-slate-50 group transition-colors ${saving ? "opacity-75" : ""}`}>
       {/* Status dot / icon */}
       <div className="relative" ref={statusRef}>
         <button
           onClick={() => setStatusOpen(!statusOpen)}
-          className="flex-shrink-0 hover:scale-110 transition-transform"
+          className="flex-shrink-0 hover:scale-110 transition-transform min-w-[24px] min-h-[24px] flex items-center justify-center"
           title="Change status"
         >
           {STATUS_ICON[task.status] ?? <Circle size={12} className="text-slate-400" />}
         </button>
         {statusOpen && (
-          <div className="absolute left-0 top-5 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-40">
+          <div className="absolute left-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-40">
             {["todo", "in_progress", "in_review", "blocked", "done"].map((s) => (
               <button
                 key={s}
                 onClick={() => { setStatus(s); setStatusOpen(false); }}
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-3 py-2 sm:py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2"
               >
                 {STATUS_ICON[s]}
                 <span className={task.status === s ? "font-semibold text-blue-600" : "text-slate-700"}>
@@ -316,27 +390,53 @@ function TaskRow({
         {task.title}
       </span>
 
-      {/* Priority chip */}
-      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-        task.priority === "urgent" ? "bg-red-50 text-red-600" :
-        task.priority === "high" ? "bg-amber-50 text-amber-600" :
-        task.priority === "medium" ? "bg-blue-50 text-blue-600" :
-        "bg-slate-100 text-slate-500"
-      }`}>
-        {task.priority}
-      </span>
+      {/* Priority chip dropdown */}
+      <div className="relative flex-shrink-0" ref={priorityRef}>
+        <button
+          onClick={() => setPriorityOpen(!priorityOpen)}
+          title="Change priority (default: medium)"
+          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded cursor-pointer transition-all hover:ring-2 ring-blue-200 ${
+            (task.priority ?? "medium") === "urgent" ? "bg-red-50 text-red-600 hover:bg-red-100" :
+            (task.priority ?? "medium") === "high" ? "bg-amber-50 text-amber-600 hover:bg-amber-100" :
+            (task.priority ?? "medium") === "medium" ? "bg-blue-50 text-blue-600 hover:bg-blue-100" :
+            "bg-slate-100 text-slate-500 hover:bg-slate-200"
+          }`}
+        >
+          {task.priority || "medium"}
+        </button>
+
+        {priorityOpen && (
+          <div className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-32 animate-in fade-in duration-150">
+            {[
+              { id: "low", label: "Low", color: "text-slate-600" },
+              { id: "medium", label: "Medium", color: "text-blue-600 font-semibold" },
+              { id: "high", label: "High", color: "text-amber-600 font-semibold" },
+              { id: "urgent", label: "Urgent", color: "text-red-600 font-semibold" },
+            ].map((p) => (
+              <button
+                key={p.id}
+                onClick={() => { setPriority(p.id); setPriorityOpen(false); }}
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center justify-between"
+              >
+                <span className={p.color}>{p.label}</span>
+                {(task.priority || "medium") === p.id && <Check size={11} className="text-blue-600" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Assignee avatar / picker */}
       <div className="relative flex-shrink-0" ref={assignRef}>
         <button
           onClick={() => setAssignOpen(!assignOpen)}
           title="Assign member"
-          className="flex items-center justify-center hover:ring-2 ring-blue-300 rounded-full transition-all"
+          className="flex items-center justify-center hover:ring-2 ring-blue-300 rounded-full transition-all min-w-[24px] min-h-[24px]"
         >
           {assignee ? (
             <MemberAvatar user={assignee} size={20} />
           ) : (
-            <div className="w-5 h-5 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-5 h-5 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center hover:border-slate-400 transition-colors">
               <User size={10} className="text-slate-400" />
             </div>
           )}
@@ -345,7 +445,7 @@ function TaskRow({
         {assignOpen && (
           <div className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-44">
             <button
-              className="w-full text-left px-3 py-1.5 text-xs text-slate-400 hover:bg-slate-50"
+              className="w-full text-left px-3 py-2 sm:py-1.5 text-xs text-slate-400 hover:bg-slate-50"
               onClick={() => { assignMember(null); setAssignOpen(false); }}
             >
               Unassign
@@ -353,7 +453,7 @@ function TaskRow({
             {members.map((m) => (
               <button
                 key={m.id}
-                className="w-full text-left px-3 py-1.5 hover:bg-slate-50 flex items-center gap-2"
+                className="w-full text-left px-3 py-2 sm:py-1.5 hover:bg-slate-50 flex items-center gap-2"
                 onClick={() => { assignMember(m.id); setAssignOpen(false); }}
               >
                 <MemberAvatar user={m} size={18} />
@@ -364,6 +464,36 @@ function TaskRow({
           </div>
         )}
       </div>
+
+      {/* Delete task action / inline prompt */}
+      {confirmDeleteTask ? (
+        <div className="flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 px-2 py-1 rounded-md text-[11px] font-semibold animate-in fade-in duration-150 flex-shrink-0">
+          <span className="hidden sm:inline text-[10px]">Delete?</span>
+          <button
+            onClick={deleteTask}
+            disabled={deletingTask}
+            className="bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold px-2 py-0.5 rounded shadow-sm transition-colors"
+          >
+            {deletingTask ? "…" : "Yes"}
+          </button>
+          <button
+            onClick={() => setConfirmDeleteTask(false)}
+            className="text-slate-400 hover:text-slate-600 p-0.5 rounded"
+            title="Cancel"
+          >
+            <X size={11} />
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirmDeleteTask(true)}
+          disabled={deletingTask}
+          title="Delete task"
+          className="p-1.5 sm:p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors flex-shrink-0 touch-manipulation min-w-[28px] min-h-[28px] flex items-center justify-center"
+        >
+          <Trash2 size={13} />
+        </button>
+      )}
     </div>
   );
 }
@@ -446,6 +576,31 @@ function MilestoneSection({
     }
   }
 
+  const sortedTasks = useMemo(() => {
+    const priorityWeight: Record<string, number> = {
+      urgent: 4,
+      high: 3,
+      medium: 2,
+      low: 1,
+    };
+
+    return [...localTasks].sort((a, b) => {
+      const aDone = a.status === "done";
+      const bDone = b.status === "done";
+
+      // 1. Done tasks always go to the bottom
+      if (aDone !== bDone) {
+        return aDone ? 1 : -1;
+      }
+
+      // 2. Urgent / higher priority tasks come first
+      const aWeight = priorityWeight[a.priority ?? "medium"] ?? 2;
+      const bWeight = priorityWeight[b.priority ?? "medium"] ?? 2;
+
+      return bWeight - aWeight;
+    });
+  }, [localTasks]);
+
   return (
     <div>
       {/* Link to goal */}
@@ -495,7 +650,7 @@ function MilestoneSection({
           </p>
 
           <div className="space-y-0.5">
-            {localTasks.map((task) => (
+            {sortedTasks.map((task) => (
               <TaskRow
                 key={task.id}
                 task={task}
@@ -505,6 +660,9 @@ function MilestoneSection({
                 sendEvent={sendEvent}
                 onUpdate={(updated) =>
                   setLocalTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+                }
+                onDelete={(deletedId) =>
+                  setLocalTasks((prev) => prev.filter((t) => t.id !== deletedId))
                 }
               />
             ))}
@@ -705,25 +863,10 @@ export function CardDetailPanel({
     if (!confirmDelete) { setConfirmDelete(true); return; }
     setDeleting(true);
     try {
-      // 1. Delete the linked entity from the database
-      if (entityType === "goal" && localItem.linkedGoalId) {
-        await fetch(`/api/goals/${localItem.linkedGoalId}`, { method: "DELETE" });
-      } else if (entityType === "milestone" && localItem.linkedMilestoneId) {
-        await fetch(`/api/milestones/${localItem.linkedMilestoneId}`, { method: "DELETE" });
+      if (onItemDeleted) {
+        await onItemDeleted(localItem.id);
       }
-      // 2. Broadcast deletion over WebSocket immediately
-      if (sendEvent && localItem.workspaceId) {
-        sendEvent({
-          type: "CARD_DELETED",
-          workspaceId: localItem.workspaceId,
-          id: localItem.id,
-        });
-      }
-      onItemDeleted(localItem.id);
       onClose();
-
-      // 3. Remove the board card itself from DB
-      await fetch(`/api/board-items/${localItem.id}`, { method: "DELETE" });
     } finally {
       setDeleting(false);
       setConfirmDelete(false);
@@ -933,6 +1076,9 @@ export function CardDetailPanel({
                       sendEvent={sendEvent}
                       onUpdate={(updated) =>
                         setLocalTasksAndSync((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+                      }
+                      onDelete={(deletedId) =>
+                        setLocalTasksAndSync((prev) => prev.filter((t) => t.id !== deletedId))
                       }
                     />
                   ))}

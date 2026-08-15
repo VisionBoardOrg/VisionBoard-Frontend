@@ -13,6 +13,7 @@ import {
   Milestone as MilestoneIcon,
   ChevronDown,
   ChevronRight,
+  X,
 } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple } from "@/types/board";
 import { DndContext, useDraggable, useDroppable, DragEndEvent } from "@dnd-kit/core";
@@ -477,6 +478,7 @@ function KanbanCardItem({
   const [isExpanded, setIsExpanded] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
@@ -524,16 +526,48 @@ function KanbanCardItem({
         </span>
 
         {/* Delete Milestone Action */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-          title="Delete milestone"
-        >
-          <Trash2 size={13} />
-        </button>
+        {confirmDelete ? (
+          <div
+            className="flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-semibold animate-in fade-in duration-150"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <span className="text-[10px]">Delete?</span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDelete(false);
+                onDelete();
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition-colors"
+            >
+              Yes
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setConfirmDelete(false);
+              }}
+              className="text-slate-400 hover:text-slate-600 p-0.5 rounded"
+              title="Cancel"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmDelete(true);
+            }}
+            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+            title="Delete milestone"
+          >
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
 
       {/* Milestone Title */}

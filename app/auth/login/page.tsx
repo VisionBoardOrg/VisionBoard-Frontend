@@ -36,7 +36,14 @@ function LoginForm() {
     });
 
     if (res?.error) {
-      setError("Invalid email or password.");
+      if (res.error.includes("ACCOUNT_DELETION_SCHEDULED")) {
+        const userEmail = res.error.split("ACCOUNT_DELETION_SCHEDULED:")[1] || form.email;
+        setError(
+          `Your account is scheduled for deletion. Would you like to restore it? <a href="/auth/cancel-deletion?email=${encodeURIComponent(userEmail)}" class="underline font-semibold text-blue hover:text-blue-dark">Cancel account deletion</a>`
+        );
+      } else {
+        setError("Invalid email or password.");
+      }
       setLoading(false);
     } else {
       router.push(callbackUrl);
@@ -82,9 +89,10 @@ function LoginForm() {
           {/* Credentials */}
           <form onSubmit={handleCredentials} className="space-y-4">
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
-                {error}
-              </div>
+              <div
+                className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger"
+                dangerouslySetInnerHTML={{ __html: error }}
+              />
             )}
 
             <div>

@@ -72,6 +72,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const valid = await bcrypt.compare(parsed.data.password, user.hashedPassword);
         if (!valid) return null;
 
+        if (user.scheduledDeletion) {
+          throw new Error(`ACCOUNT_DELETION_SCHEDULED:${user.email}`);
+        }
+
         return user;
       },
     }),

@@ -67,10 +67,9 @@ export default async function DashboardPage() {
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider bg-slate-100 text-slate-600">
-                Personal
-              </span>
-              <h2 className="text-sm font-semibold text-slate">Personal Overview</h2>
+              <h2 className="text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider bg-slate-100 text-slate-600">
+                Personal Overview
+              </h2>
             </div>
           </div>
           <UserSummaryCards

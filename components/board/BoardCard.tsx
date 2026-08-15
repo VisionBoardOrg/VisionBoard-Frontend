@@ -5,7 +5,7 @@ import { memo, useState, useCallback, useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardItemFull } from "@/types/board";
-import { CheckCircle2, Circle, Clock, AlertTriangle, GripVertical, Link2, Trash2 } from "lucide-react";
+import { CheckCircle2, Circle, Clock, AlertTriangle, GripVertical, Link2, Trash2, X } from "lucide-react";
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
   completed: <CheckCircle2 size={12} className="text-success" />,
@@ -40,6 +40,7 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
 
   const [isReadyToMove, setIsReadyToMove] = useState(false);
   const [isPressing, setIsPressing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
@@ -89,7 +90,13 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
       ? item.linkedMilestone
       : item.linkedGoal ?? item.linkedMilestone;
   const title = entity?.title ?? item.label ?? item.entityType;
-  const status = (entity as { status?: string })?.status ?? "";
+  let status = (entity as { status?: string })?.status ?? "";
+  if (item.entityType === "milestone" && item.linkedMilestone?.tasks && item.linkedMilestone.tasks.length > 0) {
+    const tasks = item.linkedMilestone.tasks;
+    const allDone = tasks.every((t) => t.status === "done");
+    const anyStarted = tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+    status = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
+  }
   const colors = ENTITY_COLORS[item.entityType] ?? ENTITY_COLORS.note;
 
   // Is this card linked to another entity?
@@ -194,17 +201,49 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
               </span>
             )}
             {onDelete && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDelete(item.id);
-                }}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-all pointer-events-auto"
-                title="Delete card"
-              >
-                <Trash2 size={12} />
-              </button>
+              confirmDelete ? (
+                <div
+                  className="flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-semibold animate-in fade-in duration-150 pointer-events-auto"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <span className="text-[10px]">Delete?</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete(false);
+                      onDelete(item.id);
+                    }}
+                    className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition-colors"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete(false);
+                    }}
+                    className="text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                    title="Cancel"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmDelete(true);
+                  }}
+                  className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-all pointer-events-auto"
+                  title="Delete card"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )
             )}
           </div>
         </div>

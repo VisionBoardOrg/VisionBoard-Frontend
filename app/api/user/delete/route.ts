@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { sendAccountDeletionNoticeEmail } from "@/lib/account-deletion-email";
 
 const bodySchema = z.object({
   /** Users must type their email address to confirm deletion */
@@ -64,13 +65,23 @@ export async function POST(request: NextRequest) {
     data: { scheduledDeletion },
   });
 
+  // Send deletion notice email with cancellation CTA link
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const cancelUrl = `${baseUrl}/auth/cancel-deletion?email=${encodeURIComponent(user.email)}`;
+
+  sendAccountDeletionNoticeEmail({
+    email: user.email,
+    scheduledDeletionDate: scheduledDeletion,
+    cancelUrl,
+  }).catch((err) => console.error("[delete route] Deletion email failed:", err));
+
   // Invalidate all sessions so the user is signed out immediately
   await prisma.session.deleteMany({ where: { userId: user.id } });
 
   return NextResponse.json({
     success: true,
     message:
-      "Your account has been scheduled for deletion. Your data will be permanently deleted in 30 days. You have been signed out.",
+      "Your account has been scheduled for deletion. A confirmation email with a cancellation link has been sent. Your data will be permanently deleted in 30 days. You have been signed out.",
     scheduledDeletion: scheduledDeletion.toISOString(),
   });
 }

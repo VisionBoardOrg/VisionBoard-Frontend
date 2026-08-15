@@ -89,7 +89,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
     if (m.tasks && m.tasks.length > 0) {
       const allDone = m.tasks.every((t) => t.status === "done");
       const anyStarted = m.tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-      const targetStatus = allDone ? "completed" : anyStarted && m.status === "planned" ? "in_progress" : m.status;
+      const targetStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
 
       if (targetStatus !== m.status) {
         prisma.milestone.update({

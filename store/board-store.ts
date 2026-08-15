@@ -12,6 +12,7 @@ interface BoardState {
   removeItem: (id: string) => void;
   updateBoardItem: (id: string, updates: Partial<BoardItemFull>) => void;
   updateTaskInMilestone: (milestoneId: string, taskId: string, updates: Partial<TaskSimple>) => void;
+  removeTaskFromMilestone: (milestoneId: string, taskId: string) => void;
   getAllItems: () => BoardItemFull[];
   getItem: (id: string) => BoardItemFull | undefined;
 }
@@ -117,6 +118,31 @@ export const useBoardStore = create<BoardState>((set, get) => ({
             return task;
           });
           if (changed) {
+            nextItemsById[id] = {
+              ...item,
+              linkedMilestone: { ...item.linkedMilestone, tasks: updatedTasks },
+            };
+            break;
+          }
+        }
+      }
+      return changed ? { itemsById: nextItemsById } : {};
+    }),
+
+  removeTaskFromMilestone: (milestoneId, taskId) =>
+    set((state) => {
+      let changed = false;
+      const nextItemsById: Record<string, BoardItemFull> = { ...state.itemsById };
+      for (const id of state.itemOrder) {
+        const item = nextItemsById[id];
+        if (
+          item.linkedMilestoneId === milestoneId ||
+          item.linkedMilestone?.id === milestoneId
+        ) {
+          if (!item.linkedMilestone) continue;
+          const updatedTasks = item.linkedMilestone.tasks.filter((task) => task.id !== taskId);
+          if (updatedTasks.length !== item.linkedMilestone.tasks.length) {
+            changed = true;
             nextItemsById[id] = {
               ...item,
               linkedMilestone: { ...item.linkedMilestone, tasks: updatedTasks },
