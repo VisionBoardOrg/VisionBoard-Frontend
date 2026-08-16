@@ -1,4 +1,4 @@
-import { MilestoneStatus, TaskStatus, Priority, GoalStatus, BoardEntityType } from "@prisma/client";
+import { MilestoneStatus, TaskStatus, Priority, GoalStatus } from "@prisma/client";
 
 export interface TemplateData {
   goals: TemplateGoal[];

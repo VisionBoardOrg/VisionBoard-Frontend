@@ -33,7 +33,21 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
     }),
     prisma.goal.findMany({
       where: { workspaceId: id },
-      include: { milestones: { orderBy: { order: "asc" } } },
+      include: {
+        milestones: {
+          include: {
+            tasks: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                dueDate: true,
+              },
+            },
+          },
+          orderBy: { order: "asc" },
+        },
+      },
       orderBy: { createdAt: "asc" },
     }),
   ]);

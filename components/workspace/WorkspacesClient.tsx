@@ -56,7 +56,6 @@ export function WorkspacesClient({
   ownedCount,
   workspaceLimit,
   plan,
-  userId,
   inAppShell = false,
 }: WorkspacesClientProps) {
   const router = useRouter();

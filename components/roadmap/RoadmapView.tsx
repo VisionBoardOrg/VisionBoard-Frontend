@@ -1,297 +1,489 @@
 "use client";
 
-import { useState } from "react";
-import { Zap, Lock, ChevronRight, Plus } from "lucide-react";
+import React, { useState } from "react";
+import {
+  Zap,
+  Lock,
+  ChevronRight,
+  Plus,
+  Flame,
+  GitCommit,
+  Search,
+  Filter,
+  Sparkles,
+  Camera,
+  Target,
+  CheckCircle2,
+} from "lucide-react";
 import Link from "next/link";
-
-interface MilestoneSimple {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  targetDate: Date | null;
-  startDate: Date | null;
-  order: number;
-}
-
-interface GoalWithMilestones {
-  id: string;
-  title: string;
-  objective: string;
-  status: string;
-  targetDate: Date | null;
-  milestones: MilestoneSimple[];
-}
+import { TimeScale } from "@/lib/gantt-engine";
+import { InteractiveGantt, GoalGroup } from "./InteractiveGantt";
+import { NewMilestoneModal } from "./NewMilestoneModal";
+import { NewGoalModal } from "@/components/goals/NewGoalModal";
 
 interface RoadmapViewProps {
   workspaceId: string;
-  goals: GoalWithMilestones[];
+  goals: GoalGroup[];
   isGated: boolean;
   upgradePrompt: string | undefined;
   userRole: string | null;
 }
 
-const MONTH_WIDTH = 160; // px per month on the Gantt
-const ROW_H = 48;
+export function RoadmapView({
+  workspaceId,
+  goals: initialGoals,
+  isGated,
+  upgradePrompt,
+}: RoadmapViewProps) {
+  const [goals, setGoals] = useState<GoalGroup[]>(initialGoals);
+  const [timeScale, setTimeScale] = useState<TimeScale>("month");
+  const [highlightCriticalPath, setHighlightCriticalPath] = useState(false);
+  const [showBaseline, setShowBaseline] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
 
-function getMonthsBetween(start: Date, end: Date) {
-  const months: Date[] = [];
-  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
-  while (cur <= end) {
-    months.push(new Date(cur));
-    cur.setMonth(cur.getMonth() + 1);
-  }
-  return months;
-}
+  // Modals
+  const [isNewMilestoneOpen, setIsNewMilestoneOpen] = useState(false);
+  const [selectedGoalForMilestone, setSelectedGoalForMilestone] = useState<string | undefined>();
+  const [isNewGoalOpen, setIsNewGoalOpen] = useState(false);
+  const [isAiOpen, setIsAiOpen] = useState(false);
+  const [baselineLoading, setBaselineLoading] = useState(false);
+  const [baselineSuccess, setBaselineSuccess] = useState(false);
 
-function getLeft(date: Date, timelineStart: Date) {
-  const daysDiff = (date.getTime() - timelineStart.getTime()) / (1000 * 60 * 60 * 24);
-  return Math.max(0, (daysDiff / 30) * MONTH_WIDTH);
-}
-
-export function RoadmapView({ workspaceId, goals, isGated, upgradePrompt, userRole }: RoadmapViewProps) {
+  // AI Generator state
   const [aiInput, setAiInput] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiResult, setAiResult] = useState<{ milestones: { title: string; description: string; targetDate: string }[]; generationId: string } | null>(null);
+  const [aiResult, setAiResult] = useState<{
+    milestones: { title: string; description: string; targetDate: string }[];
+    generationId: string;
+  } | null>(null);
   const [aiError, setAiError] = useState("");
   const [commitGoalId, setCommitGoalId] = useState<string | null>(null);
   const [commitLoading, setCommitLoading] = useState(false);
 
-  // Build timeline bounds
-  const today = new Date();
-  const allDates = goals.flatMap((g) => [
-    g.targetDate,
-    g.milestones.map((m) => m.targetDate),
-  ]).flat().filter(Boolean) as Date[];
+  // Flatten milestones for child components
+  const allMilestones = goals.flatMap((g) =>
+    g.milestones.map((m) => ({ ...m, goalId: g.id, goalTitle: g.title }))
+  );
 
-  const timelineStart = allDates.length > 0
-    ? new Date(Math.min(...allDates.map((d) => d.getTime())) - 30 * 24 * 60 * 60 * 1000)
-    : new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const totalMilestones = allMilestones.length;
+  const completedMilestones = allMilestones.filter((m) => m.status === "completed").length;
+  const progressPercent =
+    totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
-  const timelineEnd = allDates.length > 0
-    ? new Date(Math.max(...allDates.map((d) => d.getTime())) + 60 * 24 * 60 * 60 * 1000)
-    : new Date(today.getFullYear(), today.getMonth() + 6, 1);
+  async function handleRefresh() {
+    window.location.reload();
+  }
 
-  const months = getMonthsBetween(timelineStart, timelineEnd);
-  const totalWidth = months.length * MONTH_WIDTH;
-  const todayLeft = getLeft(today, timelineStart);
+  // Snapshot Baseline across all workspace goals
+  async function handleSnapshotBaseline() {
+    if (goals.length === 0) return;
+    setBaselineLoading(true);
+    try {
+      // Snapshot baseline for each goal in workspace
+      await Promise.all(
+        goals.map((g) =>
+          fetch(`/api/goals/${g.id}/baseline`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "snapshot" }),
+          })
+        )
+      );
+      setBaselineSuccess(true);
+      setShowBaseline(true);
+      setTimeout(() => setBaselineSuccess(false), 3000);
+      window.location.reload();
+    } catch (err) {
+      console.error("Failed to snapshot baseline:", err);
+    } finally {
+      setBaselineLoading(false);
+    }
+  }
 
+  // AI Roadmap Generation
   async function generateRoadmap() {
     if (!aiInput.trim()) return;
     setAiLoading(true);
     setAiError("");
     setAiResult(null);
 
-    const res = await fetch("/api/ai/roadmap-generator", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ workspaceId, text: aiInput }),
-    });
-    const data = await res.json();
-    if (!res.ok) { setAiError(data.error || "AI generation failed."); }
-    else setAiResult(data);
-    setAiLoading(false);
+    try {
+      const res = await fetch("/api/ai/roadmap-generator", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, text: aiInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAiError(data.error || "AI generation failed.");
+      } else {
+        setAiResult(data);
+      }
+    } catch {
+      setAiError("Network error while generating roadmap.");
+    } finally {
+      setAiLoading(false);
+    }
   }
 
-  const STATUS_COLORS: Record<string, string> = {
-    completed: "bg-success", in_progress: "bg-blue", planned: "bg-border", delayed: "bg-danger",
-    draft: "bg-muted", active: "bg-blue",
-  };
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div className="space-y-6 max-w-full">
+      {/* ── 1. Page Header & Primary Actions ─────────────────────────────────── */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-ink">Roadmap</h1>
-          <p className="text-slate text-sm mt-1">Timeline view of goals and milestones</p>
-        </div>
-        {isGated && (
-          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 sm:px-4 sm:py-2.5 self-start">
-            <Lock size={14} className="text-amber-500 shrink-0" />
-            <span className="text-xs text-amber-700">{upgradePrompt ?? "Upgrade to view Gantt timeline"}</span>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-ink">Interactive Roadmap</h1>
+            <span className="text-xs font-semibold bg-blue-faint text-blue border border-blue-light px-2.5 py-0.5 rounded-full">
+              {goals.length} Goal{goals.length !== 1 ? "s" : ""} • {totalMilestones} Milestones ({progressPercent}% Complete)
+            </span>
           </div>
-        )}
+          <p className="text-slate text-sm mt-1">
+            Gantt scheduling canvas with dependency tracking, critical path, and cascade automation.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* AI Generator Button */}
+          <button
+            onClick={() => setIsAiOpen((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
+              isAiOpen
+                ? "bg-blue text-white border-blue shadow-xs"
+                : "bg-white text-ink border-border hover:bg-slate-50"
+            }`}
+          >
+            <Zap size={14} className={isAiOpen ? "text-white" : "text-blue"} />
+            <span>AI Roadmap Gen</span>
+          </button>
+
+          {/* New Milestone Button */}
+          <button
+            onClick={() => {
+              setSelectedGoalForMilestone(undefined);
+              setIsNewMilestoneOpen(true);
+            }}
+            className="flex items-center gap-1.5 bg-blue text-white rounded-xl px-4 py-2 text-xs font-semibold hover:bg-blue-mid transition-all shadow-xs"
+          >
+            <Plus size={14} />
+            <span>New Milestone</span>
+          </button>
+
+          {/* New Goal Button */}
+          <button
+            onClick={() => setIsNewGoalOpen(true)}
+            className="flex items-center gap-1.5 bg-white border border-border text-ink rounded-xl px-3.5 py-2 text-xs font-semibold hover:bg-slate-50 transition-colors"
+          >
+            <Target size={14} className="text-slate" />
+            <span>New Goal</span>
+          </button>
+        </div>
       </div>
 
-      {/* AI Roadmap Generator */}
-      <div className="bg-white rounded-2xl border border-border p-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Zap size={16} className="text-blue" />
-          <h2 className="font-semibold text-ink">AI Roadmap Generator</h2>
-        </div>
-        <p className="text-sm text-slate mb-4">Describe your project goals in plain text — Claude will generate structured milestones for your review.</p>
-
-        <textarea
-          value={aiInput}
-          onChange={(e) => setAiInput(e.target.value)}
-          placeholder="e.g. We need to launch a B2B SaaS product by Q4. Key priorities are user auth, core dashboard, billing integration, and a public API..."
-          rows={3}
-          className="w-full border border-border rounded-xl px-4 py-3 text-sm text-ink placeholder:text-muted resize-none focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
-        />
-
-        {aiError && <p className="text-sm text-danger mt-2">{aiError}</p>}
-
-        <button
-          onClick={generateRoadmap}
-          disabled={!aiInput.trim() || aiLoading}
-          className="mt-3 flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50"
-        >
-          <Zap size={14} />
-          {aiLoading ? "Generating…" : "Generate roadmap"}
-        </button>
-
-        {/* AI output — review before commit */}
-        {aiResult && (
-          <div className="mt-5 p-4 bg-blue-faint border border-blue-light rounded-xl">
-            <h3 className="text-sm font-semibold text-blue mb-3">Generated milestones — review before applying</h3>
-            <div className="space-y-2 mb-4">
-              {aiResult.milestones.map((m, i) => (
-                <div key={i} className="bg-white rounded-lg border border-border p-3">
-                  <div className="font-medium text-ink text-sm">{m.title}</div>
-                  <div className="text-xs text-slate mt-0.5">{m.description}</div>
-                  <div className="text-xs text-muted mt-1">Target Date: {new Date(m.targetDate).toLocaleDateString()}</div>
-                </div>
-              ))}
+      {/* ── 2. AI Roadmap Generator Collapsible Box ──────────────────────────── */}
+      {isAiOpen && (
+        <div className="bg-white rounded-2xl border border-blue/30 shadow-xs p-5 space-y-4 animate-in fade-in zoom-in-98 duration-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-blue/10 border border-blue/20 flex items-center justify-center">
+                <Sparkles size={16} className="text-blue" />
+              </div>
+              <div>
+                <h3 className="font-bold text-ink text-sm">AI Milestone & Roadmap Synthesizer</h3>
+                <p className="text-xs text-slate">
+                  Enter high-level goals or user feedback to automatically generate structured milestones and dates.
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => setIsAiOpen(false)}
+              className="text-xs text-muted hover:text-ink px-2 py-1 rounded-lg"
+            >
+              Close
+            </button>
+          </div>
 
-            {/* Goal selector */}
-            <div className="mb-4">
-              <label className="text-xs font-semibold text-ink block mb-1.5">Apply to which goal?</label>
-              {goals.length === 0 ? (
-                <p className="text-xs text-danger">No goals found. Create a goal first.</p>
-              ) : (
+          <textarea
+            value={aiInput}
+            onChange={(e) => setAiInput(e.target.value)}
+            placeholder="e.g. Build an enterprise security feature pack including SAML 2.0 SSO, SCIM user provisioning, audit logging, and custom RBAC matrix over the next 8 weeks..."
+            rows={3}
+            className="w-full border border-border rounded-xl px-4 py-2.5 text-xs text-ink placeholder:text-muted resize-none focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
+          />
+
+          {aiError && <p className="text-xs text-danger font-medium">{aiError}</p>}
+
+          <div className="flex items-center justify-between">
+            <button
+              onClick={generateRoadmap}
+              disabled={!aiInput.trim() || aiLoading}
+              className="flex items-center gap-2 bg-blue text-white rounded-xl px-4 py-2 text-xs font-semibold hover:bg-blue-mid transition-all disabled:opacity-50"
+            >
+              <Zap size={13} />
+              {aiLoading ? "Generating Roadmap…" : "Generate Milestones"}
+            </button>
+
+            {aiResult && (
+              <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                ✨ {aiResult.milestones.length} milestones suggested
+              </span>
+            )}
+          </div>
+
+          {/* AI Result Review Box */}
+          {aiResult && (
+            <div className="p-4 bg-slate-50 border border-border rounded-xl space-y-3">
+              <h4 className="text-xs font-bold text-ink uppercase tracking-wider">
+                Review & Select Target Goal:
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                {aiResult.milestones.map((m, i) => (
+                  <div key={i} className="bg-white border border-border rounded-xl p-2.5 text-xs space-y-1">
+                    <div className="font-semibold text-ink">{m.title}</div>
+                    <div className="text-[11px] text-muted line-clamp-2">{m.description}</div>
+                    <div className="text-[10px] text-blue font-medium pt-1">
+                      Target: {new Date(m.targetDate).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
                 <select
                   value={commitGoalId ?? ""}
                   onChange={(e) => setCommitGoalId(e.target.value)}
-                  className="w-full bg-white border border-border rounded-xl px-3 py-2 text-xs font-medium text-ink cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
+                  className="w-full sm:w-64 bg-white border border-border rounded-xl px-3 py-2 text-xs text-ink cursor-pointer focus:outline-none focus:border-blue"
                 >
-                  <option value="" disabled>Select a goal…</option>
+                  <option value="" disabled>
+                    Select target goal…
+                  </option>
                   {goals.map((g) => (
-                    <option key={g.id} value={g.id}>{g.title} ({g.status})</option>
+                    <option key={g.id} value={g.id}>
+                      {g.title}
+                    </option>
                   ))}
                 </select>
-              )}
-            </div>
 
-            <div className="flex gap-2">
-              <button
-                disabled={!commitGoalId || commitLoading}
-                onClick={async () => {
-                  if (!commitGoalId || !aiResult) return;
-                  setCommitLoading(true);
-                  const res = await fetch("/api/ai/roadmap-generator/commit", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ generationId: aiResult.generationId, goalId: commitGoalId, milestones: aiResult.milestones }),
-                  });
-                  setCommitLoading(false);
-                  if (res.ok) {
-                    setAiResult(null);
-                    setCommitGoalId(null);
-                    window.location.reload();
-                  } else {
-                    const data = await res.json();
-                    setAiError(data.error || "Failed to apply milestones.");
-                  }
-                }}
-                className="flex-1 bg-blue text-white text-sm font-semibold py-2 rounded-lg hover:bg-blue-mid transition-colors disabled:opacity-50"
-              >
-                {commitLoading ? "Applying…" : "Apply to roadmap"}
-              </button>
-              <button
-                onClick={() => { setAiResult(null); setCommitGoalId(null); }}
-                className="px-4 border border-border text-sm text-slate rounded-lg hover:bg-offwhite transition-colors"
-              >
-                Discard
-              </button>
+                <div className="flex gap-2 w-full sm:w-auto">
+                  <button
+                    disabled={!commitGoalId || commitLoading}
+                    onClick={async () => {
+                      if (!commitGoalId || !aiResult) return;
+                      setCommitLoading(true);
+                      const res = await fetch("/api/ai/roadmap-generator/commit", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          generationId: aiResult.generationId,
+                          goalId: commitGoalId,
+                          milestones: aiResult.milestones,
+                        }),
+                      });
+                      setCommitLoading(false);
+                      if (res.ok) {
+                        setAiResult(null);
+                        setCommitGoalId(null);
+                        window.location.reload();
+                      } else {
+                        const data = await res.json();
+                        setAiError(data.error || "Failed to commit milestones.");
+                      }
+                    }}
+                    className="flex-1 sm:flex-none bg-blue text-white text-xs font-semibold px-4 py-2 rounded-xl hover:bg-blue-mid transition-all disabled:opacity-50"
+                  >
+                    {commitLoading ? "Applying…" : "Apply to Roadmap"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAiResult(null);
+                      setCommitGoalId(null);
+                    }}
+                    className="px-3 py-2 border border-border text-xs text-slate hover:bg-white rounded-xl"
+                  >
+                    Discard
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* Gantt timeline (gated on startup+ plan) */}
+      {/* ── 3. Plan Gate (if on Free tier) ──────────────────────────────────── */}
       {isGated ? (
-        <div className="bg-white rounded-2xl border border-border p-8 text-center">
-          <Lock size={32} className="text-muted mx-auto mb-3" />
-          <h3 className="font-semibold text-ink">Timeline view requires Startup plan or higher</h3>
-          <p className="text-sm text-slate mt-1 mb-4">{upgradePrompt}</p>
-          <Link href={`/workspace/${workspaceId}/settings`} className="inline-flex items-center gap-1 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors">
-            Upgrade plan <ChevronRight size={14} />
+        <div className="bg-white rounded-2xl border border-border p-8 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto text-amber-600">
+            <Lock size={24} />
+          </div>
+          <h3 className="font-bold text-ink text-base">Timeline & Gantt Canvas Requires Startup Tier</h3>
+          <p className="text-xs text-slate max-w-md mx-auto">{upgradePrompt}</p>
+          <Link
+            href={`/workspace/${workspaceId}/settings`}
+            className="inline-flex items-center gap-1.5 bg-blue text-white rounded-xl px-5 py-2.5 text-xs font-semibold hover:bg-blue-mid transition-colors shadow-xs"
+          >
+            Upgrade Plan <ChevronRight size={14} />
           </Link>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-border overflow-hidden">
-          <div className="overflow-x-auto">
-            <div style={{ minWidth: totalWidth + 220 }}>
-              {/* Header */}
-              <div className="flex border-b border-border">
-                <div className="w-52 shrink-0 p-3 text-xs font-semibold text-muted border-r border-border">Goal / Milestone</div>
-                <div className="flex">
-                  {months.map((m) => (
-                    <div key={m.toISOString()} style={{ width: MONTH_WIDTH }} className="p-2 text-xs text-muted border-r border-border last:border-r-0">
-                      {m.toLocaleDateString("en-US", { month: "short", year: "2-digit" })}
-                    </div>
-                  ))}
-                </div>
+        <>
+          {/* ── 4. Interactive Gantt Controls Bar ──────────────────────────────── */}
+          <div className="bg-white border border-border rounded-2xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+            {/* Left Controls: Time scale switcher & Toggles */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Time Scale Buttons */}
+              <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-border/80">
+                {(["day", "week", "month"] as TimeScale[]).map((scale) => (
+                  <button
+                    key={scale}
+                    onClick={() => setTimeScale(scale)}
+                    className={`px-3 py-1 text-xs font-bold capitalize rounded-lg transition-all ${
+                      timeScale === scale
+                        ? "bg-white text-ink shadow-xs"
+                        : "text-muted hover:text-ink"
+                    }`}
+                  >
+                    {scale}
+                  </button>
+                ))}
               </div>
 
-              {/* Rows */}
-              {goals.map((goal) => (
-                <div key={goal.id}>
-                  {/* Goal row */}
-                  <div className="flex border-b border-border" style={{ height: ROW_H }}>
-                    <div className="w-52 shrink-0 flex items-center gap-2 px-3 border-r border-border">
-                      <div className="w-2 h-2 rounded-full bg-blue shrink-0" />
-                      <span className="text-xs font-semibold text-ink truncate">{goal.title}</span>
-                    </div>
-                    <div className="relative flex-1" style={{ minWidth: totalWidth }}>
-                      {goal.targetDate && (
-                        <div
-                          className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full bg-blue/20 border border-blue/40 flex items-center px-2"
-                          style={{ left: getLeft(new Date(goal.targetDate), timelineStart) - 40, width: 80 }}
-                        >
-                          <span className="text-[9px] text-blue font-semibold truncate">{goal.title.slice(0, 10)}</span>
-                        </div>
-                      )}
-                      {/* Today line */}
-                      <div className="absolute top-0 bottom-0 w-px bg-blue/40" style={{ left: todayLeft }} />
-                    </div>
-                  </div>
+              {/* Critical Path Toggle */}
+              <button
+                onClick={() => setHighlightCriticalPath((prev) => !prev)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                  highlightCriticalPath
+                    ? "bg-rose-50 border-rose-300 text-rose-700 shadow-2xs"
+                    : "bg-white border-border text-slate hover:text-ink hover:bg-slate-50"
+                }`}
+                title="Highlight zero-slack critical bottleneck path"
+              >
+                <Flame
+                  size={14}
+                  className={highlightCriticalPath ? "text-rose-600 animate-pulse" : "text-slate"}
+                />
+                <span>Critical Path</span>
+              </button>
 
-                  {/* Milestone rows */}
-                  {goal.milestones.map((ms) => (
-                    <div key={ms.id} className="flex border-b border-border/50" style={{ height: ROW_H }}>
-                      <div className="w-52 shrink-0 flex items-center gap-2 pl-7 pr-3 border-r border-border">
-                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_COLORS[ms.status] ?? "bg-muted"}`} />
-                        <span className="text-xs text-slate truncate">{ms.title}</span>
-                      </div>
-                      <div className="relative flex-1" style={{ minWidth: totalWidth }}>
-                        {ms.startDate && ms.targetDate && (
-                          <div
-                            className={`absolute top-1/2 -translate-y-1/2 h-5 rounded-full opacity-80 ${STATUS_COLORS[ms.status] ?? "bg-muted"}`}
-                            style={{
-                              left: getLeft(new Date(ms.startDate), timelineStart),
-                              width: Math.max(20, getLeft(new Date(ms.targetDate), timelineStart) - getLeft(new Date(ms.startDate), timelineStart)),
-                            }}
-                          />
-                        )}
-                        {!ms.startDate && ms.targetDate && (
-                          <div
-                            className="absolute top-1/2 -translate-y-1/2"
-                            style={{ left: getLeft(new Date(ms.targetDate), timelineStart) - 6 }}
-                          >
-                            <div className="w-3 h-3 rotate-45 border-2 border-blue bg-white" />
-                          </div>
-                        )}
-                        <div className="absolute top-0 bottom-0 w-px bg-blue/20" style={{ left: todayLeft }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
+              {/* Baseline Drift Toggle */}
+              <button
+                onClick={() => setShowBaseline((prev) => !prev)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                  showBaseline
+                    ? "bg-blue-faint border-blue-light text-blue shadow-2xs"
+                    : "bg-white border-border text-slate hover:text-ink hover:bg-slate-50"
+                }`}
+                title="Show schedule variance against original baseline target"
+              >
+                <GitCommit size={14} className={showBaseline ? "text-blue" : "text-slate"} />
+                <span>Baseline Drift</span>
+              </button>
+
+              {/* Snapshot Baseline Button */}
+              <button
+                onClick={handleSnapshotBaseline}
+                disabled={baselineLoading}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs text-slate hover:text-ink hover:bg-slate-100 transition-colors border border-transparent hover:border-border"
+                title="Set current roadmap dates as the approved baseline"
+              >
+                <Camera size={13} className="text-slate" />
+                <span>{baselineLoading ? "Snapshotting…" : "Snapshot"}</span>
+              </button>
+
+              {baselineSuccess && (
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 flex items-center gap-1 animate-in fade-in">
+                  <CheckCircle2 size={12} /> Saved!
+                </span>
+              )}
+            </div>
+
+            {/* Right Controls: Search & Status Filter */}
+            <div className="flex items-center gap-2">
+              {/* Search Bar */}
+              <div className="relative flex-1 md:w-48">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Filter milestones…"
+                  className="w-full text-xs pl-8 pr-3 py-1.5 bg-slate-50 border border-border rounded-xl focus:outline-none focus:bg-white focus:border-blue"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-1 bg-slate-50 border border-border px-2.5 py-1.5 rounded-xl">
+                <Filter size={12} className="text-muted" />
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="text-xs bg-transparent text-ink font-medium cursor-pointer focus:outline-none"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="planned">Planned</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="delayed">Delayed</option>
+                </select>
+              </div>
             </div>
           </div>
-        </div>
+
+          {/* ── 5. Main Interactive Gantt Canvas Component ───────────────────── */}
+          <InteractiveGantt
+            workspaceId={workspaceId}
+            goals={goals}
+            timeScale={timeScale}
+            highlightCriticalPath={highlightCriticalPath}
+            showBaseline={showBaseline}
+            searchQuery={searchQuery}
+            filterStatus={filterStatus}
+            onRefreshData={handleRefresh}
+            onAddMilestoneClick={(goalId) => {
+              setSelectedGoalForMilestone(goalId);
+              setIsNewMilestoneOpen(true);
+            }}
+          />
+        </>
+      )}
+
+      {/* ── 6. Modals ───────────────────────────────────────────────────────── */}
+      <NewMilestoneModal
+        isOpen={isNewMilestoneOpen}
+        workspaceId={workspaceId}
+        defaultGoalId={selectedGoalForMilestone}
+        goals={goals.map((g) => ({ id: g.id, title: g.title }))}
+        allMilestones={allMilestones}
+        onClose={() => setIsNewMilestoneOpen(false)}
+        onCreated={(newMilestone) => {
+          setGoals((prev) =>
+            prev.map((g) =>
+              g.id === newMilestone.goalId
+                ? { ...g, milestones: [...g.milestones, newMilestone] }
+                : g
+            )
+          );
+        }}
+      />
+
+      {isNewGoalOpen && (
+        <NewGoalModal
+          workspaceId={workspaceId}
+          onClose={() => setIsNewGoalOpen(false)}
+          onCreated={(newGoal) => {
+            setGoals((prev) => [
+              ...prev,
+              {
+                id: newGoal.id,
+                title: newGoal.title,
+                objective: newGoal.objective,
+                status: newGoal.status,
+                targetDate: newGoal.targetDate,
+                milestones: [],
+              },
+            ]);
+          }}
+        />
       )}
     </div>
   );

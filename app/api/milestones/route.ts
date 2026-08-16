@@ -9,7 +9,11 @@ const createSchema = z.object({
   goalId: z.string(),
   title: z.string().min(1).max(300),
   description: z.string().max(2000).optional().default(""),
+  startDate: nullableIsoDateString,
   targetDate: nullableIsoDateString,
+  baselineStartDate: nullableIsoDateString,
+  baselineTargetDate: nullableIsoDateString,
+  dependsOn: z.array(z.string()).optional().default([]),
   status: z.enum(["planned", "in_progress", "completed", "delayed"]).optional().default("planned"),
 });
 
@@ -52,9 +56,13 @@ export async function POST(request: NextRequest) {
         title: parsed.data.title,
         description: parsed.data.description ?? "",
         status: parsed.data.status,
+        startDate: parsed.data.startDate ? new Date(parsed.data.startDate) : null,
         targetDate: parsed.data.targetDate ? new Date(parsed.data.targetDate) : null,
+        baselineStartDate: parsed.data.baselineStartDate ? new Date(parsed.data.baselineStartDate) : null,
+        baselineTargetDate: parsed.data.baselineTargetDate ? new Date(parsed.data.baselineTargetDate) : null,
+        dependsOn: parsed.data.dependsOn || [],
         order,
-      },
+      } as never,
       include: { tasks: true },
     }),
     prisma.activityLog.create({

@@ -56,7 +56,20 @@ export default async function BoardPage({ params }: BoardPageProps) {
         },
         linkedMilestone: {
           select: {
-            id: true, title: true, status: true, goalId: true,
+            id: true,
+            title: true,
+            status: true,
+            goalId: true,
+            tasks: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                priority: true,
+                storyPoints: true,
+                assigneeId: true,
+              },
+            },
           },
         },
       },
@@ -86,6 +99,16 @@ export default async function BoardPage({ params }: BoardPageProps) {
         dependsOn: true,
         order: true,
         goalId: true,
+        tasks: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            priority: true,
+            storyPoints: true,
+            assigneeId: true,
+          },
+        },
       },
       orderBy: { order: "asc" },
     }),

@@ -79,7 +79,7 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
     ...goal,
     milestones: milestones.map((m) => ({
       ...m,
-      tasks: m.tasks.map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
+      tasks: (m.tasks ?? []).map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
     })),
   } as never);
 
@@ -366,14 +366,14 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                 </div>
                 {ms.description && <p className="text-xs text-slate mb-2">{ms.description}</p>}
                 <div className="flex flex-wrap gap-1.5">
-                  {ms.tasks.slice(0, 5).map((t) => (
+                  {(ms.tasks ?? []).slice(0, 5).map((t) => (
                     <span key={t.id} className={`text-[10px] px-2 py-0.5 rounded-full border ${
                       t.status === "done" ? "bg-green-50 border-green-200 text-success" :
                       t.status === "blocked" ? "bg-red-50 border-red-200 text-danger" :
                       "bg-offwhite border-border text-slate"
                     }`}>{t.title.slice(0, 30)}</span>
                   ))}
-                  {ms.tasks.length > 5 && <span className="text-[10px] text-muted">+{ms.tasks.length - 5} more</span>}
+                  {(ms.tasks ?? []).length > 5 && <span className="text-[10px] text-muted">+{(ms.tasks ?? []).length - 5} more</span>}
                 </div>
               </div>
             ))}

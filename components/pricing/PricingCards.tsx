@@ -124,7 +124,9 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
         setError(data.error ?? "Could not start checkout. Please try again.");
         return;
       }
-      window.location.href = data.url;
+      if (data.url) {
+        window.location.assign(data.url);
+      }
     } catch {
       setError("Network error. Please check your connection.");
     } finally {

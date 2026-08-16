@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link2, Copy, Check, RefreshCw, Trash2, Loader2, AlertCircle } from "lucide-react";
 
 interface InviteLinkSectionProps {
@@ -20,11 +20,7 @@ export function InviteLinkSection({
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState<"generate" | "regenerate" | "revoke" | null>(null);
   const [error, setError] = useState("");
-  const [origin, setOrigin] = useState("");
-
-  useEffect(() => {
-    setOrigin(window.location.origin);
-  }, []);
+  const [origin] = useState(() => (typeof window !== "undefined" ? window.location.origin : ""));
 
   const inviteUrl = token ? (origin ? `${origin}/invite/${token}` : `/invite/${token}`) : null;
 

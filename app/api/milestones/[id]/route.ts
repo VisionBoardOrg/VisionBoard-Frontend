@@ -9,7 +9,12 @@ const patchSchema = z.object({
   title: z.string().min(1).max(300).optional(),
   description: z.string().max(2000).nullable().optional(),
   status: z.enum(["planned", "in_progress", "completed", "delayed"]).optional(),
+  startDate: nullableIsoDateString,
   targetDate: nullableIsoDateString,
+  baselineStartDate: nullableIsoDateString,
+  baselineTargetDate: nullableIsoDateString,
+  dependsOn: z.array(z.string()).optional(),
+  order: z.number().int().optional(),
 });
 
 export async function PATCH(
@@ -22,7 +27,7 @@ export async function PATCH(
   const { id } = await params;
   const body = await request.json();
   const parsed = patchSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: "Invalid input", details: parsed.error.format() }, { status: 400 });
 
   const milestone = await prisma.milestone.findUnique({
     where: { id },
@@ -47,14 +52,25 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid goalId" }, { status: 400 });
   }
 
-  const { targetDate, ...rest } = parsed.data;
+  const { startDate, targetDate, baselineStartDate, baselineTargetDate, ...rest } = parsed.data;
+
+  const updateData: Record<string, unknown> = { ...rest };
+  if (startDate !== undefined) {
+    updateData.startDate = startDate ? new Date(startDate) : null;
+  }
+  if (targetDate !== undefined) {
+    updateData.targetDate = targetDate ? new Date(targetDate) : null;
+  }
+  if (baselineStartDate !== undefined) {
+    updateData.baselineStartDate = baselineStartDate ? new Date(baselineStartDate) : null;
+  }
+  if (baselineTargetDate !== undefined) {
+    updateData.baselineTargetDate = baselineTargetDate ? new Date(baselineTargetDate) : null;
+  }
 
   const updated = await prisma.milestone.update({
     where: { id },
-    data: {
-      ...rest,
-      ...(targetDate !== undefined ? { targetDate: targetDate ? new Date(targetDate) : null } : {}),
-    },
+    data: updateData as never,
   });
 
   // Fire-and-forget audit log — non-blocking

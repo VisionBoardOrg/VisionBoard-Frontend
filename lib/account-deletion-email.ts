@@ -283,7 +283,7 @@ async function sendEmailInternal(
         mode: "resend",
         message: `Deletion notice delivered to ${email} via Resend.`,
       };
-    } catch (resendErr: any) {
+    } catch (resendErr: unknown) {
       console.error("[DELETION EMAIL EXCEPTION]", resendErr);
     }
   }
@@ -316,7 +316,7 @@ async function sendEmailInternal(
         mode: "smtp",
         message: `Deletion notice delivered to ${email} via SMTP.`,
       };
-    } catch (smtpErr: any) {
+    } catch (smtpErr: unknown) {
       console.error("[SMTP DELETION EMAIL EXCEPTION]", smtpErr);
     }
   }

@@ -144,6 +144,7 @@ export function useWebSocket(workspaceId: string | null) {
   const isConnectingRef = useRef(false);
   const attemptsRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
+  const connectRef = useRef<() => void>(() => {});
 
   const sessionToken = (session as { accessToken?: string })?.accessToken ?? session?.user?.id ?? null;
   useEffect(() => {
@@ -259,7 +260,9 @@ export function useWebSocket(workspaceId: string | null) {
         attemptsRef.current += 1;
         if (attemptsRef.current < MAX_ATTEMPTS) {
           const delay = getReconnectDelayMs(attemptsRef.current);
-          reconnectTimeoutRef.current = setTimeout(connect, delay);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connectRef.current();
+          }, delay);
         }
       };
 
@@ -278,10 +281,16 @@ export function useWebSocket(workspaceId: string | null) {
       attemptsRef.current += 1;
       if (attemptsRef.current < MAX_ATTEMPTS) {
         const delay = getReconnectDelayMs(attemptsRef.current);
-        reconnectTimeoutRef.current = setTimeout(connect, delay);
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectRef.current();
+        }, delay);
       }
     }
-  }, [workspaceId]);
+  }, [workspaceId, sessionToken]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   // Clean up idle cursors after 8 seconds of inactivity
   useEffect(() => {

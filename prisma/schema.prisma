@@ -146,10 +146,12 @@ model Milestone {
   title       String
   description String?
   status      MilestoneStatus @default(planned)
-  targetDate  DateTime?
-  startDate   DateTime?
-  dependsOn   String[]
-  order       Int             @default(0)
+  startDate           DateTime?
+  targetDate          DateTime?
+  baselineStartDate   DateTime?
+  baselineTargetDate  DateTime?
+  dependsOn           String[]
+  order               Int             @default(0)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   boardItems  BoardItem[]     @relation("MilestoneBoardItems")

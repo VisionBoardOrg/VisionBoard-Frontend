@@ -745,21 +745,21 @@ export function CardDetailPanel({
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // Live task list for milestone cards
-  const [localTasks, setLocalTasks] = useState<TaskSimple[]>(
-    item.linkedMilestone?.tasks ?? []
-  );
+  // Initial task list for milestone cards
+  const initialMilestoneId = item.linkedMilestoneId ?? item.linkedMilestone?.id;
+  const initialLinkedMs = milestones.find((m) => m.id === initialMilestoneId);
+  const initialTasks = item.linkedMilestone?.tasks ?? initialLinkedMs?.tasks ?? [];
+
+  const [localTasks, setLocalTasks] = useState<TaskSimple[]>(initialTasks);
+  const prevTasksRef = useRef<TaskSimple[]>(initialTasks);
+  const prevItemIdRef = useRef<string>(item.id);
 
   // Simple alias so call-sites are unchanged
   const setLocalTasksAndSync = setLocalTasks;
   // Label for note cards
   const [noteLabel, setNoteLabel] = useState(item.label ?? "");
 
-  // sendEvent comes from BoardCanvas as a prop — no second WebSocket connection needed.
-
   // Keep local state in sync if item changes from outside (e.g. drag or WebSocket event)
-  // Only reset localTasks when a *different* card is opened — not on every prop update,
-  // because our own onItemUpdated call would otherwise cause an infinite loop.
   useEffect(() => {
     setLocalItem(item);
     setNoteLabel(item.label ?? "");
@@ -767,13 +767,22 @@ export function CardDetailPanel({
 
   // Reset task list only when the user switches to a different card
   useEffect(() => {
-    setLocalTasks(item.linkedMilestone?.tasks ?? []);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [item.id]);
+    if (prevItemIdRef.current !== item.id) {
+      prevItemIdRef.current = item.id;
+      const currentMilestoneId = item.linkedMilestoneId ?? item.linkedMilestone?.id;
+      const linkedMs = milestones.find((m) => m.id === currentMilestoneId);
+      const nextTasks = item.linkedMilestone?.tasks ?? linkedMs?.tasks ?? [];
+      prevTasksRef.current = nextTasks;
+      setLocalTasks(nextTasks);
+    }
+  }, [item.id, item.linkedMilestoneId, milestones]);
 
-  // Propagate task list changes to the canvas AFTER render so the card count stays in sync
+  // Propagate task list changes to the canvas ONLY when tasks were actually modified
   useEffect(() => {
     if (!localItem.linkedMilestone) return;
+    if (prevTasksRef.current === localTasks) return;
+    prevTasksRef.current = localTasks;
+
     onItemUpdated({
       ...localItem,
       linkedMilestone: { ...localItem.linkedMilestone, tasks: localTasks },
@@ -889,11 +898,14 @@ export function CardDetailPanel({
   );
   const milestoneOptions = useMemo(
     () =>
-      milestones.map((m) => ({
-        id: m.id,
-        label: m.title,
-        sub: `${m.tasks.filter((t) => t.status === "done").length}/${m.tasks.length} done`,
-      })),
+      (milestones || []).map((m) => {
+        const mTasks = m.tasks ?? [];
+        return {
+          id: m.id,
+          label: m.title,
+          sub: `${mTasks.filter((t) => t.status === "done").length}/${mTasks.length} done`,
+        };
+      }),
     [milestones]
   );
 

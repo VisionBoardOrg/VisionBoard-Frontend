@@ -120,7 +120,7 @@ export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
           <div>
             <p className="text-sm font-semibold text-red-700">Delete account</p>
             <p className="text-xs text-red-600 mt-0.5">
-              Your account will be scheduled for permanent deletion in 30 days. You'll be signed out immediately.
+              Your account will be scheduled for permanent deletion in 30 days. You&apos;ll be signed out immediately.
               Export your data first.
             </p>
           </div>
@@ -145,7 +145,7 @@ export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
                 </div>
                 <h3 className="font-bold text-ink text-lg mb-2">Account deletion scheduled</h3>
                 <p className="text-sm text-muted">
-                  Your data will be permanently deleted in 30 days. You've been signed out. Redirecting…
+                  Your data will be permanently deleted in 30 days. You&apos;ve been signed out. Redirecting…
                 </p>
               </div>
             ) : (

@@ -11,6 +11,29 @@ const createSchema = z.object({
   assigneeId: z.string().nullable().optional(),
 });
 
+export async function GET(request: NextRequest) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const milestoneId = searchParams.get("milestoneId");
+  const workspaceId = searchParams.get("workspaceId");
+
+  if (!milestoneId && !workspaceId) {
+    return NextResponse.json({ error: "milestoneId or workspaceId required" }, { status: 400 });
+  }
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      ...(milestoneId ? { milestoneId } : {}),
+      ...(workspaceId ? { milestone: { goal: { workspaceId } } } : {}),
+    },
+    orderBy: { order: "asc" },
+  });
+
+  return NextResponse.json({ tasks });
+}
+
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

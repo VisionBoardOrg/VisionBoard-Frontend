@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import type { BoardItemFull, TaskSimple } from "@/types/board";
 
 interface BoardState {
@@ -80,9 +80,10 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 
   removeItem: (id) =>
     set((state) => {
-      const { [id]: _removed, ...rest } = state.itemsById;
+      const nextItemsById = { ...state.itemsById };
+      delete nextItemsById[id];
       return {
-        itemsById: rest,
+        itemsById: nextItemsById,
         itemOrder: state.itemOrder.filter((i) => i !== id),
       };
     }),
@@ -175,24 +176,17 @@ export function useBoardItem(id: string | null): BoardItemFull | undefined {
  */
 export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
   const store = useBoardStore();
-  const initialized = useRef(false);
-
-  if (!initialized.current || store.workspaceId !== workspaceId) {
-    initialized.current = true;
-    const { itemsById, itemOrder } = itemsToRecord(initialItems);
-    useBoardStore.setState({ workspaceId, itemsById, itemOrder });
-  }
 
   useEffect(() => {
-    if (store.workspaceId !== workspaceId) {
+    if (useBoardStore.getState().workspaceId !== workspaceId) {
       const { itemsById, itemOrder } = itemsToRecord(initialItems);
       useBoardStore.setState({ workspaceId, itemsById, itemOrder });
     }
-  }, [workspaceId, initialItems, store.workspaceId]);
+  }, [workspaceId, initialItems]);
 
   const items = useBoardItems();
   return {
     ...store,
-    items,
+    items: store.workspaceId === workspaceId && items.length > 0 ? items : initialItems,
   };
 }

@@ -136,13 +136,13 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
               ...goal,
               milestones: goal.milestones.map((m) => ({
                 ...m,
-                tasks: m.tasks.map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
+                tasks: (m.tasks ?? []).map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
               })),
             } as never);
 
-            const totalTasks = goal.milestones.reduce((sum, m) => sum + m.tasks.length, 0);
+            const totalTasks = goal.milestones.reduce((sum, m) => sum + (m.tasks ?? []).length, 0);
             const doneTasks = goal.milestones.reduce(
-              (sum, m) => sum + m.tasks.filter((t) => t.status === "done").length,
+              (sum, m) => sum + (m.tasks ?? []).filter((t) => t.status === "done").length,
               0
             );
 

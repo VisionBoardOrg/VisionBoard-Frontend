@@ -141,12 +141,13 @@ export async function sendWorkspaceInviteEmail({
         mode: "resend",
         message: `Invitation email delivered to ${email} via Resend.`,
       };
-    } catch (resendErr: any) {
-      console.error("[RESEND EXCEPTION] Failed to dispatch via Resend:", resendErr?.message || resendErr);
+    } catch (resendErr: unknown) {
+      const errorMessage = resendErr instanceof Error ? resendErr.message : String(resendErr);
+      console.error("[RESEND EXCEPTION] Failed to dispatch via Resend:", errorMessage);
       return {
         sent: false,
         mode: "resend",
-        message: `Resend Exception: ${resendErr?.message || "Failed to send email."}`,
+        message: `Resend Exception: ${errorMessage || "Failed to send email."}`,
       };
     }
   }
@@ -179,8 +180,9 @@ export async function sendWorkspaceInviteEmail({
         mode: "smtp",
         message: `Invitation email delivered to ${email} via SMTP.`,
       };
-    } catch (smtpErr: any) {
-      console.error("[SMTP EXCEPTION] Failed to send via SMTP:", smtpErr?.message || smtpErr);
+    } catch (smtpErr: unknown) {
+      const errorMessage = smtpErr instanceof Error ? smtpErr.message : String(smtpErr);
+      console.error("[SMTP EXCEPTION] Failed to send via SMTP:", errorMessage);
     }
   }
 

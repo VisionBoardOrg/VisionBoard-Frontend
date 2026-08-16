@@ -82,9 +82,7 @@ interface Props {
 export function RoleSwitcher({
   workspaceId,
   currentRole,
-  isAdmin = false,
   userId,
-  isOwner = false,
   targetUserId,
   targetName,
   compact = false,
@@ -125,8 +123,8 @@ export function RoleSwitcher({
         onRoleChange?.();
       }, 1200);
       router.refresh();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to update role");
     } finally {
       setSaving(false);
     }

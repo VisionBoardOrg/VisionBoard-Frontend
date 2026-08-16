@@ -6,7 +6,8 @@ type GoalWithRelations = Goal & {
 
 /** Compute a Goal Health Score 0-100 */
 export function computeGoalHealth(goal: GoalWithRelations): number {
-  const allTasks = goal.milestones.flatMap((m) => m.tasks);
+  const milestones = goal.milestones ?? [];
+  const allTasks = milestones.flatMap((m) => m.tasks ?? []);
   if (allTasks.length === 0) return 0;
 
   const doneTasks = allTasks.filter((t) => t.status === "done").length;
@@ -18,7 +19,7 @@ export function computeGoalHealth(goal: GoalWithRelations): number {
 
   // Penalise for overdue milestones
   const now = new Date();
-  const overdueMilestones = goal.milestones.filter(
+  const overdueMilestones = milestones.filter(
     (m) => m.targetDate && new Date(m.targetDate) < now && m.status !== "completed"
   ).length;
   const overduePenalty = Math.min(overdueMilestones * 15, 30);

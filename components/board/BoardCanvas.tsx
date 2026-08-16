@@ -496,8 +496,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         setMilestones((prev) =>
           prev.map((m) => {
             if (m.id === milestoneId) {
-              const updatedTasks = m.tasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
-              const allDone = updatedTasks.every((t: TaskSimple) => t.status === "done");
+              const mTasks = m.tasks ?? [];
+              const updatedTasks = mTasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
+              const allDone = updatedTasks.length > 0 && updatedTasks.every((t: TaskSimple) => t.status === "done");
               const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
               const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
               return { ...m, status: newMilestoneStatus, tasks: updatedTasks };
@@ -508,8 +509,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         setItems(
           items.map((item) => {
             if (item.entityType === "milestone" && item.linkedMilestoneId === milestoneId && item.linkedMilestone) {
-              const updatedTasks = item.linkedMilestone.tasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
-              const allDone = updatedTasks.every((t: TaskSimple) => t.status === "done");
+              const mTasks = item.linkedMilestone.tasks ?? [];
+              const updatedTasks = mTasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
+              const allDone = updatedTasks.length > 0 && updatedTasks.every((t: TaskSimple) => t.status === "done");
               const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
               const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
               return {

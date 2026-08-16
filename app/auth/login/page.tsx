@@ -21,6 +21,7 @@ function LoginForm() {
 
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState(urlError);
+  const [deletionEmail, setDeletionEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -28,6 +29,7 @@ function LoginForm() {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setDeletionEmail(null);
 
     const res = await signIn("credentials", {
       email: form.email,
@@ -38,9 +40,7 @@ function LoginForm() {
     if (res?.error) {
       if (res.error.includes("ACCOUNT_DELETION_SCHEDULED")) {
         const userEmail = res.error.split("ACCOUNT_DELETION_SCHEDULED:")[1] || form.email;
-        setError(
-          `Your account is scheduled for deletion. Would you like to restore it? <a href="/auth/cancel-deletion?email=${encodeURIComponent(userEmail)}" class="underline font-semibold text-blue hover:text-blue-dark">Cancel account deletion</a>`
-        );
+        setDeletionEmail(userEmail);
       } else {
         setError("Invalid email or password.");
       }
@@ -88,12 +88,21 @@ function LoginForm() {
 
           {/* Credentials */}
           <form onSubmit={handleCredentials} className="space-y-4">
-            {error && (
-              <div
-                className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger"
-                dangerouslySetInnerHTML={{ __html: error }}
-              />
-            )}
+            {deletionEmail ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger space-y-1">
+                <p>Your account is scheduled for deletion. Would you like to restore it?</p>
+                <Link
+                  href={`/auth/cancel-deletion?email=${encodeURIComponent(deletionEmail)}`}
+                  className="inline-block underline font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  Cancel account deletion
+                </Link>
+              </div>
+            ) : error ? (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
+                {error}
+              </div>
+            ) : null}
 
             <div>
               <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="email">

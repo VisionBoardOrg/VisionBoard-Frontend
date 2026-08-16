@@ -28,7 +28,7 @@ export function useNotifications(workspaceId?: string | null) {
         setNotifications(data.notifications || []);
         setUnreadCount(data.unreadCount || 0);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("[useNotifications] Failed to load notifications:", err);
     } finally {
       setIsLoading(false);

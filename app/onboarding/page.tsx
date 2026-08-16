@@ -49,7 +49,7 @@ export default function OnboardingPage() {
         }),
       });
 
-      let data: any = null;
+      let data: { error?: string; workspace?: { id: string } } | null = null;
       try {
         data = await res.json();
       } catch {
@@ -64,7 +64,7 @@ export default function OnboardingPage() {
       if (data?.workspace?.id) {
         router.push(`/workspace/${data.workspace.id}/board`);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("[handleComplete]", err);
       setError("An unexpected network error occurred. Please try again.");
     } finally {

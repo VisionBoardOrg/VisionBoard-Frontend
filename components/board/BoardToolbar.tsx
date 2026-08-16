@@ -334,18 +334,21 @@ export function BoardToolbar({
 
               {pickerType === "milestone" && (
                 <div className="bg-slate-50 border-t border-slate-100 max-h-48 overflow-y-auto">
-                  {milestones.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => createItem("milestone", m.id)}
-                      className="w-full text-left px-4 py-2 text-xs hover:bg-white transition-colors"
-                    >
-                      <span className="font-medium text-slate-700">{m.title}</span>
-                      <span className="block text-[10px] text-slate-400 mt-0.5">
-                        {m.tasks.filter((t) => t.status === "done").length}/{m.tasks.length} tasks done
-                      </span>
-                    </button>
-                  ))}
+                  {milestones.map((m) => {
+                    const mTasks = m.tasks ?? [];
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => createItem("milestone", m.id)}
+                        className="w-full text-left px-4 py-2 text-xs hover:bg-white transition-colors"
+                      >
+                        <span className="font-medium text-slate-700">{m.title}</span>
+                        <span className="block text-[10px] text-slate-400 mt-0.5">
+                          {mTasks.filter((t) => t.status === "done").length}/{mTasks.length} tasks done
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>

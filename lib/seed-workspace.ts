@@ -1,18 +1,17 @@
 import { prisma } from "@/lib/prisma";
 import { TEMPLATES, TemplateName } from "@/lib/templates";
-import { MemberRole, PlanTier, BoardEntityType } from "@prisma/client";
+import { MemberRole } from "@prisma/client";
 
 interface SeedWorkspaceOptions {
   userId: string;
   workspaceName: string;
-  role: MemberRole;
+  role?: MemberRole;
   template: TemplateName;
 }
 
 export async function seedWorkspace({
   userId,
   workspaceName,
-  role,
   template,
 }: SeedWorkspaceOptions) {
   const templateData = TEMPLATES[template];

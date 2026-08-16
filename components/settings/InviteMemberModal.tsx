@@ -55,7 +55,7 @@ export function InviteMemberModal({ workspaceId, currentMemberCount, memberLimit
 
       setInviteUrl(data.inviteUrl || "");
       router.refresh();
-    } catch (err) {
+    } catch {
       setError("An unexpected network error occurred.");
     } finally {
       setLoading(false);

@@ -10,8 +10,8 @@
  * inline feedback after returning from Stripe Checkout.
  */
 
-import React, { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CreditCard, Zap, CheckCircle2, AlertCircle, Loader2, ExternalLink, X } from "lucide-react";
 import { PlanTier } from "@prisma/client";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
@@ -86,24 +86,15 @@ export function BillingSection({
   stripeCustomerId,
   stripeCurrentPeriodEnd,
   stripeCancelAtPeriodEnd,
-  aiCreditsUsed,
 }: BillingSectionProps) {
-  const router       = useRouter();
   const searchParams = useSearchParams();
 
   // ── Post-checkout banner ─────────────────────────────────────────────────
-  const [banner, setBanner] = useState<"success" | "cancelled" | null>(null);
-
-  useEffect(() => {
-    const status = searchParams.get("checkout");
-    if (status === "success" || status === "cancelled") {
-      setBanner(status);
-      // Clean the query param without a full navigation
-      const url = new URL(window.location.href);
-      url.searchParams.delete("checkout");
-      window.history.replaceState({}, "", url.toString());
-    }
-  }, [searchParams]);
+  const checkoutParam = searchParams.get("checkout");
+  const [dismissedBanner, setDismissedBanner] = useState(false);
+  const banner = !dismissedBanner && (checkoutParam === "success" || checkoutParam === "cancelled")
+    ? checkoutParam
+    : null;
 
   // ── Upgrade panel state ──────────────────────────────────────────────────
   const [showUpgrade, setShowUpgrade]   = useState(false);
@@ -139,7 +130,9 @@ export function BillingSection({
         setError(data.error ?? "Failed to start checkout. Please try again.");
         return;
       }
-      window.location.href = data.url;
+      if (data.url) {
+        window.location.assign(data.url);
+      }
     } catch {
       setError("Network error. Please check your connection and try again.");
     } finally {
@@ -192,7 +185,7 @@ export function BillingSection({
             <strong>Subscription activated!</strong> Your workspace has been upgraded. It may take a
             moment for changes to reflect.
           </div>
-          <button onClick={() => setBanner(null)} className="ml-2 text-emerald-600 hover:text-emerald-800">
+          <button onClick={() => setDismissedBanner(true)} className="ml-2 text-emerald-600 hover:text-emerald-800">
             <X size={14} />
           </button>
         </div>
@@ -201,7 +194,7 @@ export function BillingSection({
         <div className="mb-4 flex items-start gap-2.5 p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
           <AlertCircle size={16} className="shrink-0 mt-0.5 text-amber-600" />
           <div className="flex-1">Checkout was cancelled — your plan has not changed.</div>
-          <button onClick={() => setBanner(null)} className="ml-2 text-amber-600 hover:text-amber-800">
+          <button onClick={() => setDismissedBanner(true)} className="ml-2 text-amber-600 hover:text-amber-800">
             <X size={14} />
           </button>
         </div>

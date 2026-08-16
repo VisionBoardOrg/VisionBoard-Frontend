@@ -19,7 +19,6 @@ export interface NotificationStreamEvent {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __visionboard_notification_emitter__: EventEmitter | undefined;
 }
 

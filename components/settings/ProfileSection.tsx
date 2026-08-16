@@ -133,7 +133,7 @@ export function ProfileSection({ initialName, initialEmail }: ProfileSectionProp
           />
           {isEditing && (
             <p className="text-[11px] text-muted mt-1">
-              Changing your email will update your sign-in address. You'll need to sign in again.
+              Changing your email will update your sign-in address. You&apos;ll need to sign in again.
             </p>
           )}
         </div>
