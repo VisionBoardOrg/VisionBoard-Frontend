@@ -92,11 +92,10 @@ export function InteractiveGantt({
   onAddMilestoneClick,
 }: InteractiveGanttProps) {
   const [goals, setGoals] = useState<GoalGroup[]>(initialGoals);
-  const [prevInitialGoals, setPrevInitialGoals] = useState<GoalGroup[]>(initialGoals);
-  if (initialGoals !== prevInitialGoals) {
-    setPrevInitialGoals(initialGoals);
+
+  useEffect(() => {
     setGoals(initialGoals);
-  }
+  }, [initialGoals]);
   const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
   const [selectedMilestone, setSelectedMilestone] = useState<GanttMilestone | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -315,36 +314,45 @@ export function InteractiveGantt({
   useEffect(() => {
     if (!dragState) return;
 
+    let rafId: number | null = null;
+
     function handleMouseMove(e: MouseEvent) {
       if (!dragState) return;
 
-      const deltaX = e.clientX - dragState.startX;
-      const daysDelta = Math.round(
-        deltaX / (timeScale === "day" ? 44 : timeScale === "week" ? 16 : 5.3)
-      );
-
-      if (dragState.type === "move") {
-        const nextStart = addDays(dragState.originalStart, daysDelta);
-        const nextTarget = addDays(dragState.originalTarget, daysDelta);
-        setDragState((prev) =>
-          prev ? { ...prev, currentStart: nextStart, currentTarget: nextTarget } : null
-        );
-      } else if (dragState.type === "resize-left") {
-        const nextStart = addDays(dragState.originalStart, daysDelta);
-        // Ensure start <= target - 1 day
-        if (nextStart < dragState.originalTarget) {
-          setDragState((prev) => (prev ? { ...prev, currentStart: nextStart } : null));
-        }
-      } else if (dragState.type === "resize-right") {
-        const nextTarget = addDays(dragState.originalTarget, daysDelta);
-        // Ensure target >= start + 1 day
-        if (nextTarget > dragState.originalStart) {
-          setDragState((prev) => (prev ? { ...prev, currentTarget: nextTarget } : null));
-        }
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
       }
+
+      rafId = requestAnimationFrame(() => {
+        const deltaX = e.clientX - dragState.startX;
+        const daysDelta = Math.round(
+          deltaX / (timeScale === "day" ? 44 : timeScale === "week" ? 16 : 5.3)
+        );
+
+        if (dragState.type === "move") {
+          const nextStart = addDays(dragState.originalStart, daysDelta);
+          const nextTarget = addDays(dragState.originalTarget, daysDelta);
+          setDragState((prev) =>
+            prev ? { ...prev, currentStart: nextStart, currentTarget: nextTarget } : null
+          );
+        } else if (dragState.type === "resize-left") {
+          const nextStart = addDays(dragState.originalStart, daysDelta);
+          if (nextStart < dragState.originalTarget) {
+            setDragState((prev) => (prev ? { ...prev, currentStart: nextStart } : null));
+          }
+        } else if (dragState.type === "resize-right") {
+          const nextTarget = addDays(dragState.originalTarget, daysDelta);
+          if (nextTarget > dragState.originalStart) {
+            setDragState((prev) => (prev ? { ...prev, currentTarget: nextTarget } : null));
+          }
+        }
+      });
     }
 
     async function handleMouseUp() {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
       if (!dragState) return;
 
       const { milestoneId, currentStart, currentTarget, originalStart, originalTarget } =

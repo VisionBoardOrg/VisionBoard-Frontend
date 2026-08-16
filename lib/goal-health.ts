@@ -196,13 +196,20 @@ export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<Goal
   });
 
   const evaluations: GoalHealthEvaluation[] = [];
+  const CHUNK_SIZE = 10;
 
-  for (const g of goals) {
-    try {
-      const evaluation = await calculateGoalHealth(g.id);
-      if (evaluation) evaluations.push(evaluation);
-    } catch (err) {
-      console.error(`[goal-health] Failed evaluating goal ${g.id}:`, err);
+  for (let i = 0; i < goals.length; i += CHUNK_SIZE) {
+    const chunk = goals.slice(i, i + CHUNK_SIZE);
+    const results = await Promise.allSettled(
+      chunk.map((g) => calculateGoalHealth(g.id))
+    );
+
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value) {
+        evaluations.push(r.value);
+      } else if (r.status === "rejected") {
+        console.error("[goal-health] Goal evaluation error:", r.reason);
+      }
     }
   }
 

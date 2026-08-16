@@ -190,7 +190,9 @@ model Task {
   @@index([sprintId])
   @@index([status])
   @@index([milestoneId, order])
+  @@index([milestoneId, status])
   @@index([sprintId, status])
+  @@index([assigneeId, status, priority, dueDate])
 }
 
 model Sprint {
@@ -301,6 +303,7 @@ model ActivityLog {
   @@index([entityId])
   @@index([createdAt])
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, entityType, createdAt])
 }
 
 model AIGenerationLog {
@@ -434,6 +437,8 @@ model Notification {
 
   @@index([userId])
   @@index([userId, read])
+  @@index([userId, read, createdAt])
+  @@index([userId, workspaceId, read, createdAt])
   @@index([workspaceId])
   @@index([createdAt])
 }

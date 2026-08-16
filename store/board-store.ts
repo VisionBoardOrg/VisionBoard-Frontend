@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import type { BoardItemFull, TaskSimple } from "@/types/board";
 
 interface BoardState {
@@ -159,11 +159,13 @@ export const useBoardStore = create<BoardState>((set, get) => ({
 export function useBoardItems(): BoardItemFull[] {
   const itemsById = useBoardStore((s) => s.itemsById);
   const itemOrder = useBoardStore((s) => s.itemOrder);
-  const items: BoardItemFull[] = new Array(itemOrder.length);
-  for (let i = 0; i < itemOrder.length; i++) {
-    items[i] = itemsById[itemOrder[i]];
-  }
-  return items;
+  return useMemo(() => {
+    const items: BoardItemFull[] = new Array(itemOrder.length);
+    for (let i = 0; i < itemOrder.length; i++) {
+      items[i] = itemsById[itemOrder[i]];
+    }
+    return items;
+  }, [itemsById, itemOrder]);
 }
 
 export function useBoardItem(id: string | null): BoardItemFull | undefined {

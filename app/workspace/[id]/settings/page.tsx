@@ -76,13 +76,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   const openInviteToken = openInvite?.token ?? null;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role} plan={plan}
-      aiCreditsUsed={currentUser.aiCreditsUsed}
-      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
-      userId={session.user.id}
-      isOwner={isOwner}
-    >
-      <div className="max-w-3xl mx-auto space-y-8">
+    <div className="max-w-3xl mx-auto space-y-8">
 
         {/* ── Header ── */}
         <div>
@@ -241,7 +235,6 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
         <WorkspaceExportSection workspaceId={id} workspaceName={workspace.name} />
 
       </div>
-    </AppShell>
   );
 }
 

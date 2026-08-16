@@ -16,6 +16,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { TimeScale } from "@/lib/gantt-engine";
 import { InteractiveGantt, GoalGroup } from "./InteractiveGantt";
 import { NewMilestoneModal } from "./NewMilestoneModal";
@@ -35,6 +36,7 @@ export function RoadmapView({
   isGated,
   upgradePrompt,
 }: RoadmapViewProps) {
+  const router = useRouter();
   const [goals, setGoals] = useState<GoalGroup[]>(initialGoals);
   const [timeScale, setTimeScale] = useState<TimeScale>("month");
   const [highlightCriticalPath, setHighlightCriticalPath] = useState(false);
@@ -74,7 +76,7 @@ export function RoadmapView({
     totalMilestones > 0 ? Math.round((completedMilestones / totalMilestones) * 100) : 0;
 
   async function handleRefresh() {
-    window.location.reload();
+    router.refresh();
   }
 
   // Snapshot Baseline across all workspace goals
@@ -95,7 +97,7 @@ export function RoadmapView({
       setBaselineSuccess(true);
       setShowBaseline(true);
       setTimeout(() => setBaselineSuccess(false), 3000);
-      window.location.reload();
+      router.refresh();
     } catch (err) {
       console.error("Failed to snapshot baseline:", err);
     } finally {

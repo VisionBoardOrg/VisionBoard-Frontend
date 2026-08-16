@@ -13,7 +13,7 @@ export default async function DashboardPage() {
   if (!session) redirect("/auth/login");
 
   // Fetch cross-workspace user stats, memberships, and user plan in parallel
-  const [user, userMemberships, assignedTasks] = await Promise.all([
+  const [user, userMemberships, taskStatusGroups] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.user.id },
       select: { id: true, plan: true, aiCreditsUsed: true },
@@ -33,9 +33,10 @@ export default async function DashboardPage() {
       },
       orderBy: { joinedAt: "asc" },
     }),
-    prisma.task.findMany({
+    prisma.task.groupBy({
+      by: ["status"],
       where: { assigneeId: session.user.id },
-      select: { id: true, status: true },
+      _count: { id: true },
     }),
   ]);
 
@@ -45,10 +46,16 @@ export default async function DashboardPage() {
   const primaryWorkspace = userMemberships[0].workspace;
   const plan = user?.plan ?? "free";
 
-  // Compute cross-workspace user summary stats
+  // Compute cross-workspace user summary stats from database aggregation
   const totalWorkspaces = userMemberships.length;
-  const totalAssigned = assignedTasks.length;
-  const totalDone = assignedTasks.filter((t) => t.status === "done").length;
+  let totalAssigned = 0;
+  let totalDone = 0;
+  for (const group of taskStatusGroups) {
+    totalAssigned += group._count.id;
+    if (group.status === "done") {
+      totalDone += group._count.id;
+    }
+  }
   const completionRate = totalAssigned > 0 ? (totalDone / totalAssigned) * 100 : 0;
 
   // User display name with email fallback

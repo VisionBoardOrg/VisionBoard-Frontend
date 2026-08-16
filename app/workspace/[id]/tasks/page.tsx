@@ -48,6 +48,7 @@ export default async function TasksPage({ params }: TasksPageProps) {
         { priority: "desc" },
         { dueDate: "asc" },
       ],
+      take: 200,
     }),
   ]);
 
@@ -56,46 +57,42 @@ export default async function TasksPage({ params }: TasksPageProps) {
   const doneCount = tasks.filter((t) => t.status === "done").length;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}
-      userId={session.user.id}
-    >
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-ink">My Tasks</h1>
-            <p className="text-slate text-sm mt-1">
-              All tasks assigned to you in this workspace
-            </p>
-          </div>
-          <div className="flex items-center gap-3 text-sm text-muted">
-            <span className="bg-blue-faint text-blue font-semibold px-3 py-1 rounded-full text-xs">
-              {activeCount} active
-            </span>
-            <span className="bg-green-50 text-success font-semibold px-3 py-1 rounded-full text-xs">
-              {doneCount} done
-            </span>
-          </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-ink">My Tasks</h1>
+          <p className="text-slate text-sm mt-1">
+            All tasks assigned to you in this workspace
+          </p>
         </div>
-
-        {tasks.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-border p-12 text-center">
-            <ListTodo size={40} className="text-muted mx-auto mb-4" />
-            <h3 className="font-semibold text-ink">No tasks assigned to you</h3>
-            <p className="text-sm text-slate mt-1 mb-5">
-              Tasks assigned to you from goals and milestones will appear here.
-            </p>
-            <Link
-              href={`/workspace/${id}/board`}
-              className="inline-flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors"
-            >
-              Go to board
-            </Link>
-          </div>
-        ) : (
-          <TasksFilteredList tasks={tasks} workspaceId={id} />
-        )}
+        <div className="flex items-center gap-3 text-sm text-muted">
+          <span className="bg-blue-faint text-blue font-semibold px-3 py-1 rounded-full text-xs">
+            {activeCount} active
+          </span>
+          <span className="bg-green-50 text-success font-semibold px-3 py-1 rounded-full text-xs">
+            {doneCount} done
+          </span>
+        </div>
       </div>
-    </AppShell>
+
+      {tasks.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-border p-12 text-center">
+          <ListTodo size={40} className="text-muted mx-auto mb-4" />
+          <h3 className="font-semibold text-ink">No tasks assigned to you</h3>
+          <p className="text-sm text-slate mt-1 mb-5">
+            Tasks assigned to you from goals and milestones will appear here.
+          </p>
+          <Link
+            href={`/workspace/${id}/board`}
+            className="inline-flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors"
+          >
+            Go to board
+          </Link>
+        </div>
+      ) : (
+        <TasksFilteredList tasks={tasks} workspaceId={id} />
+      )}
+    </div>
   );
 }

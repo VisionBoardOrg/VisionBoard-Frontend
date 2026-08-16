@@ -176,20 +176,31 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // ── Dispatch Task Due Date Notifications (Deduplicated within 24h) ────────
+  // ── Dispatch Task Due Date Notifications (Deduplicated within 24h via batch fetch) ──
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const candidateTaskIds = [
+    ...overdueTasks.map((t) => t.id),
+    ...dueSoon24hTasks.map((t) => t.id),
+  ];
+
+  const recentTaskNotifs = await prisma.notification.findMany({
+    where: {
+      entityId: { in: candidateTaskIds },
+      createdAt: { gte: oneDayAgo },
+    },
+    select: { entityId: true, type: true, userId: true },
+  });
+
+  const recentNotifSet = new Set(
+    recentTaskNotifs.map((n) => `${n.userId}:${n.entityId}:${n.type}`)
+  );
 
   for (const t of overdueTasks) {
     if (!t.assigneeId || !t.dueDate) continue;
-    const existingNotif = await prisma.notification.findFirst({
-      where: {
-        userId: t.assigneeId,
-        entityId: t.id,
-        type: "task_overdue",
-        createdAt: { gte: oneDayAgo },
-      },
-    });
-    if (!existingNotif) {
+    const notifKey = `${t.assigneeId}:${t.id}:task_overdue`;
+    if (!recentNotifSet.has(notifKey)) {
+      recentNotifSet.add(notifKey);
       dispatchTaskDueAlert({
         taskId: t.id,
         taskTitle: t.title,
@@ -203,15 +214,9 @@ export async function GET(request: NextRequest) {
 
   for (const t of dueSoon24hTasks) {
     if (!t.assigneeId || !t.dueDate) continue;
-    const existingNotif = await prisma.notification.findFirst({
-      where: {
-        userId: t.assigneeId,
-        entityId: t.id,
-        type: "task_due_soon",
-        createdAt: { gte: oneDayAgo },
-      },
-    });
-    if (!existingNotif) {
+    const notifKey = `${t.assigneeId}:${t.id}:task_due_soon`;
+    if (!recentNotifSet.has(notifKey)) {
+      recentNotifSet.add(notifKey);
       dispatchTaskDueAlert({
         taskId: t.id,
         taskTitle: t.title,
@@ -228,29 +233,39 @@ export async function GET(request: NextRequest) {
   const atRiskGoals = goalEvaluations.filter((g) => g.status === "at_risk");
   const degradedGoals = goalEvaluations.filter((g) => g.degraded);
 
-  for (const g of atRiskGoals) {
-    const existingNotif = await prisma.notification.findFirst({
-      where: {
-        entityId: g.goalId,
-        type: { in: ["goal_at_risk", "goal_health_degraded"] },
-        createdAt: { gte: oneDayAgo },
-      },
-    });
-    if (!existingNotif) {
-      // Find goal owner
-      const goal = await prisma.goal.findUnique({
-        where: { id: g.goalId },
-        select: { ownerId: true, workspaceId: true },
-      });
-      if (goal) {
-        dispatchGoalHealthNotification({
-          goalId: g.goalId,
-          goalTitle: g.goalTitle,
-          healthScore: g.healthScore,
-          workspaceId: goal.workspaceId,
-          ownerId: goal.ownerId,
-          degraded: g.degraded,
-        }).catch((err) => console.error("[cron/sweeps] Goal health alert failed:", err));
+  if (atRiskGoals.length > 0) {
+    const atRiskGoalIds = atRiskGoals.map((g) => g.goalId);
+    const [recentGoalNotifs, goalOwners] = await Promise.all([
+      prisma.notification.findMany({
+        where: {
+          entityId: { in: atRiskGoalIds },
+          type: { in: ["goal_at_risk", "goal_health_degraded"] },
+          createdAt: { gte: oneDayAgo },
+        },
+        select: { entityId: true },
+      }),
+      prisma.goal.findMany({
+        where: { id: { in: atRiskGoalIds } },
+        select: { id: true, ownerId: true, workspaceId: true },
+      }),
+    ]);
+
+    const recentAlertedGoalIds = new Set(recentGoalNotifs.map((n) => n.entityId));
+    const goalMap = new Map(goalOwners.map((g) => [g.id, g]));
+
+    for (const g of atRiskGoals) {
+      if (!recentAlertedGoalIds.has(g.goalId)) {
+        const goal = goalMap.get(g.goalId);
+        if (goal) {
+          dispatchGoalHealthNotification({
+            goalId: g.goalId,
+            goalTitle: g.goalTitle,
+            healthScore: g.healthScore,
+            workspaceId: goal.workspaceId,
+            ownerId: goal.ownerId,
+            degraded: g.degraded,
+          }).catch((err) => console.error("[cron/sweeps] Goal health alert failed:", err));
+        }
       }
     }
   }
@@ -260,48 +275,53 @@ export async function GET(request: NextRequest) {
     select: { id: true, ownerId: true },
   });
 
-  const quotaWarnings = [];
-  for (const ws of allWorkspaces) {
-    try {
-      const quotaEval = await evaluateQuotaThresholds(ws.id);
-      if (quotaEval && quotaEval.hasAnyWarning) {
-        await checkAndRecordQuotaWarning(ws.id);
-        quotaWarnings.push({
-          workspaceId: ws.id,
-          workspaceName: quotaEval.workspaceName,
-          plan: quotaEval.plan,
-          aiWarning: quotaEval.aiCredits.warningLevel,
-          aiPercent: quotaEval.aiCredits.percentage,
-          storageWarning: quotaEval.storage.warningLevel,
-          storagePercent: quotaEval.storage.percentage,
-        });
+  const quotaWarnings: Array<Record<string, unknown>> = [];
+  const CHUNK_SIZE = 10;
 
-        // Dispatch quota notifications to workspace owner if not alerted in 24h
-        if (quotaEval.aiCredits.warningLevel !== "none" && ws.ownerId) {
-          const recentAiNotif = await prisma.notification.findFirst({
-            where: {
-              userId: ws.ownerId,
-              workspaceId: ws.id,
-              type: { in: ["quota_warning", "quota_exceeded"] },
-              metadata: { path: ["type"], equals: "ai_credits" },
-              createdAt: { gte: oneDayAgo },
-            },
-          });
-          if (!recentAiNotif) {
-            dispatchQuotaNotification({
+  for (let i = 0; i < allWorkspaces.length; i += CHUNK_SIZE) {
+    const chunk = allWorkspaces.slice(i, i + CHUNK_SIZE);
+    await Promise.allSettled(
+      chunk.map(async (ws) => {
+        try {
+          const quotaEval = await evaluateQuotaThresholds(ws.id);
+          if (quotaEval && quotaEval.hasAnyWarning) {
+            await checkAndRecordQuotaWarning(ws.id);
+            quotaWarnings.push({
               workspaceId: ws.id,
               workspaceName: quotaEval.workspaceName,
-              type: "ai_credits",
-              warningLevel: quotaEval.aiCredits.warningLevel,
-              percentage: quotaEval.aiCredits.percentage,
-              ownerId: ws.ownerId,
-            }).catch((err) => console.error("[cron/sweeps] AI quota notification failed:", err));
+              plan: quotaEval.plan,
+              aiWarning: quotaEval.aiCredits.warningLevel,
+              aiPercent: quotaEval.aiCredits.percentage,
+              storageWarning: quotaEval.storage.warningLevel,
+              storagePercent: quotaEval.storage.percentage,
+            });
+
+            if (quotaEval.aiCredits.warningLevel !== "none" && ws.ownerId) {
+              const recentAiNotif = await prisma.notification.findFirst({
+                where: {
+                  userId: ws.ownerId,
+                  workspaceId: ws.id,
+                  type: { in: ["quota_warning", "quota_exceeded"] },
+                  createdAt: { gte: oneDayAgo },
+                },
+              });
+              if (!recentAiNotif) {
+                dispatchQuotaNotification({
+                  workspaceId: ws.id,
+                  workspaceName: quotaEval.workspaceName,
+                  type: "ai_credits",
+                  warningLevel: quotaEval.aiCredits.warningLevel,
+                  percentage: quotaEval.aiCredits.percentage,
+                  ownerId: ws.ownerId,
+                }).catch((err) => console.error("[cron/sweeps] AI quota notification failed:", err));
+              }
+            }
           }
+        } catch (err) {
+          console.error(`[cron/sweeps] Quota check failed for workspace ${ws.id}:`, err);
         }
-      }
-    } catch (err) {
-      console.error(`[cron/sweeps] Quota check failed for workspace ${ws.id}:`, err);
-    }
+      })
+    );
   }
 
   return NextResponse.json({

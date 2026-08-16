@@ -26,20 +26,16 @@ export default async function NewDocPage({ params, searchParams }: NewDocPagePro
   ]);
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}
-      userId={session.user.id}
-    >
-      <DocEditor
-        workspaceId={id}
-        initialData={{
-          title: "",
-          content: "",
-          linkedGoalId: linkedGoalId ?? null,
-          linkedMilestoneId: linkedMilestoneId ?? null,
-        }}
-        goals={goals}
-        milestones={milestones}
-      />
-    </AppShell>
+    <DocEditor
+      workspaceId={id}
+      initialData={{
+        title: "",
+        content: "",
+        linkedGoalId: linkedGoalId ?? null,
+        linkedMilestoneId: linkedMilestoneId ?? null,
+      }}
+      goals={goals}
+      milestones={milestones}
+    />
   );
 }

@@ -27,21 +27,17 @@ export default async function EditDocPage({ params }: EditDocPageProps) {
   if (!doc || doc.workspaceId !== id) redirect(`/workspace/${id}/docs`);
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}
-      userId={session.user.id}
-    >
-      <DocEditor
-        workspaceId={id}
-        initialData={{
-          id: doc.id,
-          title: doc.title,
-          content: doc.content,
-          linkedGoalId: doc.linkedGoalId,
-          linkedMilestoneId: doc.linkedMilestoneId,
-        }}
-        goals={goals}
-        milestones={milestones}
-      />
-    </AppShell>
+    <DocEditor
+      workspaceId={id}
+      initialData={{
+        id: doc.id,
+        title: doc.title,
+        content: doc.content,
+        linkedGoalId: doc.linkedGoalId,
+        linkedMilestoneId: doc.linkedMilestoneId,
+      }}
+      goals={goals}
+      milestones={milestones}
+    />
   );
 }

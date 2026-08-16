@@ -104,11 +104,15 @@ export async function createBulkNotifications(inputs: CreateNotificationInput[])
   const filtered = inputs.filter((i) => !i.actorId || i.actorId !== i.userId);
   if (filtered.length === 0) return [];
 
-  const createdNotifications = [];
+  const results = await Promise.allSettled(
+    filtered.map((input) => createNotification(input))
+  );
 
-  for (const input of filtered) {
-    const n = await createNotification(input);
-    if (n) createdNotifications.push(n);
+  const createdNotifications = [];
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value) {
+      createdNotifications.push(r.value);
+    }
   }
 
   return createdNotifications;

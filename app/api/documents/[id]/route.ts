@@ -45,11 +45,8 @@ export async function GET(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const { doc, member } = await getDocWithMember(id, session.user.id);
-  if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  // Single query — includes content only on the detail view (not the list)
+  // Single consolidated query — fetches document, relations, and verifies caller workspace membership
   const full = await prisma.document.findUnique({
     where: { id },
     include: {
@@ -58,8 +55,21 @@ export async function GET(
         include: { author: { select: { id: true, name: true, image: true } } },
         orderBy: { createdAt: "asc" },
       },
+      workspace: {
+        select: {
+          members: {
+            where: { userId: session.user.id },
+            select: { role: true },
+          },
+        },
+      },
     },
   });
+
+  if (!full) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!full.workspace?.members?.length) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   return NextResponse.json({ document: full });
 }

@@ -78,20 +78,33 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
     };
   }, [fetchNotifications]);
 
-  // Periodic polling fallback (every 30s)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      fetchNotifications();
-    }, 30_000);
-    return () => clearInterval(timer);
-  }, [fetchNotifications]);
-
-  // Single Real-time SSE Stream subscription
+  // Single Real-time SSE Stream subscription with smart fallback polling
   useEffect(() => {
     let sse: EventSource | null = null;
+    let fallbackPollTimer: NodeJS.Timeout | null = null;
+
+    const startFallbackPolling = () => {
+      if (!fallbackPollTimer) {
+        fallbackPollTimer = setInterval(() => {
+          fetchNotifications();
+        }, 30_000);
+      }
+    };
+
+    const stopFallbackPolling = () => {
+      if (fallbackPollTimer) {
+        clearInterval(fallbackPollTimer);
+        fallbackPollTimer = null;
+      }
+    };
 
     try {
       sse = new EventSource("/api/notifications/stream");
+
+      sse.onopen = () => {
+        // SSE connected successfully, stop redundant polling
+        stopFallbackPolling();
+      };
 
       sse.onmessage = (event) => {
         try {
@@ -115,18 +128,21 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
       };
 
       sse.onerror = () => {
-        // SSE auto-reconnects; ignore transient network drops
+        // SSE disconnected, fall back to interval polling
+        startFallbackPolling();
       };
     } catch (err) {
       console.error("[NotificationContext] SSE connection setup failed:", err);
+      startFallbackPolling();
     }
 
     return () => {
+      stopFallbackPolling();
       if (sse) {
         sse.close();
       }
     };
-  }, [workspaceId]);
+  }, [workspaceId, fetchNotifications]);
 
   // Mark single or multiple notifications as read
   const markAsRead = useCallback(async (notificationIds: string[]) => {

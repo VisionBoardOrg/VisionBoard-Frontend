@@ -12,8 +12,8 @@ const openrouter = new OpenAI({
 });
 
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
-/** Hard timeout for the AI call — prevents blocking a Node.js worker indefinitely */
-const AI_TIMEOUT_MS = 45_000;
+/** Hard timeout for the AI call — prevents blocking a worker and avoids edge gateway 504s */
+const AI_TIMEOUT_MS = 25_000;
 
 const schema = z.object({
   workspaceId: z.string(),
@@ -39,13 +39,18 @@ export async function POST(request: NextRequest) {
 
   const { workspaceId, text } = parsed.data;
 
-  // Verify membership BEFORE workspace fetch or credit consumption
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
-  });
-  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Run membership verification and user plan fetch in parallel
+  const [member, user] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
+    }),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, plan: true, aiCreditsUsed: true },
+    }),
+  ]);
 
-  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
   // ── Atomic credit debit (TOCTOU-safe) ──────────────────────────────────────

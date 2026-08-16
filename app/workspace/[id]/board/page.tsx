@@ -149,20 +149,12 @@ export default async function BoardPage({ params }: BoardPageProps) {
   const plan = currentUser.plan;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}
-      plan={plan}
-      aiCreditsUsed={currentUser.aiCreditsUsed}
-      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
-      userId={session.user.id}
-      isOwner={workspace.ownerId === session.user.id}
-    >
-      <BoardCanvas
-        workspaceId={id}
-        initialItems={updatedBoardItems as never}
-        goals={goals as never}
-        milestones={updatedMilestones as never}
-        members={members.map((m) => m.user)}
-      />
-    </AppShell>
+    <BoardCanvas
+      workspaceId={id}
+      initialItems={updatedBoardItems as never}
+      goals={goals as never}
+      milestones={updatedMilestones as never}
+      members={members.map((m) => m.user)}
+    />
   );
 }

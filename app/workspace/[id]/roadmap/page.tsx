@@ -60,19 +60,12 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
   const isGated = !limit.allowed;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role} plan={plan}
-      aiCreditsUsed={currentUser.aiCreditsUsed}
-      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
-      userId={session.user.id}
-      isOwner={member.workspace.ownerId === session.user.id}
-    >
-      <RoadmapView
-        workspaceId={id}
-        goals={goals as never}
-        isGated={isGated}
-        upgradePrompt={limit.reason}
-        userRole={session.user.role}
-      />
-    </AppShell>
+    <RoadmapView
+      workspaceId={id}
+      goals={goals as never}
+      isGated={isGated}
+      upgradePrompt={limit.reason}
+      userRole={session.user.role}
+    />
   );
 }
