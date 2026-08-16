@@ -11,19 +11,25 @@ export default async function WorkspacesPage() {
   const session = await auth();
   if (!session) redirect("/auth/login");
 
-  // Get all workspaces the user is a member of
-  const memberships = await prisma.workspaceMember.findMany({
-    where: { userId: session.user.id },
-    include: {
-      workspace: {
-        include: {
-          owner: { select: { id: true, name: true, email: true } },
-          _count: { select: { members: true, goals: true, documents: true } },
+  // Get user and all workspaces the user is a member of
+  const [user, memberships] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, plan: true, aiCreditsUsed: true },
+    }),
+    prisma.workspaceMember.findMany({
+      where: { userId: session.user.id },
+      include: {
+        workspace: {
+          include: {
+            owner: { select: { id: true, name: true, email: true, plan: true } },
+            _count: { select: { members: true, goals: true, documents: true } },
+          },
         },
       },
-    },
-    orderBy: { joinedAt: "asc" },
-  });
+      orderBy: { joinedAt: "asc" },
+    }),
+  ]);
 
   // Owned workspace count for plan limit checks
   const ownedCount = memberships.filter(
@@ -35,15 +41,15 @@ export default async function WorkspacesPage() {
   const activeMembership = memberships.find((m) => m.workspace.id === activeWorkspaceId);
   const activeWorkspace = activeMembership?.workspace;
 
-  // Use the active workspace plan (or free if none)
-  const plan = activeWorkspace?.plan ?? "free";
+  // Use the user's account plan
+  const plan = user?.plan ?? "free";
   const limits = PLAN_LIMITS[plan];
 
   const workspaces = memberships.map((m) => ({
     id: m.workspace.id,
     name: m.workspace.name,
     slug: m.workspace.slug,
-    plan: m.workspace.plan,
+    plan: m.workspace.owner.plan ?? "free",
     role: m.role,
     isOwner: m.workspace.ownerId === session.user.id,
     ownerName: m.workspace.owner.name ?? m.workspace.owner.email,
@@ -63,7 +69,7 @@ export default async function WorkspacesPage() {
       workspaceId={null}
       role={activeMembership?.role ?? session.user.role}
       plan={plan}
-      aiCreditsUsed={activeWorkspace?.aiCreditsUsed}
+      aiCreditsUsed={user?.aiCreditsUsed ?? 0}
       aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
       userId={session.user.id}
       isOwner={activeWorkspace?.ownerId === session.user.id}

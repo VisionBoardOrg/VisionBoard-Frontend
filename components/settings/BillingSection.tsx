@@ -22,13 +22,14 @@ type BillingPeriod = "monthly" | "annual";
 type PaidTier = "startup" | "growth" | "enterprise";
 
 interface BillingSectionProps {
-  workspaceId: string;
+  workspaceId?: string;
   plan: PlanTier;
   limits: (typeof PLAN_LIMITS)[PlanTier];
-  isOwnerOrAdmin: boolean;
+  isOwnerOrAdmin?: boolean;
   stripeCustomerId: string | null;
   stripeCurrentPeriodEnd: string | null; // ISO string
   stripeCancelAtPeriodEnd: boolean;
+  aiCreditsUsed?: number;
 }
 
 // ── Static plan display data ──────────────────────────────────────────────────
@@ -81,10 +82,11 @@ export function BillingSection({
   workspaceId,
   plan,
   limits,
-  isOwnerOrAdmin,
+  isOwnerOrAdmin = true,
   stripeCustomerId,
   stripeCurrentPeriodEnd,
   stripeCancelAtPeriodEnd,
+  aiCreditsUsed,
 }: BillingSectionProps) {
   const router       = useRouter();
   const searchParams = useSearchParams();

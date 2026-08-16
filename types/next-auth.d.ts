@@ -10,7 +10,8 @@ declare module "next-auth" {
       image?: string | null;
       role: string | null;
       workspaceId: string | null;
-      workspacePlan: string | null;
+      workspacePlan?: string | null;
+      plan: string | null;
     };
   }
 }
@@ -20,7 +21,8 @@ declare module "next-auth/jwt" {
     id: string;
     role: string | null;
     workspaceId: string | null;
-    workspacePlan: string | null;
+    workspacePlan?: string | null;
+    plan: string | null;
     /** Unix timestamp (ms) of the last membership DB fetch — used for periodic re-validation */
     membershipFetchedAt?: number;
   }

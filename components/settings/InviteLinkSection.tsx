@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link2, Copy, Check, RefreshCw, Trash2, Loader2, AlertCircle } from "lucide-react";
 
 interface InviteLinkSectionProps {
@@ -20,9 +20,13 @@ export function InviteLinkSection({
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState<"generate" | "regenerate" | "revoke" | null>(null);
   const [error, setError] = useState("");
+  const [origin, setOrigin] = useState("");
 
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const inviteUrl = token ? `${origin}/invite/${token}` : null;
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const inviteUrl = token ? (origin ? `${origin}/invite/${token}` : `/invite/${token}`) : null;
 
   async function handleGenerate() {
     setLoading("generate");
@@ -65,8 +69,13 @@ export function InviteLinkSection({
   }
 
   function handleCopy() {
-    if (!inviteUrl) return;
-    navigator.clipboard.writeText(inviteUrl);
+    if (!token) return;
+    const fullUrl = origin
+      ? `${origin}/invite/${token}`
+      : typeof window !== "undefined"
+      ? `${window.location.origin}/invite/${token}`
+      : `/invite/${token}`;
+    navigator.clipboard.writeText(fullUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }

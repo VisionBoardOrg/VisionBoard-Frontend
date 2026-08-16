@@ -16,7 +16,7 @@ interface BoardPageProps {
 const getWorkspace = cache((id: string) =>
   prisma.workspace.findUnique({
     where: { id },
-    select: { name: true, plan: true, aiCreditsUsed: true, ownerId: true },
+    select: { name: true, ownerId: true },
   })
 );
 
@@ -32,24 +32,23 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
   const { id } = await params;
 
-  // Membership check + workspace data run in parallel.
-  // getWorkspace is deduplicated with generateMetadata's call via React.cache().
-  const [memberCheck, workspace] = await Promise.all([
+  // Membership check, workspace data, and user plan run in parallel.
+  const [memberCheck, workspace, currentUser] = await Promise.all([
     prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
     }),
     getWorkspace(id),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { plan: true, aiCreditsUsed: true },
+    }),
   ]);
 
-  if (!memberCheck) redirect("/dashboard");
-  if (!workspace) redirect("/dashboard");
+  if (!memberCheck || !workspace || !currentUser) redirect("/dashboard");
 
   const [boardItems, goals, milestones, members] = await Promise.all([
     prisma.boardItem.findMany({
       where: { workspaceId: id },
-      // Hard cap: a board with >500 items becomes unusable in a canvas UI.
-      // Fetching thousands of items + their full relations on every load kills
-      // performance. This cap prevents runaway queries at scale.
       take: 500,
       include: {
         linkedGoal: {
@@ -58,45 +57,52 @@ export default async function BoardPage({ params }: BoardPageProps) {
         linkedMilestone: {
           select: {
             id: true, title: true, status: true, goalId: true,
-            tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true } },
           },
         },
       },
     }),
     prisma.goal.findMany({
       where: { workspaceId: id },
-      select: { id: true, title: true, status: true },
+      select: {
+        id: true,
+        title: true,
+        objective: true,
+        status: true,
+        healthScore: true,
+        targetDate: true,
+        keyResults: true,
+      },
       orderBy: { createdAt: "asc" },
     }),
     prisma.milestone.findMany({
       where: { goal: { workspaceId: id } },
       select: {
-        id: true, title: true, status: true, goalId: true,
-        tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true } },
+        id: true,
+        title: true,
+        description: true,
+        status: true,
+        targetDate: true,
+        startDate: true,
+        dependsOn: true,
+        order: true,
+        goalId: true,
       },
+      orderBy: { order: "asc" },
     }),
-    // Hard cap on members — enterprise workspaces with 500+ members would load
-    // all user records on every board load. The assignee picker loads on-demand.
     prisma.workspaceMember.findMany({
       where: { workspaceId: id },
-      include: { user: { select: { id: true, name: true, image: true } } },
-      take: 100,
+      select: {
+        role: true,
+        user: { select: { id: true, name: true, email: true, image: true } },
+      },
     }),
   ]);
 
-  // Auto-sync milestone status based on task completion
+  const now = new Date();
   const updatedMilestones = milestones.map((m) => {
-    if (m.tasks && m.tasks.length > 0) {
-      const allDone = m.tasks.every((t) => t.status === "done");
-      const anyStarted = m.tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-      const targetStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
-
-      if (targetStatus !== m.status) {
-        prisma.milestone.update({
-          where: { id: m.id },
-          data: { status: targetStatus },
-        }).catch((err) => console.error("[board/page] Auto milestone status update failed:", err));
-        return { ...m, status: targetStatus };
+    if (m.status === "planned" || m.status === "in_progress") {
+      if (m.targetDate && new Date(m.targetDate) < now) {
+        return { ...m, status: "delayed" as const };
       }
     }
     return m;
@@ -117,13 +123,15 @@ export default async function BoardPage({ params }: BoardPageProps) {
     return item;
   });
 
+  const plan = currentUser.plan;
+
   return (
     <AppShell workspaceId={id} role={session.user.role}
-      plan={workspace?.plan}
-      aiCreditsUsed={workspace?.aiCreditsUsed}
-      aiCreditsMax={workspace?.plan === "free" ? 10 : workspace?.plan === "startup" ? 100 : -1}
+      plan={plan}
+      aiCreditsUsed={currentUser.aiCreditsUsed}
+      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
       userId={session.user.id}
-      isOwner={workspace?.ownerId === session.user.id}
+      isOwner={workspace.ownerId === session.user.id}
     >
       <BoardCanvas
         workspaceId={id}

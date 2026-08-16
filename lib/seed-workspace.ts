@@ -7,7 +7,6 @@ interface SeedWorkspaceOptions {
   workspaceName: string;
   role: MemberRole;
   template: TemplateName;
-  plan?: PlanTier;
 }
 
 export async function seedWorkspace({
@@ -15,7 +14,6 @@ export async function seedWorkspace({
   workspaceName,
   role,
   template,
-  plan = "free",
 }: SeedWorkspaceOptions) {
   const templateData = TEMPLATES[template];
   const slug = workspaceName
@@ -31,7 +29,6 @@ export async function seedWorkspace({
       data: {
         name: workspaceName,
         slug,
-        plan,
         ownerId: userId,
       },
     });

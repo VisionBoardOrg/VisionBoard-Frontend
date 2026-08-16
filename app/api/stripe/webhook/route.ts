@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe, planFromPriceId } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { sendPaymentConfirmationEmail, sendPaymentFailureEmail } from "@/lib/billing-email";
+import { dispatchBillingNotification } from "@/lib/notifications";
 import type Stripe from "stripe";
 
 
@@ -53,36 +54,48 @@ export async function POST(request: NextRequest) {
         const checkoutSession = event.data.object as Stripe.Checkout.Session;
         if (checkoutSession.mode !== "subscription") break;
 
-        const workspaceId = checkoutSession.metadata?.workspaceId;
-        if (!workspaceId) {
-          console.warn("[stripe/webhook] checkout.session.completed missing workspaceId metadata");
+        const userId = checkoutSession.metadata?.userId;
+        const customer = checkoutSession.customer as string;
+
+        let targetUserId = userId;
+        if (!targetUserId && customer) {
+          const user = await prisma.user.findUnique({
+            where: { stripeCustomerId: customer },
+            select: { id: true },
+          });
+          targetUserId = user?.id;
+        }
+
+        if (!targetUserId) {
+          console.warn("[stripe/webhook] checkout.session.completed missing user identifier");
           break;
         }
 
         const subscriptionId = checkoutSession.subscription as string;
         const subscription   = await stripe.subscriptions.retrieve(subscriptionId);
-        await syncSubscription(workspaceId, subscription);
+        await syncSubscription(targetUserId, subscription);
         break;
       }
 
       // ── Subscription updated (upgrade, downgrade, renewal) ────────────────
       case "customer.subscription.updated": {
         const subscription = event.data.object as Stripe.Subscription;
-        const workspaceId  = subscription.metadata?.workspaceId;
-        if (!workspaceId) {
-          // Fallback: look up workspace by customer ID
+        const userId  = subscription.metadata?.userId;
+        if (!userId) {
+          // Fallback: look up user by customer ID
           const customer = subscription.customer as string;
-          const workspace = await prisma.workspace.findUnique({
+          const user = await prisma.user.findUnique({
             where: { stripeCustomerId: customer },
+            select: { id: true },
           });
-          if (!workspace) {
-            console.warn("[stripe/webhook] subscription.updated: no workspace for customer", customer);
+          if (!user) {
+            console.warn("[stripe/webhook] subscription.updated: no user for customer", customer);
             break;
           }
-          await syncSubscription(workspace.id, subscription);
+          await syncSubscription(user.id, subscription);
           break;
         }
-        await syncSubscription(workspaceId, subscription);
+        await syncSubscription(userId, subscription);
         break;
       }
 
@@ -91,16 +104,16 @@ export async function POST(request: NextRequest) {
         const subscription = event.data.object as Stripe.Subscription;
         const customer     = subscription.customer as string;
 
-        const workspace = await prisma.workspace.findUnique({
+        const user = await prisma.user.findUnique({
           where: { stripeCustomerId: customer },
         });
-        if (!workspace) {
-          console.warn("[stripe/webhook] subscription.deleted: no workspace for customer", customer);
+        if (!user) {
+          console.warn("[stripe/webhook] subscription.deleted: no user for customer", customer);
           break;
         }
 
-        await prisma.workspace.update({
-          where: { id: workspace.id },
+        await prisma.user.update({
+          where: { id: user.id },
           data: {
             plan:                       "free",
             stripeSubscriptionId:       null,
@@ -110,7 +123,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        console.log(`[stripe/webhook] Workspace ${workspace.id} downgraded to free (subscription deleted)`);
+        console.log(`[stripe/webhook] User ${user.id} downgraded to free (subscription deleted)`);
         break;
       }
 
@@ -120,34 +133,34 @@ export async function POST(request: NextRequest) {
         const customer      = invoice.customer as string;
         const billingReason = (invoice as Stripe.Invoice & { billing_reason?: string }).billing_reason;
 
-        const workspace = await prisma.workspace.findUnique({
+        const user = await prisma.user.findUnique({
           where: { stripeCustomerId: customer },
-          include: { owner: { select: { email: true } } },
+          select: { id: true, email: true, name: true, plan: true, stripeCurrentPeriodEnd: true },
         });
-        if (!workspace) break;
+        if (!user) break;
 
         // Only reset credits on subscription cycle renewals, not the first payment
         if (billingReason === "subscription_cycle") {
-          await prisma.workspace.update({
-            where: { id: workspace.id },
+          await prisma.user.update({
+            where: { id: user.id },
             data:  { aiCreditsUsed: 0 },
           });
-          console.log(`[stripe/webhook] AI credits reset for workspace ${workspace.id} (renewal)`);
+          console.log(`[stripe/webhook] AI credits reset for user ${user.id} (renewal)`);
         }
 
-        // Send billing confirmation email to the workspace owner
-        const planLabel = workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1);
+        // Send billing confirmation email to the user
+        const planLabel = user.plan.charAt(0).toUpperCase() + user.plan.slice(1);
         const amountPaid = invoice.amount_paid
           ? `$${(invoice.amount_paid / 100).toFixed(2)}`
           : "—";
-        const periodEnd = workspace.stripeCurrentPeriodEnd
-          ? workspace.stripeCurrentPeriodEnd.toLocaleDateString("en-US", {
+        const periodEnd = user.stripeCurrentPeriodEnd
+          ? user.stripeCurrentPeriodEnd.toLocaleDateString("en-US", {
               year: "numeric", month: "long", day: "numeric",
             })
           : "—";
 
         await sendPaymentConfirmationEmail({
-          to:         workspace.owner.email,
+          to:         user.email,
           planLabel,
           amount:     amountPaid,
           periodEnd,
@@ -163,19 +176,19 @@ export async function POST(request: NextRequest) {
         const customer = invoice.customer as string;
         console.warn("[stripe/webhook] Payment failed for Stripe customer:", customer);
 
-        const workspace = await prisma.workspace.findUnique({
+        const user = await prisma.user.findUnique({
           where: { stripeCustomerId: customer },
-          include: { owner: { select: { email: true } } },
+          select: { id: true, email: true, plan: true },
         });
-        if (!workspace) break;
+        if (!user) break;
 
-        const planLabelFailed = workspace.plan.charAt(0).toUpperCase() + workspace.plan.slice(1);
+        const planLabelFailed = user.plan.charAt(0).toUpperCase() + user.plan.slice(1);
         const amountDue = invoice.amount_due
           ? `$${(invoice.amount_due / 100).toFixed(2)}`
           : "—";
 
         await sendPaymentFailureEmail({
-          to:         workspace.owner.email,
+          to:         user.email,
           planLabel:  planLabelFailed,
           amount:     amountDue,
           invoiceUrl: invoice.hosted_invoice_url ?? null,
@@ -200,7 +213,7 @@ export async function POST(request: NextRequest) {
 // ── Helper ────────────────────────────────────────────────────────────────────
 
 async function syncSubscription(
-  workspaceId: string,
+  userId: string,
   subscription: Stripe.Subscription,
 ): Promise<void> {
   const item       = subscription.items.data[0];
@@ -209,8 +222,8 @@ async function syncSubscription(
   const periodEnd  = new Date(subscription.current_period_end * 1000);
   const cancelFlag = subscription.cancel_at_period_end;
 
-  await prisma.workspace.update({
-    where: { id: workspaceId },
+  await prisma.user.update({
+    where: { id: userId },
     data: {
       plan:                       plan as "free" | "startup" | "growth" | "enterprise",
       stripeSubscriptionId:       subscription.id,
@@ -221,7 +234,7 @@ async function syncSubscription(
   });
 
   console.log(
-    `[stripe/webhook] Workspace ${workspaceId} → plan=${plan}, ` +
+    `[stripe/webhook] User ${userId} → plan=${plan}, ` +
     `sub=${subscription.id}, periodEnd=${periodEnd.toISOString()}, cancel=${cancelFlag}`,
   );
 }

@@ -55,36 +55,36 @@ export async function POST(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
-  if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+  const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+  if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
   // ── Atomic credit debit (TOCTOU-safe) ──────────────────────────────────────
   // We increment BEFORE the AI call. If the AI call fails we decrement
   // in the catch block. This prevents concurrent requests from bypassing the
   // limit by racing past the read-before-write check.
-  const creditLimit = PLAN_LIMITS[workspace.plan].aiCreditsPerMonth;
+  const creditLimit = PLAN_LIMITS[user.plan].aiCreditsPerMonth;
   const isUnlimited = creditLimit === -1 || creditLimit === "unlimited";
 
   if (!isUnlimited) {
     // updateMany with a WHERE condition is the atomic compare-and-swap:
     // only increments if aiCreditsUsed is still under the limit.
-    const debited = await prisma.workspace.updateMany({
-      where: { id: workspaceId, aiCreditsUsed: { lt: creditLimit as number } },
+    const debited = await prisma.user.updateMany({
+      where: { id: session.user.id, aiCreditsUsed: { lt: creditLimit as number } },
       data: { aiCreditsUsed: { increment: 1 } },
     });
     if (debited.count === 0) {
       return NextResponse.json(
         {
-          error: `You've used all ${creditLimit} AI credits this month on the ${workspace.plan} plan.`,
-          upgradePrompt: "Upgrade to unlock more AI credits.",
+          error: `You've used all ${creditLimit} AI credits this month on your ${user.plan} plan across your account.`,
+          upgradePrompt: "Upgrade your account to unlock more AI credits.",
         },
         { status: 403 }
       );
     }
   } else {
     // Unlimited plan — just increment the counter for audit purposes
-    await prisma.workspace.update({
-      where: { id: workspaceId },
+    await prisma.user.update({
+      where: { id: session.user.id },
       data: { aiCreditsUsed: { increment: 1 } },
     });
   }
@@ -141,8 +141,8 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     if (!raw.trim()) {
       console.warn("[api/ai/goal-deconstructor] Model returned empty response. finish_reason:",
         response.choices[0]?.finish_reason);
-      await prisma.workspace.update({
-        where: { id: workspaceId },
+      await prisma.user.update({
+        where: { id: session.user.id },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -164,8 +164,8 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
       result = JSON.parse(cleaned);
     } catch {
       console.warn("[api/ai/goal-deconstructor] JSON parse failed. Raw response:", raw);
-      await prisma.workspace.update({
-        where: { id: workspaceId },
+      await prisma.user.update({
+        where: { id: session.user.id },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -195,8 +195,8 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     console.error("[api/ai/goal-deconstructor]", isTimeout ? "Request timed out" : err);
 
     // Refund the credit — the AI call failed so no value was delivered
-    await prisma.workspace.update({
-      where: { id: workspaceId },
+    await prisma.user.update({
+      where: { id: session.user.id },
       data: { aiCreditsUsed: { decrement: 1 } },
     }).catch(() => { /* best-effort refund */ });
 

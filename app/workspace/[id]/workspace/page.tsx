@@ -60,27 +60,33 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
 
   const { id } = await params;
 
-  // Single query — member lookup with full workspace includes in one round-trip.
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-    include: {
-      workspace: {
-        include: {
-          owner: { select: { id: true, name: true, email: true } },
-          members: {
-            include: { user: { select: { id: true, name: true, email: true, image: true } } },
-            orderBy: { joinedAt: "asc" },
+  // Member lookup with full workspace includes and currentUser plan
+  const [member, currentUser] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
+      include: {
+        workspace: {
+          include: {
+            owner: { select: { id: true, name: true, email: true, plan: true } },
+            members: {
+              include: { user: { select: { id: true, name: true, email: true, image: true } } },
+              orderBy: { joinedAt: "asc" },
+            },
+            _count: { select: { goals: true, documents: true } },
           },
-          _count: { select: { goals: true, documents: true } },
         },
       },
-    },
-  });
+    }),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { plan: true, aiCreditsUsed: true },
+    }),
+  ]);
 
-  if (!member) redirect("/dashboard");
+  if (!member || !currentUser) redirect("/dashboard");
 
   const workspace = member.workspace;
-  const plan = workspace.plan;
+  const plan = currentUser.plan;
   const limits = PLAN_LIMITS[plan];
   const myRole = member.role as MemberRole;
   const isAdmin = myRole === "admin";
@@ -88,6 +94,8 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
 
   return (
     <AppShell workspaceId={id} role={session.user.role} plan={plan}
+      aiCreditsUsed={currentUser.aiCreditsUsed}
+      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
       userId={session.user.id}
       isOwner={isOwner}
     >

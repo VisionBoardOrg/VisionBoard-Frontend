@@ -25,7 +25,7 @@ export async function GET(
   // Verify membership
   const member = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
-    include: { workspace: { select: { name: true, slug: true, plan: true, createdAt: true } } },
+    include: { workspace: { select: { name: true, slug: true, createdAt: true, owner: { select: { plan: true } } } } },
   });
 
   if (!member) {
@@ -109,7 +109,7 @@ export async function GET(
       id:        workspaceId,
       name:      member.workspace.name,
       slug:      member.workspace.slug,
-      plan:      member.workspace.plan,
+      plan:      member.workspace.owner.plan ?? "free",
       createdAt: member.workspace.createdAt,
     },
     members,

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { checkPlanLimit } from "@/lib/plan-limits";
 import { sendWorkspaceInviteEmail } from "@/lib/workspace-invite-email";
+import { createNotification } from "@/lib/notifications";
 import { z } from "zod";
 
 const inviteSchema = z.object({
@@ -41,6 +42,9 @@ export async function POST(
       include: {
         workspace: {
           include: {
+            owner: {
+              select: { plan: true },
+            },
             members: true,
             invites: {
               where: { status: "pending" },
@@ -69,7 +73,7 @@ export async function POST(
 
     // Check plan member limit (counting current members + pending invites)
     const limitCheck = checkPlanLimit(
-      { plan: workspace.plan, aiCreditsUsed: totalCurrentAndPending },
+      { plan: workspace.owner.plan ?? "free", aiCreditsUsed: totalCurrentAndPending },
       "invite_member"
     );
 
@@ -149,6 +153,22 @@ export async function POST(
       );
     }
 
+    // If the invitee already has a user account, dispatch an in-app notification as well
+    if (existingUser) {
+      createNotification({
+        userId: existingUser.id,
+        workspaceId: workspace.id,
+        actorId: session.user.id,
+        type: "workspace_invite",
+        title: `Invited to ${workspace.name}`,
+        message: `${session.user.name || "A team member"} invited you to join "${workspace.name}" as ${role}.`,
+        entityType: "workspace",
+        entityId: workspace.id,
+        link: inviteUrl,
+        metadata: { role, inviteToken: invite.token },
+      }).catch((err) => console.error("[members POST] In-app invite notification failed:", err));
+    }
+
     return NextResponse.json(
       {
         success: true,
@@ -221,5 +241,66 @@ export async function DELETE(
   } catch (err) {
     console.error("[DELETE /api/workspaces/[id]/members]", err);
     return NextResponse.json({ error: "Failed to cancel invitation." }, { status: 500 });
+  }
+}
+
+// List all workspace members with mention handles
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: workspaceId } = await params;
+
+    // Verify requester is a member of the workspace
+    const requesterMember = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
+    });
+
+    if (!requesterMember) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const members = await prisma.workspaceMember.findMany({
+      where: { workspaceId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+      },
+      orderBy: { joinedAt: "asc" },
+    });
+
+    const formattedMembers = members.map((m) => {
+      const emailPrefix = m.user.email ? m.user.email.split("@")[0].toLowerCase() : "";
+      const nameHandle = m.user.name
+        ? m.user.name.toLowerCase().replace(/[^a-z0-9]/g, "")
+        : emailPrefix;
+
+      return {
+        id: m.id,
+        userId: m.user.id,
+        name: m.user.name,
+        email: m.user.email,
+        image: m.user.image,
+        role: m.role,
+        handle: nameHandle || emailPrefix,
+      };
+    });
+
+    return NextResponse.json({ members: formattedMembers });
+  } catch (err) {
+    console.error("[GET /api/workspaces/[id]/members]", err);
+    return NextResponse.json({ error: "Failed to load members" }, { status: 500 });
   }
 }

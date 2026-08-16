@@ -21,12 +21,15 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
 
   const { id } = await params;
 
-  // Fetch membership + goals in parallel. The workspace name for the metadata
-  // title is sourced from the same membership include — no extra query needed.
-  const [member, goals] = await Promise.all([
+  // Fetch membership, user plan, and goals in parallel.
+  const [member, currentUser, goals] = await Promise.all([
     prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-      include: { workspace: { select: { plan: true, name: true, ownerId: true } } },
+      include: { workspace: { select: { name: true, ownerId: true } } },
+    }),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { plan: true, aiCreditsUsed: true },
     }),
     prisma.goal.findMany({
       where: { workspaceId: id },
@@ -35,14 +38,17 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
     }),
   ]);
 
-  if (!member) redirect("/dashboard");
+  if (!member || !currentUser) redirect("/dashboard");
 
-  // Check plan gate for timeline/Gantt — workspace is already loaded via member
-  const limit = checkPlanLimit({ plan: member.workspace.plan, aiCreditsUsed: 0 }, "timeline_gantt");
+  const plan = currentUser.plan;
+  // Check plan gate for timeline/Gantt based on user plan
+  const limit = checkPlanLimit({ plan, aiCreditsUsed: 0 }, "timeline_gantt");
   const isGated = !limit.allowed;
 
   return (
-    <AppShell workspaceId={id} role={session.user.role} plan={member.workspace.plan}
+    <AppShell workspaceId={id} role={session.user.role} plan={plan}
+      aiCreditsUsed={currentUser.aiCreditsUsed}
+      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
       userId={session.user.id}
       isOwner={member.workspace.ownerId === session.user.id}
     >

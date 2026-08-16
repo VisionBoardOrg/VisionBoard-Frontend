@@ -84,14 +84,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user, trigger }) {
       if (user && user.id) {
         token.id = user.id;
+        token.plan = ((user as unknown as { plan?: string }).plan) ?? "free";
+        token.workspacePlan = token.plan;
         // Clear cached workspace data on fresh sign-in so it re-fetches below
         token.workspaceId         = null;
         token.role                = null;
-        token.workspacePlan       = null;
         token.membershipFetchedAt = undefined;
       }
 
-      // Re-fetch workspace membership from DB:
+      // Re-fetch workspace membership & user plan from DB:
       // - On initial sign-in (fields not yet populated)
       // - On explicit session update trigger (e.g. after workspace creation)
       // - Every 5 minutes to pick up role changes or membership removal
@@ -110,10 +111,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
       if (token.id && needsRefresh) {
         try {
-          const membership = await getWorkspaceMembership(token.id as string);
+          const [membership, dbUser] = await Promise.all([
+            getWorkspaceMembership(token.id as string),
+            prisma.user.findUnique({
+              where: { id: token.id as string },
+              select: { plan: true },
+            }),
+          ]);
           token.role                = membership?.role            ?? null;
           token.workspaceId         = membership?.workspaceId     ?? null;
-          token.workspacePlan       = membership?.workspace?.plan ?? null;
+          token.plan                = dbUser?.plan                ?? "free";
+          token.workspacePlan       = token.plan;
           token.membershipFetchedAt = now;
         } catch (error) {
           console.error("[auth] Failed to fetch workspace membership:", error);

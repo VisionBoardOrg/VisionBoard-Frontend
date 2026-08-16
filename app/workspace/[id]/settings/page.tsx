@@ -29,18 +29,25 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   if (!session) redirect("/auth/login");
   const { id } = await params;
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-    include: {
-      workspace: {
-        include: {
-          members: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
-          invites: { where: { status: "pending" }, orderBy: { createdAt: "desc" } },
+  const [member, currentUser] = await Promise.all([
+    prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
+      include: {
+        workspace: {
+          include: {
+            owner: { select: { id: true, name: true, email: true, plan: true, stripeCustomerId: true, stripeCurrentPeriodEnd: true, stripeCancelAtPeriodEnd: true } },
+            members: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
+            invites: { where: { status: "pending" }, orderBy: { createdAt: "desc" } },
+          },
         },
       },
-    },
-  });
-  if (!member) redirect("/dashboard");
+    }),
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, plan: true, aiCreditsUsed: true, stripeCustomerId: true, stripeCurrentPeriodEnd: true, stripeCancelAtPeriodEnd: true },
+    }),
+  ]);
+  if (!member || !currentUser) redirect("/dashboard");
 
   // Auto-correct: workspace owner must always have admin role.
   if (member.workspace.ownerId === session.user.id && member.role !== "admin") {
@@ -52,7 +59,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   }
 
   const workspace  = member.workspace;
-  const plan       = workspace.plan;
+  const plan       = currentUser.plan;
   const limits     = PLAN_LIMITS[plan];
   const isOwner    = workspace.ownerId === session.user.id;
   const canManage  = isOwner || member.role === "admin" || member.role === "pm";
@@ -70,7 +77,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
 
   return (
     <AppShell workspaceId={id} role={session.user.role} plan={plan}
-      aiCreditsUsed={workspace.aiCreditsUsed}
+      aiCreditsUsed={currentUser.aiCreditsUsed}
       aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
       userId={session.user.id}
       isOwner={isOwner}
@@ -177,9 +184,10 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
             plan={plan}
             limits={limits}
             isOwnerOrAdmin={isOwner || member.role === "admin"}
-            stripeCustomerId={workspace.stripeCustomerId ?? null}
-            stripeCurrentPeriodEnd={workspace.stripeCurrentPeriodEnd?.toISOString() ?? null}
-            stripeCancelAtPeriodEnd={workspace.stripeCancelAtPeriodEnd}
+            stripeCustomerId={currentUser.stripeCustomerId ?? null}
+            stripeCurrentPeriodEnd={currentUser.stripeCurrentPeriodEnd?.toISOString() ?? null}
+            stripeCancelAtPeriodEnd={currentUser.stripeCancelAtPeriodEnd}
+            aiCreditsUsed={currentUser.aiCreditsUsed}
           />
         </Suspense>
 

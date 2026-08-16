@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { computeGoalHealth } from "@/lib/dashboard-utils";
 import { Zap, FileText, MessageCircle, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, Plus, X } from "lucide-react";
 import Link from "next/link";
+import { MentionInput, renderMentionedBody } from "@/components/ui/MentionInput";
 
 const GoalHealthScore = dynamic(
   () => import("@/components/dashboard/GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
@@ -440,28 +441,25 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                   )}
                 </div>
                 {editingCommentId === c.id ? (
-                  <div className="mt-1 flex gap-2">
-                    <input
+                  <div className="mt-1 flex gap-2 items-center">
+                    <MentionInput
                       value={editingBody}
-                      onChange={(e) => setEditingBody(e.target.value)}
-                      onKeyDown={async (e) => {
-                        if (e.key === "Escape") { setEditingCommentId(null); return; }
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          const res = await fetch(`/api/comments/${c.id}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ body: editingBody }),
-                          });
-                          if (res.ok) {
-                            const data = await res.json();
-                            setComments((prev) => prev.map((x) => x.id === c.id ? data.comment : x));
-                            setEditingCommentId(null);
-                          }
+                      onChange={setEditingBody}
+                      workspaceId={workspaceId}
+                      autoFocus
+                      onSubmit={async () => {
+                        const res = await fetch(`/api/comments/${c.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ body: editingBody }),
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setComments((prev) => prev.map((x) => x.id === c.id ? data.comment : x));
+                          setEditingCommentId(null);
                         }
                       }}
-                      className="flex-1 border border-blue/40 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue/20"
-                      autoFocus
+                      className="w-full border border-blue/40 rounded-xl px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue/20 bg-white"
                     />
                     <button
                       onClick={async () => {
@@ -476,30 +474,34 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                           setEditingCommentId(null);
                         }
                       }}
-                      className="text-xs text-blue font-semibold hover:text-blue-mid"
+                      className="text-xs text-blue font-semibold hover:text-blue-mid px-2.5 py-1.5 bg-blue-faint rounded-lg border border-blue-light shrink-0"
                     >
                       Save
                     </button>
-                    <button onClick={() => setEditingCommentId(null)} className="text-xs text-muted hover:text-ink">
+                    <button onClick={() => setEditingCommentId(null)} className="text-xs text-muted hover:text-ink shrink-0">
                       Cancel
                     </button>
                   </div>
                 ) : (
-                  <p className="text-sm text-slate mt-0.5">{c.body}</p>
+                  <p className="text-sm text-slate mt-0.5 whitespace-pre-wrap">{renderMentionedBody(c.body)}</p>
                 )}
               </div>
             </div>
           ))}
         </div>
-        <div className="flex gap-2">
-          <input
+        <div className="flex gap-2 items-center">
+          <MentionInput
             value={comment}
-            onChange={(e) => setComment(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); postComment(); } }}
-            placeholder="Add a comment…"
-            className="flex-1 border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue/30"
+            onChange={setComment}
+            onSubmit={postComment}
+            workspaceId={workspaceId}
+            placeholder="Add a comment… (Type @ to mention someone)"
           />
-          <button onClick={postComment} className="bg-blue text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-blue-mid transition-colors">
+          <button
+            onClick={postComment}
+            disabled={!comment.trim()}
+            className="bg-blue text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+          >
             Send
           </button>
         </div>

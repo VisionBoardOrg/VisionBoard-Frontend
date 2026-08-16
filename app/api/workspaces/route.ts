@@ -26,14 +26,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     }
 
-    // Check plan limit — count existing owned workspaces against the user's actual plan.
-    // Single query replaces the previous two serial queries (count + findFirst).
-    const existingWorkspaces = await prisma.workspace.findMany({
-      where: { ownerId: session.user.id },
-      select: { plan: true },
-    });
-    const existingCount = existingWorkspaces.length;
-    const userPlan = existingWorkspaces[0]?.plan ?? ("free" as PlanTier);
+    // Check plan limit — count existing owned workspaces against the user's account plan.
+    const [existingCount, dbUser] = await Promise.all([
+      prisma.workspace.count({ where: { ownerId: session.user.id } }),
+      prisma.user.findUnique({ where: { id: session.user.id }, select: { plan: true } }),
+    ]);
+    const userPlan = dbUser?.plan ?? ("free" as PlanTier);
 
     const limitCheck = checkPlanLimit(
       { plan: userPlan, aiCreditsUsed: existingCount },

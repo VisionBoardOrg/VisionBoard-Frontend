@@ -12,6 +12,9 @@ import { useState, useEffect, useRef } from "react";
 import Logo, { VBMark } from "../reusables/Logo";
 import { RoleSwitcher } from "@/components/workspace/RoleSwitcher";
 import type { MemberRole } from "@/components/workspace/RoleSwitcher";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { NotificationToast } from "@/components/notifications/NotificationToast";
+import { useNotifications } from "@/hooks/useNotifications";
 
 interface AppShellProps {
   workspaceId: string | null;
@@ -60,6 +63,9 @@ const PLAN_LABEL: Record<string, string> = {
 
 export function AppShell({ workspaceId, role, plan, children, userId, isOwner, aiCreditsUsed, aiCreditsMax }: AppShellProps) {
   const pathname = usePathname();
+  // Real-time live notifications & toasts
+  const { latestLiveEvent, dismissToast } = useNotifications(workspaceId);
+
   // On mobile the sidebar starts closed; on desktop it starts open
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -260,6 +266,9 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
 
   return (
     <div className="flex h-screen bg-offwhite overflow-hidden">
+      {/* Real-time floating Notification Toast banner */}
+      <NotificationToast event={latestLiveEvent} onDismiss={dismissToast} />
+
       {/* ── Mobile drawer overlay ── */}
       {mobileOpen && (
         <div
@@ -324,6 +333,9 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
           </button>
 
           <div className="flex-1" />
+
+          {/* Notification Bell */}
+          <NotificationBell workspaceId={workspaceId} />
 
           {/* Role switcher dropdown */}
           {role && workspaceId && (

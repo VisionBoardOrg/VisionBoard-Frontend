@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { dispatchTaskAssignmentNotification } from "@/lib/notifications";
 
 const createSchema = z.object({
   milestoneId: z.string(),
@@ -73,6 +74,18 @@ export async function POST(request: NextRequest) {
       action: "created",
     },
   }).catch((err: unknown) => console.error("[tasks POST] Activity log failed:", err));
+
+  // If assigned to another user, dispatch task assignment notification
+  if (parsed.data.assigneeId && parsed.data.assigneeId !== session.user.id) {
+    dispatchTaskAssignmentNotification({
+      assigneeId: parsed.data.assigneeId,
+      assignerId: session.user.id,
+      assignerName: session.user.name || "A team member",
+      taskId: task.id,
+      taskTitle: task.title,
+      workspaceId,
+    }).catch((err) => console.error("[tasks POST] Task assignment notification failed:", err));
+  }
 
   return NextResponse.json({ task }, { status: 201 });
 }

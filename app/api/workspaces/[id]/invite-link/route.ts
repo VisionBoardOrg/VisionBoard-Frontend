@@ -11,7 +11,7 @@ type Params = { params: Promise<{ id: string }> };
 async function getRequester(workspaceId: string, userId: string) {
   return prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
-    include: { workspace: { select: { ownerId: true, plan: true } } },
+    include: { workspace: { select: { ownerId: true } } },
   });
 }
 

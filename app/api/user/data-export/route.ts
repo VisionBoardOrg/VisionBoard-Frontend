@@ -29,6 +29,8 @@ export async function GET() {
         email:         true,
         name:          true,
         image:         true,
+        plan:          true,
+        aiCreditsUsed: true,
         createdAt:     true,
         emailVerified: true,
         // Never include hashedPassword in exports
@@ -43,7 +45,7 @@ export async function GET() {
         role:     true,
         joinedAt: true,
         workspace: {
-          select: { id: true, name: true, slug: true, plan: true, createdAt: true },
+          select: { id: true, name: true, slug: true, createdAt: true, owner: { select: { plan: true } } },
         },
       },
     }),

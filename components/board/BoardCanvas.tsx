@@ -848,8 +848,8 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         />
       )}
 
-      {/* Empty state */}
-      {items.length === 0 && (
+      {/* Empty state — only displayed in spatial canvas mode */}
+      {layoutMode === "canvas" && items.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <Kanban className="w-12 h-12 text-slate-300 mb-3 stroke-[1.5]" />
           <h3 className="text-lg font-semibold text-ink">Your board is empty</h3>

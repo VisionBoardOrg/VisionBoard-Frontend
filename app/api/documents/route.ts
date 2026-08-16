@@ -44,18 +44,20 @@ export async function POST(request: NextRequest) {
     }),
     prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, plan: true },
+      select: { id: true, owner: { select: { plan: true } } },
     }),
   ]);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
+  const plan = workspace.owner.plan ?? "free";
+
   // ── Plan limit checks (no full content scan) ───────────────────────────────
   // 1. Document count limit — use a COUNT, not a full SELECT
   const docCount = await prisma.document.count({ where: { workspaceId } });
   const countCheck = checkPlanLimit(
-    { plan: workspace.plan, aiCreditsUsed: docCount },
+    { plan, aiCreditsUsed: docCount },
     "create_document"
   );
   if (!countCheck.allowed) {
@@ -67,7 +69,7 @@ export async function POST(request: NextRequest) {
 
   // 2. Storage limit — read storageUsedBytes via raw query so this works before
   //    and after `prisma generate` picks up the new schema field.
-  const storageLimitMb = PLAN_LIMITS[workspace.plan].storageMb;
+  const storageLimitMb = PLAN_LIMITS[plan].storageMb;
   if (storageLimitMb !== -1) {
     const incomingBytes = Buffer.byteLength(JSON.stringify(content ?? {}), "utf8");
     const incomingMb = incomingBytes / (1024 * 1024);
@@ -79,7 +81,7 @@ export async function POST(request: NextRequest) {
     if (currentMb + incomingMb > storageLimitMb) {
       return NextResponse.json(
         {
-          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${workspace.plan} plan.`,
+          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${plan} plan.`,
           upgradePrompt: "Upgrade for more storage.",
         },
         { status: 403 }

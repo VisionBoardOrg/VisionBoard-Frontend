@@ -153,17 +153,19 @@ export async function POST(request: NextRequest) {
     }),
     prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, plan: true },
+      select: { id: true, owner: { select: { plan: true } } },
     }),
   ]);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
+  const plan = workspace.owner.plan ?? "free";
+
   // ── Plan limit checks ──────────────────────────────────────────────────────
   const docCount = await prisma.document.count({ where: { workspaceId } });
   const countCheck = checkPlanLimit(
-    { plan: workspace.plan, aiCreditsUsed: docCount },
+    { plan, aiCreditsUsed: docCount },
     "create_document"
   );
   if (!countCheck.allowed) {
@@ -176,7 +178,7 @@ export async function POST(request: NextRequest) {
   // Storage check using pre-computed byte counter + raw file size as proxy.
   // Uses $queryRaw so it works before and after `prisma generate` picks up
   // the storageUsedBytes column.
-  const storageLimitMb = PLAN_LIMITS[workspace.plan].storageMb;
+  const storageLimitMb = PLAN_LIMITS[plan].storageMb;
   if (storageLimitMb !== -1) {
     const incomingMb = file.size / (1024 * 1024);
     const [{ storageUsedBytes }] = await prisma.$queryRaw<[{ storageUsedBytes: bigint }]>`
@@ -186,7 +188,7 @@ export async function POST(request: NextRequest) {
     if (currentMb + incomingMb > storageLimitMb) {
       return NextResponse.json(
         {
-          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${workspace.plan} plan.`,
+          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${plan} plan.`,
           upgradePrompt: "Upgrade for more storage.",
         },
         { status: 403 }

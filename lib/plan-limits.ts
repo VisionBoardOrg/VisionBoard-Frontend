@@ -176,3 +176,54 @@ export function checkStorageLimit(
   }
   return { allowed: true };
 }
+
+export interface QuotaThresholdWarning {
+  isApproaching: boolean;
+  thresholdPercent: number;
+  percentage: number;
+  message?: string;
+  upgradePrompt?: string;
+}
+
+/**
+ * Returns proactive warning details if usage has reached 80% or 90% of allowance.
+ */
+export function getQuotaThresholdWarning(
+  plan: PlanTier,
+  feature: "ai_credit" | "storage",
+  currentUsage: number
+): QuotaThresholdWarning {
+  const limits = PLAN_LIMITS[plan];
+  const max = feature === "ai_credit" ? limits.aiCreditsPerMonth : limits.storageMb;
+  const upgrade = UPGRADE_COPY[plan];
+
+  if (max === -1 || max === "unlimited") {
+    return { isApproaching: false, thresholdPercent: 0, percentage: 0 };
+  }
+
+  const maxNum = Number(max);
+  const percentage = Math.min(100, Math.round((currentUsage / maxNum) * 100));
+
+  if (percentage >= 90) {
+    return {
+      isApproaching: true,
+      thresholdPercent: 90,
+      percentage,
+      message: `Critical: ${percentage}% of ${feature === "ai_credit" ? "AI credits" : "storage"} used.`,
+      upgradePrompt: upgrade,
+    };
+  }
+
+  if (percentage >= 80) {
+    return {
+      isApproaching: true,
+      thresholdPercent: 80,
+      percentage,
+      message: `Warning: ${percentage}% of ${feature === "ai_credit" ? "AI credits" : "storage"} used.`,
+      upgradePrompt: upgrade,
+    };
+  }
+
+  return { isApproaching: false, thresholdPercent: 0, percentage };
+}
+

@@ -17,6 +17,14 @@ model User {
   emailVerified       DateTime?
   image               String?
   hashedPassword      String?
+  plan                PlanTier          @default(free)
+  aiCreditsUsed       Int               @default(0)
+  // ── Stripe Billing ────────────────────────────────────────────────────────
+  stripeCustomerId       String?  @unique
+  stripeSubscriptionId   String?  @unique
+  stripePriceId          String?
+  stripeCurrentPeriodEnd DateTime?
+  stripeCancelAtPeriodEnd Boolean @default(false)
   /// Set when the user requests account deletion. The account is permanently
   /// purged 30 days after this date by the nightly cleanup cron job.
   scheduledDeletion   DateTime?
@@ -30,6 +38,8 @@ model User {
   ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
   invitationsSent WorkspaceInvite[] @relation("InvitationsSent")
   memberships     WorkspaceMember[]
+  notifications   Notification[]    @relation("UserNotifications")
+  triggeredNotifications Notification[] @relation("ActorNotifications")
 }
 
 model Account {
@@ -75,19 +85,11 @@ model Workspace {
   slug          String            @unique
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
-  aiCreditsUsed Int               @default(0)
   ownerId       String
-  plan          PlanTier          @default(free)
   /// Pre-computed total bytes of document content stored in this workspace.
   /// Incremented/decremented atomically on document create/delete so storage
   /// checks are O(1) instead of scanning all document content rows.
   storageUsedBytes BigInt         @default(0)
-  // ── Stripe Billing ────────────────────────────────────────────────────────
-  stripeCustomerId       String?  @unique
-  stripeSubscriptionId   String?  @unique
-  stripePriceId          String?
-  stripeCurrentPeriodEnd DateTime?
-  stripeCancelAtPeriodEnd Boolean @default(false)
   aiLogs        AIGenerationLog[]
   activityLogs  ActivityLog[]
   boardItems    BoardItem[]
@@ -97,6 +99,7 @@ model Workspace {
   owner         User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   invites       WorkspaceInvite[]
   members       WorkspaceMember[]
+  notifications Notification[]
 
   @@index([ownerId])
 }
@@ -282,16 +285,17 @@ model Comment {
 model ActivityLog {
   id          String    @id @default(cuid())
   workspaceId String
-  userId      String
+  userId      String?
   entityType  String
   entityId    String
   action      String
   diff        Json?
   createdAt   DateTime  @default(now())
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
+  @@index([userId])
   @@index([entityId])
   @@index([createdAt])
   @@index([workspaceId, createdAt])
@@ -405,3 +409,59 @@ enum AIFeature {
   progress_insights
   nl_board_edit
 }
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  workspaceId String?
+  actorId     String?
+  type        NotificationType
+  title       String
+  message     String
+  entityType  String?
+  entityId    String?
+  link        String?
+  read        Boolean          @default(false)
+  readAt      DateTime?
+  metadata    Json?
+  createdAt   DateTime         @default(now())
+
+  user        User             @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  actor       User?            @relation("ActorNotifications", fields: [actorId], references: [id], onDelete: SetNull)
+  workspace   Workspace?       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, read])
+  @@index([workspaceId])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  task_assigned
+  task_status_changed
+  task_blocked
+  task_due_soon
+  task_overdue
+  milestone_delayed
+  milestone_completed
+  goal_at_risk
+  goal_health_degraded
+  comment_mention
+  comment_created
+  workspace_invite
+  role_changed
+  quota_warning
+  quota_exceeded
+  billing_payment_failed
+  billing_payment_succeeded
+  system_alert
+
+  // Legacy uppercase variants for backward compatibility with existing DB rows
+  TASK_ASSIGNED
+  COMMENT_ADDED
+  USER_MENTIONED
+  GOAL_HEALTH_WARNING
+  MILESTONE_DELAYED
+  WORKSPACE_INVITE
+}
+

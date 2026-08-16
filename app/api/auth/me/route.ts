@@ -15,12 +15,14 @@ export async function GET() {
       name: true,
       email: true,
       image: true,
+      plan: true,
+      aiCreditsUsed: true,
       createdAt: true,
       memberships: {
         select: {
           role: true,
           joinedAt: true,
-          workspace: { select: { id: true, name: true, slug: true, plan: true } },
+          workspace: { select: { id: true, name: true, slug: true, owner: { select: { plan: true } } } },
         },
         orderBy: { joinedAt: "asc" },
       },

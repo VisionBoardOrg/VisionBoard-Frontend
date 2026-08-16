@@ -12,8 +12,12 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session) redirect("/auth/login");
 
-  // Fetch cross-workspace user stats & workspace memberships in parallel
-  const [userMemberships, assignedTasks] = await Promise.all([
+  // Fetch cross-workspace user stats, memberships, and user plan in parallel
+  const [user, userMemberships, assignedTasks] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true, plan: true, aiCreditsUsed: true },
+    }),
     prisma.workspaceMember.findMany({
       where: { userId: session.user.id },
       include: {
@@ -21,9 +25,8 @@ export default async function DashboardPage() {
           select: {
             id: true,
             name: true,
-            plan: true,
-            aiCreditsUsed: true,
             ownerId: true,
+            owner: { select: { plan: true } },
             _count: { select: { members: true, goals: true, documents: true } },
           },
         },
@@ -38,8 +41,9 @@ export default async function DashboardPage() {
 
   if (userMemberships.length === 0) redirect("/onboarding");
 
-  // Primary workspace for default billing/credit limits check
+  // Primary workspace
   const primaryWorkspace = userMemberships[0].workspace;
+  const plan = user?.plan ?? "free";
 
   // Compute cross-workspace user summary stats
   const totalWorkspaces = userMemberships.length;
@@ -56,48 +60,46 @@ export default async function DashboardPage() {
     <AppShell
       workspaceId={null}
       role={session.user.role}
-      plan={primaryWorkspace.plan}
-      aiCreditsUsed={primaryWorkspace.aiCreditsUsed}
-      aiCreditsMax={primaryWorkspace.plan === "free" ? 10 : primaryWorkspace.plan === "startup" ? 100 : -1}
+      plan={plan}
+      aiCreditsUsed={user?.aiCreditsUsed ?? 0}
+      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
       userId={session.user.id}
       isOwner={primaryWorkspace.ownerId === session.user.id}
     >
-      <div className="space-y-8">
-        {/* ── Personal Summary ── */}
-        <section className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider bg-slate-100 text-slate-600">
-                Personal Overview
-              </h2>
-            </div>
-          </div>
-          <UserSummaryCards
-            userName={userDisplayName}
-            userEmail={userEmail}
-            userImage={session.user.image}
-            workspaceCount={totalWorkspaces}
-            assignedTaskCount={totalAssigned}
-            completionRate={completionRate}
-          />
-        </section>
+      <div className="max-w-4xl mx-auto space-y-8">
+        {/* Welcome Section */}
+        <div>
+          <h1 className="text-2xl font-bold text-ink">
+            Welcome back, {userDisplayName}
+          </h1>
+          <p className="text-slate text-sm mt-1">
+            Signed in as <span className="font-semibold text-ink">{userEmail}</span>
+          </p>
+        </div>
 
-        {/* ── Select Workspace to Work On ── */}
-        <section className="space-y-4 pt-2 border-t border-border/80">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <h2 className="text-lg font-bold text-ink">Your Workspaces</h2>
-              <p className="text-xs text-slate mt-0.5">Select a workspace below to access its board, goals, roadmap, and team tools.</p>
-            </div>
+        {/* Aggregate Stats */}
+        <UserSummaryCards
+          userName={userDisplayName}
+          userEmail={userEmail}
+          userImage={session.user.image}
+          workspaceCount={totalWorkspaces}
+          assignedTaskCount={totalAssigned}
+          completionRate={completionRate}
+        />
+
+        {/* Workspaces Section */}
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-ink">Your Workspaces</h2>
             <Link
               href="/workspaces"
-              className="text-xs text-blue font-semibold hover:underline flex items-center gap-1"
+              className="text-xs font-semibold text-blue hover:underline"
             >
-              Manage workspaces <ArrowRight size={13} />
+              Manage all
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {userMemberships.map((m) => (
               <div
                 key={m.workspace.id}
@@ -112,7 +114,7 @@ export default async function DashboardPage() {
                       {m.workspace.name}
                     </h3>
                     <p className="text-xs text-slate capitalize mt-0.5">
-                      Role: {m.role} • {m.workspace.plan} plan
+                      Role: {m.role} • {m.workspace.owner.plan} plan
                     </p>
                   </div>
                 </div>

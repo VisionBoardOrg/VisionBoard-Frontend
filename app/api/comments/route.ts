@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { resolveMentions } from "@/lib/mentions";
+import {
+  dispatchMentionNotification,
+  dispatchCommentNotification,
+} from "@/lib/notifications";
 
 const createSchema = z.object({
   body: z.string().min(1).max(2000),
@@ -77,6 +82,11 @@ export async function POST(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  // Resolve any @mentions present in the comment body
+  const mentions = await resolveMentions(parsed.data.body, workspaceId);
+  const mentionedUserIds = mentions.map((m) => m.user.id);
+  const entityId = goalId ?? milestoneId ?? taskId ?? documentId ?? "unknown";
+
   // Create comment + activity log in a single transaction
   const [comment] = await prisma.$transaction([
     prisma.comment.create({
@@ -96,11 +106,78 @@ export async function POST(request: NextRequest) {
         workspaceId,
         userId: session.user.id,
         entityType,
-        entityId: goalId ?? milestoneId ?? taskId ?? documentId ?? "unknown",
+        entityId,
         action: "commented",
+        diff: {
+          mentionedUserIds,
+          mentionsCount: mentions.length,
+          handles: mentions.map((m) => m.handle),
+        },
       },
     }),
   ]);
 
-  return NextResponse.json({ comment }, { status: 201 });
+  // Dispatch real-time and persistent notifications (fire-and-forget)
+  const authorName = session.user.name || "A team member";
+
+  // 1. Mention notifications
+  if (mentionedUserIds.length > 0) {
+    dispatchMentionNotification({
+      mentionedUserIds,
+      authorId: session.user.id,
+      authorName,
+      workspaceId,
+      entityType: parsed.data.entityType,
+      entityId,
+      commentBody: parsed.data.body,
+    }).catch((err) => console.error("[comments/route] Mention notification failed:", err));
+  }
+
+  // 2. Entity owner/assignee comment notification
+  (async () => {
+    try {
+      let targetUserId: string | null = null;
+      let entityTitle: string | undefined;
+
+      if (entityType === "task" && taskId) {
+        const task = await prisma.task.findUnique({
+          where: { id: taskId },
+          select: { assigneeId: true, title: true },
+        });
+        targetUserId = task?.assigneeId ?? null;
+        entityTitle = task?.title;
+      } else if (entityType === "goal" && goalId) {
+        const goal = await prisma.goal.findUnique({
+          where: { id: goalId },
+          select: { ownerId: true, title: true },
+        });
+        targetUserId = goal?.ownerId ?? null;
+        entityTitle = goal?.title;
+      } else if (entityType === "document" && documentId) {
+        const doc = await prisma.document.findUnique({
+          where: { id: documentId },
+          select: { authorId: true, title: true },
+        });
+        targetUserId = doc?.authorId ?? null;
+        entityTitle = doc?.title;
+      }
+
+      if (targetUserId && targetUserId !== session.user.id && !mentionedUserIds.includes(targetUserId)) {
+        await dispatchCommentNotification({
+          targetUserId,
+          authorId: session.user.id,
+          authorName,
+          workspaceId,
+          entityType: parsed.data.entityType,
+          entityId,
+          entityTitle,
+          commentBody: parsed.data.body,
+        });
+      }
+    } catch (err) {
+      console.error("[comments/route] Comment notification failed:", err);
+    }
+  })();
+
+  return NextResponse.json({ comment, mentions }, { status: 201 });
 }

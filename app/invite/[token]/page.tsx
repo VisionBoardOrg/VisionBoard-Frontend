@@ -18,7 +18,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
   const invite = await prisma.workspaceInvite.findUnique({
     where: { token },
     include: {
-      workspace: { select: { id: true, name: true, ownerId: true, plan: true } },
+      workspace: { select: { id: true, name: true, ownerId: true, owner: { select: { plan: true } } } },
       inviter: { select: { name: true, email: true } },
     },
   });
@@ -47,12 +47,12 @@ export default async function InvitePage({ params }: InvitePageProps) {
     });
 
     if (!existing) {
-      // Check workspace plan member limit before adding
+      // Check workspace owner plan member limit before adding
       const memberCount = await prisma.workspaceMember.count({
         where: { workspaceId: invite.workspaceId },
       });
       const limitCheck = checkPlanLimit(
-        { plan: invite.workspace.plan, aiCreditsUsed: memberCount },
+        { plan: invite.workspace.owner.plan ?? "free", aiCreditsUsed: memberCount },
         "invite_member"
       );
       if (!limitCheck.allowed) {
@@ -100,7 +100,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
       where: { workspaceId: invite.workspaceId },
     });
     const limitCheck = checkPlanLimit(
-      { plan: invite.workspace.plan, aiCreditsUsed: memberCount },
+      { plan: invite.workspace.owner.plan ?? "free", aiCreditsUsed: memberCount },
       "invite_member"
     );
     if (!limitCheck.allowed) {
