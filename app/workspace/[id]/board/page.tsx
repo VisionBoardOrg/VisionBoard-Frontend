@@ -51,13 +51,16 @@ export default async function BoardPage({ params }: BoardPageProps) {
       take: 500,
       include: {
         linkedGoal: {
-          select: { id: true, title: true, status: true, healthScore: true },
+          select: { id: true, title: true, status: true, healthScore: true, objective: true, targetDate: true },
         },
         linkedMilestone: {
           select: {
             id: true,
             title: true,
+            description: true,
             status: true,
+            targetDate: true,
+            startDate: true,
             goalId: true,
           },
         },
@@ -96,6 +99,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
             priority: true,
             storyPoints: true,
             assigneeId: true,
+            dueDate: true,
           },
         },
       },
@@ -120,20 +124,43 @@ export default async function BoardPage({ params }: BoardPageProps) {
     return m;
   });
 
+  const goalMap = new Map(goals.map((g) => [g.id, g]));
   const milestoneMap = new Map(updatedMilestones.map((m) => [m.id, m]));
   const updatedBoardItems = boardItems.map((item) => {
-    if (item.linkedMilestone) {
-      const ms = milestoneMap.get(item.linkedMilestone.id);
-      return {
-        ...item,
-        linkedMilestone: {
-          ...item.linkedMilestone,
-          status: ms?.status ?? item.linkedMilestone.status,
-          tasks: ms?.tasks ?? [],
-        },
-      };
+    let linkedGoal = item.linkedGoal;
+    if (linkedGoal) {
+      const g = goalMap.get(linkedGoal.id);
+      if (g) {
+        linkedGoal = {
+          ...linkedGoal,
+          objective: g.objective,
+          targetDate: g.targetDate,
+          status: g.status,
+          healthScore: g.healthScore,
+        };
+      }
     }
-    return item;
+
+    let linkedMilestone = item.linkedMilestone as (Record<string, unknown> & { id: string; tasks?: unknown[] }) | null;
+    if (linkedMilestone) {
+      const ms = milestoneMap.get(linkedMilestone.id);
+      if (ms) {
+        linkedMilestone = {
+          ...linkedMilestone,
+          description: ms.description,
+          targetDate: ms.targetDate,
+          startDate: ms.startDate,
+          status: ms.status,
+          tasks: ms.tasks ?? [],
+        };
+      }
+    }
+
+    return {
+      ...item,
+      linkedGoal,
+      linkedMilestone,
+    };
   });
 
   return (

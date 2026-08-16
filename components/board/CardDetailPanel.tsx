@@ -119,26 +119,30 @@ function SelectField({
   );
 }
 
-function MemberAvatar({ user, size = 24 }: { user: UserSimple; size?: number }) {
+function MemberAvatar({ user, size = 24 }: { user?: UserSimple | null; size?: number }) {
+  const [imgError, setImgError] = useState(false);
   // Memoize initials — prevents re-computing string splits on every render
   const initials = useMemo(
     () =>
-      (user.name ?? "?")
+      ((user?.name || "").trim() || "?")
         .split(" ")
+        .filter(Boolean)
         .map((n) => n[0])
         .join("")
         .slice(0, 2)
-        .toUpperCase(),
-    [user.name]
+        .toUpperCase() || "?",
+    [user?.name]
   );
 
-  if (user.image) {
+  if (user?.image && !imgError) {
     return (
       <Image
         src={user.image}
         alt={user.name ?? "Member"}
         width={size}
         height={size}
+        unoptimized
+        onError={() => setImgError(true)}
         className="rounded-full object-cover border border-white"
         style={{ width: size, height: size }}
         // Priority false — avatars are below the fold; lazy load them
@@ -149,7 +153,7 @@ function MemberAvatar({ user, size = 24 }: { user: UserSimple; size?: number }) 
   return (
     <div
       className="rounded-full bg-gradient-to-br from-blue-400 to-violet-500 flex items-center justify-center text-white font-bold border border-white"
-      style={{ width: size, height: size, fontSize: size * 0.38 }}
+      style={{ width: size, height: size, fontSize: Math.max(8, size * 0.38) }}
     >
       {initials}
     </div>
@@ -441,12 +445,12 @@ function TaskRow({
       {/* Due Date picker popover */}
       <div className="relative flex-shrink-0" ref={dueDateRef}>
         {(() => {
-          const dateObj = task.dueDate ? new Date(task.dueDate) : new Date();
-          const isValid = !isNaN(dateObj.getTime());
-          const isOverdue = isValid && dateObj < new Date(new Date().setHours(0, 0, 0, 0)) && task.status !== "done";
-          const isToday = isValid && dateObj.toDateString() === new Date().toDateString();
+          const dateObj = task.dueDate ? new Date(task.dueDate) : null;
+          const isValid = dateObj ? !isNaN(dateObj.getTime()) : false;
+          const isOverdue = isValid && dateObj! < new Date(new Date().setHours(0, 0, 0, 0)) && task.status !== "done";
+          const isToday = isValid && dateObj!.toDateString() === new Date().toDateString();
           const displayDate = isValid
-            ? dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+            ? dateObj!.toLocaleDateString("en-US", { month: "short", day: "numeric" })
             : "Set due date";
 
           return (
@@ -454,7 +458,7 @@ function TaskRow({
               <button
                 type="button"
                 onClick={() => setDueDateOpen(!dueDateOpen)}
-                title={`Due date: ${isValid ? dateObj.toLocaleDateString() : "None"} (Click to edit)`}
+                title={`Due date: ${isValid && dateObj ? dateObj.toLocaleDateString() : "None"} (Click to edit)`}
                 className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-all hover:ring-2 ring-blue-200 ${
                   isOverdue
                     ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
@@ -512,7 +516,7 @@ function TaskRow({
                     <label className="block text-[10px] font-medium text-slate-500 mb-1">Pick date</label>
                     <input
                       type="date"
-                      defaultValue={isValid ? dateObj.toISOString().split("T")[0] : ""}
+                      defaultValue={isValid && dateObj ? dateObj.toISOString().split("T")[0] : ""}
                       onChange={(e) => {
                         if (e.target.value) {
                           updateDueDate(e.target.value);
@@ -668,16 +672,23 @@ function MilestoneSection({
   const [taskInputOpen, setTaskInputOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const defaultDueDate = localItem.linkedMilestone?.targetDate
-    ? new Date(localItem.linkedMilestone.targetDate).toISOString().split("T")[0]
-    : new Date().toISOString().split("T")[0];
+  const defaultDueDate = (() => {
+    if (localItem.linkedMilestone?.targetDate) {
+      const d = new Date(localItem.linkedMilestone.targetDate);
+      if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+    }
+    return new Date().toISOString().split("T")[0];
+  })();
   const [newTaskDueDate, setNewTaskDueDate] = useState<string>(defaultDueDate);
 
   useEffect(() => {
     if (taskInputOpen) {
       inputRef.current?.focus();
       if (localItem.linkedMilestone?.targetDate) {
-        setNewTaskDueDate(new Date(localItem.linkedMilestone.targetDate).toISOString().split("T")[0]);
+        const d = new Date(localItem.linkedMilestone.targetDate);
+        if (!isNaN(d.getTime())) {
+          setNewTaskDueDate(d.toISOString().split("T")[0]);
+        }
       }
     }
   }, [taskInputOpen, localItem.linkedMilestone?.targetDate]);
@@ -687,9 +698,11 @@ function MilestoneSection({
     const title = newTaskTitle.trim();
     if (!title || !milestoneId) return;
 
-    const effectiveDueDate = newTaskDueDate
-      ? new Date(newTaskDueDate)
-      : (localItem.linkedMilestone?.targetDate ? new Date(localItem.linkedMilestone.targetDate) : new Date());
+    const parsedNewDate = newTaskDueDate ? new Date(newTaskDueDate) : null;
+    const parsedTargetDate = localItem.linkedMilestone?.targetDate ? new Date(localItem.linkedMilestone.targetDate) : null;
+    const effectiveDueDate = (parsedNewDate && !isNaN(parsedNewDate.getTime()))
+      ? parsedNewDate
+      : ((parsedTargetDate && !isNaN(parsedTargetDate.getTime())) ? parsedTargetDate : new Date());
 
     // Optimistic update — show task immediately before the API responds
     const tempId = `temp-${Date.now()}`;
@@ -1052,7 +1065,7 @@ function CardDetailPanelContent({
   // Memoize options — recomputing these on every render (including task status clicks)
   // causes unnecessary array map + filter operations across all goals/milestones.
   const goalOptions = useMemo(
-    () => goals.map((g) => ({ id: g.id, label: g.title, sub: g.status })),
+    () => (goals || []).map((g) => ({ id: g.id, label: g.title, sub: g.status })),
     [goals]
   );
   const milestoneOptions = useMemo(
@@ -1158,7 +1171,7 @@ function CardDetailPanelContent({
               <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[localItem.linkedGoal.status] ?? "bg-slate-100 text-slate-600"}`}>
                 {STATUS_LABELS[localItem.linkedGoal.status] ?? localItem.linkedGoal.status}
               </span>
-              {localItem.linkedGoal.targetDate && (
+              {localItem.linkedGoal.targetDate && !isNaN(new Date(localItem.linkedGoal.targetDate).getTime()) && (
                 <span className="text-[11px] text-slate-500">
                   Target: {new Date(localItem.linkedGoal.targetDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </span>

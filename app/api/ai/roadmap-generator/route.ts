@@ -150,7 +150,30 @@ Generate a fitting goal title, goal objective, and 3-7 chronological milestones 
       );
     }
 
-    const milestones = Array.isArray(result.milestones) ? result.milestones : [];
+    const rawMilestones = (Array.isArray(result.milestones) ? result.milestones : []) as Record<string, unknown>[];
+    const milestones = rawMilestones.map((m: Record<string, unknown>) => {
+      const rawTasks = (m?.suggestedTasks ?? m?.tasks ?? m?.suggested_tasks ?? []) as unknown[];
+      const suggestedTasks: string[] = rawTasks
+        .map((t) => {
+          if (typeof t === "string") return t.trim();
+          if (t && typeof t === "object") {
+            const obj = t as Record<string, unknown>;
+            const val = obj.title ?? obj.name ?? obj.task ?? obj.description;
+            if (typeof val === "string") return val.trim();
+          }
+          return "";
+        })
+        .filter(Boolean);
+
+      return {
+        title: typeof m?.title === "string" ? m.title : "Milestone",
+        description: typeof m?.description === "string" ? m.description : "",
+        targetDate: typeof m?.targetDate === "string" ? m.targetDate : new Date().toISOString().split("T")[0],
+        dependsOn: Array.isArray(m?.dependsOn) ? m.dependsOn : [],
+        suggestedTasks,
+      };
+    });
+
     const goalTitle = typeof result.goalTitle === "string" && result.goalTitle.trim()
       ? result.goalTitle.trim()
       : text.slice(0, 50).trim() || "New Project Roadmap";

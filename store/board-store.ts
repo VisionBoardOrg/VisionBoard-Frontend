@@ -111,7 +111,8 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           item.linkedMilestone?.id === milestoneId
         ) {
           if (!item.linkedMilestone) continue;
-          const updatedTasks = item.linkedMilestone.tasks.map((task) => {
+          const tasks = item.linkedMilestone.tasks ?? [];
+          const updatedTasks = tasks.map((task) => {
             if (task.id === taskId) {
               changed = true;
               return { ...task, ...updates };
@@ -141,8 +142,9 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           item.linkedMilestone?.id === milestoneId
         ) {
           if (!item.linkedMilestone) continue;
-          const updatedTasks = item.linkedMilestone.tasks.filter((task) => task.id !== taskId);
-          if (updatedTasks.length !== item.linkedMilestone.tasks.length) {
+          const tasks = item.linkedMilestone.tasks ?? [];
+          const updatedTasks = tasks.filter((task) => task.id !== taskId);
+          if (updatedTasks.length !== tasks.length) {
             changed = true;
             nextItemsById[id] = {
               ...item,

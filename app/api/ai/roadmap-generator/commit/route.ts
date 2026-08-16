@@ -15,7 +15,14 @@ export async function POST(request: NextRequest) {
       targetDate?: string | null;
       status?: "draft" | "active";
     } | null;
-    milestones: { title: string; description: string; targetDate: string; suggestedTasks?: string[] }[];
+    milestones: {
+      title: string;
+      description?: string;
+      targetDate?: string;
+      suggestedTasks?: unknown[];
+      tasks?: unknown[];
+      suggested_tasks?: unknown[];
+    }[];
   };
 
   const { generationId, goalId, newGoal, milestones } = body;
@@ -57,8 +64,11 @@ export async function POST(request: NextRequest) {
       const parsed = new Date(newGoal.targetDate);
       if (!isNaN(parsed.getTime())) finalTargetDate = parsed;
     } else if (milestones.length > 0) {
-      const lastDate = new Date(milestones[milestones.length - 1].targetDate);
-      if (!isNaN(lastDate.getTime())) finalTargetDate = lastDate;
+      const lastMsDate = milestones[milestones.length - 1].targetDate;
+      if (lastMsDate) {
+        const lastDate = new Date(lastMsDate);
+        if (!isNaN(lastDate.getTime())) finalTargetDate = lastDate;
+      }
     }
 
     const createdGoal = await prisma.goal.create({
@@ -91,15 +101,29 @@ export async function POST(request: NextRequest) {
       const targetDate = m.targetDate ? new Date(m.targetDate) : null;
       const validTargetDate = targetDate && !isNaN(targetDate.getTime()) ? targetDate : null;
 
+      // Extract task titles robustly from all variations (suggestedTasks, tasks, suggested_tasks)
+      const rawTasks = (m.suggestedTasks ?? m.tasks ?? m.suggested_tasks ?? []) as unknown[];
+      const taskTitles: string[] = rawTasks
+        .map((t) => {
+          if (typeof t === "string") return t.trim();
+          if (t && typeof t === "object") {
+            const obj = t as Record<string, unknown>;
+            const val = obj.title ?? obj.name ?? obj.task ?? obj.description;
+            if (typeof val === "string") return val.trim();
+          }
+          return "";
+        })
+        .filter(Boolean);
+
       return prisma.milestone.create({
         data: {
           goalId: targetGoalId,
           title: m.title,
-          description: m.description,
+          description: m.description || "",
           targetDate: validTargetDate,
           order: i,
           tasks: {
-            create: (m.suggestedTasks ?? []).map((t, ti) => ({
+            create: taskTitles.map((t, ti) => ({
               title: t,
               order: ti,
               dueDate: validTargetDate ?? new Date(Date.now() + (ti + 1) * 2 * 24 * 60 * 60 * 1000),
