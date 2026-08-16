@@ -42,7 +42,7 @@ interface TaskData {
   status: string;
   priority: string;
   storyPoints: number | null;
-  dueDate: Date | string;
+  dueDate?: Date | string | null;
   blockedReason?: string | null;
   milestone: {
     id: string;
@@ -187,15 +187,17 @@ export function TasksFilteredList({ tasks, workspaceId }: Props) {
                             </span>
                           )}
 
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] ${
-                            isOverdue
-                              ? "bg-red-50 text-danger border-red-200 font-semibold"
-                              : "bg-offwhite border-border text-slate"
-                          }`}>
-                            <Calendar size={10} className={isOverdue ? "text-danger" : "text-muted"} />
-                            {isOverdue ? "Overdue · " : "Due "}
-                            {new Date(task.dueDate).toLocaleDateString()}
-                          </span>
+                          {task.dueDate && (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] ${
+                              isOverdue
+                                ? "bg-red-50 text-danger border-red-200 font-semibold"
+                                : "bg-offwhite border-border text-slate"
+                            }`}>
+                              <Calendar size={10} className={isOverdue ? "text-danger" : "text-muted"} />
+                              {isOverdue ? "Overdue · " : "Due "}
+                              {new Date(task.dueDate).toLocaleDateString()}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
