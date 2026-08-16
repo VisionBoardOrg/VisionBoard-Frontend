@@ -10,7 +10,7 @@
  * inline feedback after returning from Stripe Checkout.
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { CreditCard, Zap, CheckCircle2, AlertCircle, Loader2, ExternalLink, X } from "lucide-react";
 import { PlanTier } from "@prisma/client";

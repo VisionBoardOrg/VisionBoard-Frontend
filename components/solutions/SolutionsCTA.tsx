@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import SecondaryButton from "@/components/reusables/secondaryButton";
 import Link from "next/link";
 

@@ -167,9 +167,14 @@ export async function evaluateQuotaThresholds(
 
 /**
  * Checks if a workspace has crossed warning thresholds and records an ActivityLog if needed.
+ * Accepts an optional precomputed evaluation to prevent redundant database lookups.
  */
-export async function checkAndRecordQuotaWarning(workspaceId: string): Promise<void> {
-  const evalResult = await evaluateQuotaThresholds(workspaceId);
+export async function checkAndRecordQuotaWarning(
+  workspaceId: string,
+  precomputedEval?: WorkspaceQuotaEvaluation | null,
+  ownerId?: string | null
+): Promise<void> {
+  const evalResult = precomputedEval !== undefined ? precomputedEval : await evaluateQuotaThresholds(workspaceId);
   if (!evalResult || !evalResult.hasAnyWarning) return;
 
   // Check if a warning was already recorded in the last 24 hours to avoid spamming activity logs
@@ -180,18 +185,23 @@ export async function checkAndRecordQuotaWarning(workspaceId: string): Promise<v
       action: "quota_threshold_warning",
       createdAt: { gte: oneDayAgo },
     },
+    select: { id: true },
   });
 
   if (!recentLog) {
-    const owner = await prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { ownerId: true },
-    });
+    let resolvedOwnerId = ownerId;
+    if (resolvedOwnerId === undefined) {
+      const owner = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { ownerId: true },
+      });
+      resolvedOwnerId = owner?.ownerId ?? null;
+    }
 
     await prisma.activityLog.create({
       data: {
         workspaceId,
-        userId: owner?.ownerId ?? null,
+        userId: resolvedOwnerId ?? null,
         entityType: "workspace",
         entityId: workspaceId,
         action: "quota_threshold_warning",

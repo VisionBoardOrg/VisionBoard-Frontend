@@ -78,15 +78,19 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
     };
   }, [fetchNotifications]);
 
-  // Single Real-time SSE Stream subscription with smart fallback polling
+  // Single Real-time SSE Stream subscription with smart fallback polling and visibility awareness
   useEffect(() => {
     let sse: EventSource | null = null;
     let fallbackPollTimer: NodeJS.Timeout | null = null;
+    let isSseConnected = false;
 
     const startFallbackPolling = () => {
-      if (!fallbackPollTimer) {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (!fallbackPollTimer && !isSseConnected) {
         fallbackPollTimer = setInterval(() => {
-          fetchNotifications();
+          if (typeof document === "undefined" || document.visibilityState !== "hidden") {
+            fetchNotifications();
+          }
         }, 30_000);
       }
     };
@@ -98,11 +102,30 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (typeof document === "undefined") return;
+      if (document.visibilityState === "visible") {
+        // Tab became active again — immediately refresh and resume polling if SSE is down
+        fetchNotifications();
+        if (!isSseConnected) {
+          startFallbackPolling();
+        }
+      } else {
+        // Tab is hidden in background — suspend polling to save client battery and server resources
+        stopFallbackPolling();
+      }
+    };
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
     try {
       sse = new EventSource("/api/notifications/stream");
 
       sse.onopen = () => {
         // SSE connected successfully, stop redundant polling
+        isSseConnected = true;
         stopFallbackPolling();
       };
 
@@ -129,14 +152,19 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
 
       sse.onerror = () => {
         // SSE disconnected, fall back to interval polling
+        isSseConnected = false;
         startFallbackPolling();
       };
     } catch (err) {
       console.error("[NotificationContext] SSE connection setup failed:", err);
+      isSseConnected = false;
       startFallbackPolling();
     }
 
     return () => {
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
       stopFallbackPolling();
       if (sse) {
         sse.close();

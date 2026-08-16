@@ -114,9 +114,11 @@ Return ONLY valid JSON (no markdown, no backticks):
 }
 Context: ${ctx}`;
 
-  // ── AbortSignal timeout — prevents a hung AI call from blocking the worker ──
+  // ── AbortSignal timeout & client disconnect chaining ──
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const handleClientAbort = () => controller.abort();
+  request.signal.addEventListener("abort", handleClientAbort, { once: true });
 
   try {
     const response = await openrouter.chat.completions.create(
@@ -216,5 +218,6 @@ Context: ${ctx}`;
     );
   } finally {
     clearTimeout(timeoutId);
+    request.signal.removeEventListener("abort", handleClientAbort);
   }
 }

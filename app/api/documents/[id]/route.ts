@@ -103,6 +103,18 @@ export async function PATCH(
     }
   }
 
+  // Calculate storage delta if content is changing
+  let contentDeltaBytes = 0;
+  if (parsed.data.content !== undefined) {
+    const existingDoc = await prisma.document.findUnique({
+      where: { id },
+      select: { content: true },
+    });
+    const oldBytes = Buffer.byteLength(JSON.stringify(existingDoc?.content ?? {}), "utf8");
+    const newBytes = Buffer.byteLength(JSON.stringify(parsed.data.content ?? {}), "utf8");
+    contentDeltaBytes = newBytes - oldBytes;
+  }
+
   const [updated] = await prisma.$transaction([
     prisma.document.update({
       where: { id },
@@ -126,6 +138,22 @@ export async function PATCH(
       },
     }),
   ]);
+
+  // Adjust workspace storage counter with the size delta
+  if (contentDeltaBytes > 0) {
+    await prisma.$executeRaw`
+      UPDATE "Workspace"
+      SET "storageUsedBytes" = "storageUsedBytes" + ${contentDeltaBytes}
+      WHERE id = ${doc.workspaceId}
+    `;
+  } else if (contentDeltaBytes < 0) {
+    const decrement = Math.abs(contentDeltaBytes);
+    await prisma.$executeRaw`
+      UPDATE "Workspace"
+      SET "storageUsedBytes" = GREATEST(0, "storageUsedBytes" - ${decrement})
+      WHERE id = ${doc.workspaceId}
+    `;
+  }
 
   return NextResponse.json({ document: updated });
 }

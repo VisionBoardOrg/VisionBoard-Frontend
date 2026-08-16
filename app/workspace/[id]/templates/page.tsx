@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { AppShell } from "@/components/layout/AppShell";
 import { TEMPLATES, TemplateName } from "@/lib/templates";
 import { TemplateApplyButton } from "@/components/workspace/TemplateApplyButton";
 import { Target, Map, ClipboardList, Zap, LayoutTemplate, Package, LucideIcon } from "lucide-react";

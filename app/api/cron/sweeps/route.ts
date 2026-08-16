@@ -61,11 +61,11 @@ export async function GET(request: NextRequest) {
   const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const fortyEightHoursFromNow = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
-  // ── 1. Task Due Date & Overdue Sweeps ─────────────────────────────────────
-  const overdueTasks = await prisma.task.findMany({
+  // ── 1. Task Due Date & Overdue Sweeps (Single Consolidated Query) ────────
+  const candidateTasks = await prisma.task.findMany({
     where: {
       status: { not: "done" },
-      dueDate: { lt: now },
+      dueDate: { lte: fortyEightHoursFromNow },
     },
     select: {
       id: true,
@@ -81,49 +81,24 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const dueSoon24hTasks = await prisma.task.findMany({
-    where: {
-      status: { not: "done" },
-      dueDate: {
-        gte: now,
-        lte: twentyFourHoursFromNow,
-      },
-    },
-    select: {
-      id: true,
-      title: true,
-      dueDate: true,
-      assigneeId: true,
-      milestone: {
-        select: {
-          id: true,
-          goal: { select: { id: true, workspaceId: true } },
-        },
-      },
-    },
-  });
+  const nowTime = now.getTime();
+  const twentyFourHoursTime = twentyFourHoursFromNow.getTime();
 
-  const dueUpcoming48hTasks = await prisma.task.findMany({
-    where: {
-      status: { not: "done" },
-      dueDate: {
-        gt: twentyFourHoursFromNow,
-        lte: fortyEightHoursFromNow,
-      },
-    },
-    select: {
-      id: true,
-      title: true,
-      dueDate: true,
-      assigneeId: true,
-      milestone: {
-        select: {
-          id: true,
-          goal: { select: { id: true, workspaceId: true } },
-        },
-      },
-    },
-  });
+  const overdueTasks: typeof candidateTasks = [];
+  const dueSoon24hTasks: typeof candidateTasks = [];
+  const dueUpcoming48hTasks: typeof candidateTasks = [];
+
+  for (const t of candidateTasks) {
+    if (!t.dueDate) continue;
+    const dueTime = new Date(t.dueDate).getTime();
+    if (dueTime < nowTime) {
+      overdueTasks.push(t);
+    } else if (dueTime <= twentyFourHoursTime) {
+      dueSoon24hTasks.push(t);
+    } else {
+      dueUpcoming48hTasks.push(t);
+    }
+  }
 
   // ── 2. Milestone Slippage & Auto-Delay ─────────────────────────────────────
   const slippingMilestones = await prisma.milestone.findMany({
@@ -285,7 +260,7 @@ export async function GET(request: NextRequest) {
         try {
           const quotaEval = await evaluateQuotaThresholds(ws.id);
           if (quotaEval && quotaEval.hasAnyWarning) {
-            await checkAndRecordQuotaWarning(ws.id);
+            await checkAndRecordQuotaWarning(ws.id, quotaEval, ws.ownerId);
             quotaWarnings.push({
               workspaceId: ws.id,
               workspaceName: quotaEval.workspaceName,

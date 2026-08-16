@@ -1,4 +1,3 @@
-import React from "react";
 import { ButtonProps } from "./primaryButton";
 
 export default function SecondaryButton({ size = 'md', children, className = '', ...props }: ButtonProps) {

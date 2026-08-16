@@ -96,9 +96,11 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 }
 Generate a fitting goal title, goal objective, and 3-7 chronological milestones with realistic target dates. Return ONLY the JSON object.`;
 
-  // ── AbortSignal timeout — prevents a hung AI call from blocking the worker ──
+  // ── AbortSignal timeout & client disconnect chaining ──
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const handleClientAbort = () => controller.abort();
+  request.signal.addEventListener("abort", handleClientAbort, { once: true });
 
   try {
     const response = await openrouter.chat.completions.create(
@@ -197,5 +199,6 @@ Generate a fitting goal title, goal objective, and 3-7 chronological milestones 
     );
   } finally {
     clearTimeout(timeoutId);
+    request.signal.removeEventListener("abort", handleClientAbort);
   }
 }

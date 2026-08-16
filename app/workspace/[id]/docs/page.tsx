@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { AppShell } from "@/components/layout/AppShell";
 import Link from "next/link";
 import { FileText, Plus } from "lucide-react";
 import { ImportDocButton } from "@/components/docs/ImportDocButton";

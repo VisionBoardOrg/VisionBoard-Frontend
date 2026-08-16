@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { cache } from "react";
-import { AppShell } from "@/components/layout/AppShell";
 import { RoleSwitcher, type MemberRole } from "@/components/workspace/RoleSwitcher";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import Link from "next/link";

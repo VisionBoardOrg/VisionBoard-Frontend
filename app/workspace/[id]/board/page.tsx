@@ -2,7 +2,6 @@ import { cache } from "react";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { AppShell } from "@/components/layout/AppShell";
 import { BoardCanvas } from "@/components/board/BoardCanvas";
 
 interface BoardPageProps {
@@ -60,16 +59,6 @@ export default async function BoardPage({ params }: BoardPageProps) {
             title: true,
             status: true,
             goalId: true,
-            tasks: {
-              select: {
-                id: true,
-                title: true,
-                status: true,
-                priority: true,
-                storyPoints: true,
-                assigneeId: true,
-              },
-            },
           },
         },
       },
@@ -131,22 +120,21 @@ export default async function BoardPage({ params }: BoardPageProps) {
     return m;
   });
 
-  const milestoneStatusById = new Map(updatedMilestones.map((m) => [m.id, m.status]));
+  const milestoneMap = new Map(updatedMilestones.map((m) => [m.id, m]));
   const updatedBoardItems = boardItems.map((item) => {
     if (item.linkedMilestone) {
-      const newStatus = milestoneStatusById.get(item.linkedMilestone.id) ?? item.linkedMilestone.status;
+      const ms = milestoneMap.get(item.linkedMilestone.id);
       return {
         ...item,
         linkedMilestone: {
           ...item.linkedMilestone,
-          status: newStatus,
+          status: ms?.status ?? item.linkedMilestone.status,
+          tasks: ms?.tasks ?? [],
         },
       };
     }
     return item;
   });
-
-  const plan = currentUser.plan;
 
   return (
     <BoardCanvas

@@ -311,6 +311,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     [items, selectedId, sendEvent, workspaceId, setItems]
   );
 
+  const handleSelectCard = useCallback((id: string) => {
+    setSelectedId((prev) => (prev === id ? null : id));
+  }, []);
+
   const handleUndo = useCallback(async () => {
     if (undoStack.length === 0) return;
     const last = undoStack[undoStack.length - 1];
@@ -772,7 +776,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
                   item={item}
                   isSelected={selectedId === item.id}
                   remoteViewers={remoteViewersByCardId.get(item.id)}
-                  onSelect={() => setSelectedId(selectedId === item.id ? null : item.id)}
+                  onSelect={handleSelectCard}
                   onDelete={handleDeleteCard}
                 />
               ))}

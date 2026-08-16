@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { AlertTriangle, ArrowRight, X, Zap } from "lucide-react";
 import { CascadeShiftItem } from "@/lib/gantt-engine";
 

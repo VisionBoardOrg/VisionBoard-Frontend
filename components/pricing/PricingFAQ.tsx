@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 
 export default function PricingFAQ() {
   const [openIndex, setOpenIndex] = useState<number | null>(0); // First item open by default like in screenshot

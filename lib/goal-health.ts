@@ -185,6 +185,8 @@ export async function calculateGoalHealth(goalId: string): Promise<GoalHealthEva
 
 /**
  * Re-evaluates health scores for all active goals across all or a specific workspace.
+ * Highly optimized batch implementation: fetches all goals in 1 query, computes in-memory,
+ * and bulk updates in batch transactions.
  */
 export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<GoalHealthEvaluation[]> {
   const goals = await prisma.goal.findMany({
@@ -192,24 +194,164 @@ export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<Goal
       status: { in: ["active", "draft"] },
       ...(workspaceId ? { workspaceId } : {}),
     },
-    select: { id: true },
+    include: {
+      milestones: {
+        include: {
+          tasks: {
+            select: {
+              id: true,
+              status: true,
+              dueDate: true,
+              priority: true,
+            },
+          },
+        },
+      },
+    },
   });
 
+  if (goals.length === 0) return [];
+
+  const now = new Date();
   const evaluations: GoalHealthEvaluation[] = [];
-  const CHUNK_SIZE = 10;
+  const delayedMilestoneIds: string[] = [];
+  const goalsToUpdate: Array<{
+    id: string;
+    healthScore: number;
+    workspaceId: string;
+    ownerId: string | null;
+    previousScore: number;
+    degraded: boolean;
+    healthStatus: GoalHealthStatus;
+  }> = [];
 
-  for (let i = 0; i < goals.length; i += CHUNK_SIZE) {
-    const chunk = goals.slice(i, i + CHUNK_SIZE);
-    const results = await Promise.allSettled(
-      chunk.map((g) => calculateGoalHealth(g.id))
-    );
+  for (const goal of goals) {
+    const milestones = goal.milestones;
+    const allTasks = milestones.flatMap((m) => m.tasks);
 
-    for (const r of results) {
-      if (r.status === "fulfilled" && r.value) {
-        evaluations.push(r.value);
-      } else if (r.status === "rejected") {
-        console.error("[goal-health] Goal evaluation error:", r.reason);
+    const totalMilestones = milestones.length;
+    const completedMilestones = milestones.filter((m) => m.status === "completed").length;
+
+    for (const m of milestones) {
+      if (m.status !== "completed" && m.targetDate && new Date(m.targetDate) < now && m.status !== "delayed") {
+        delayedMilestoneIds.push(m.id);
       }
+    }
+
+    const delayedMilestones = milestones.filter(
+      (m) => m.status === "delayed" || (m.status !== "completed" && m.targetDate && new Date(m.targetDate) < now)
+    ).length;
+
+    const totalTasks = allTasks.length;
+    const doneTasks = allTasks.filter((t) => t.status === "done").length;
+    const blockedTasks = allTasks.filter((t) => t.status === "blocked").length;
+    const overdueTasks = allTasks.filter(
+      (t) => t.status !== "done" && t.dueDate && new Date(t.dueDate) < now
+    ).length;
+
+    let computedScore = 100;
+    if (totalTasks === 0 && totalMilestones === 0) {
+      computedScore = goal.status === "completed" ? 100 : goal.status === "cancelled" ? 0 : 70;
+    } else {
+      const taskRatio = totalTasks > 0 ? doneTasks / totalTasks : 1;
+      const milestoneRatio = totalMilestones > 0 ? completedMilestones / totalMilestones : 1;
+      let baseProgressScore = Math.round(taskRatio * 50 + milestoneRatio * 50);
+
+      if (baseProgressScore === 0 && totalTasks > 0) {
+        baseProgressScore = 75;
+      } else if (baseProgressScore > 0) {
+        baseProgressScore = Math.max(60, baseProgressScore);
+      }
+
+      const blockedPenalty = Math.min(45, blockedTasks * 15);
+      const overduePenalty = Math.min(30, overdueTasks * 10);
+      const delayedMilestonePenalty = Math.min(40, delayedMilestones * 20);
+
+      let goalDeadlinePenalty = 0;
+      if (
+        goal.targetDate &&
+        new Date(goal.targetDate) < now &&
+        (totalTasks > doneTasks || totalMilestones > completedMilestones)
+      ) {
+        goalDeadlinePenalty = 25;
+      }
+
+      computedScore =
+        baseProgressScore - blockedPenalty - overduePenalty - delayedMilestonePenalty - goalDeadlinePenalty;
+      if (totalTasks > 0 && doneTasks === totalTasks && totalMilestones === completedMilestones) {
+        computedScore = 100;
+      }
+    }
+
+    const finalScore = Math.max(0, Math.min(100, Math.round(computedScore)));
+    const previousScore = goal.healthScore;
+    const degraded = finalScore < previousScore && finalScore < 70;
+
+    let healthStatus: GoalHealthStatus = "on_track";
+    if (finalScore < 40) {
+      healthStatus = "at_risk";
+    } else if (finalScore < 70) {
+      healthStatus = "needs_attention";
+    }
+
+    const evaluation: GoalHealthEvaluation = {
+      goalId: goal.id,
+      goalTitle: goal.title,
+      workspaceId: goal.workspaceId,
+      previousScore,
+      healthScore: finalScore,
+      status: healthStatus,
+      degraded,
+      metrics: {
+        totalMilestones,
+        completedMilestones,
+        delayedMilestones,
+        totalTasks,
+        doneTasks,
+        blockedTasks,
+        overdueTasks,
+      },
+    };
+    evaluations.push(evaluation);
+
+    if (finalScore !== previousScore) {
+      goalsToUpdate.push({
+        id: goal.id,
+        healthScore: finalScore,
+        workspaceId: goal.workspaceId,
+        ownerId: goal.ownerId,
+        previousScore,
+        degraded,
+        healthStatus,
+      });
+    }
+  }
+
+  // 1. Batch update slipping milestones if any
+  if (delayedMilestoneIds.length > 0) {
+    await prisma.milestone
+      .updateMany({
+        where: { id: { in: delayedMilestoneIds }, status: { not: "delayed" } },
+        data: { status: "delayed" },
+      })
+      .catch((err) => console.error("[goal-health] Batch delayed milestones update error:", err));
+  }
+
+  // 2. Batch update goal scores in chunks of 50
+  if (goalsToUpdate.length > 0) {
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < goalsToUpdate.length; i += CHUNK_SIZE) {
+      const chunk = goalsToUpdate.slice(i, i + CHUNK_SIZE);
+      await prisma
+        .$transaction(
+          chunk.map((g) =>
+            prisma.goal.update({
+              where: { id: g.id },
+              data: { healthScore: g.healthScore },
+            })
+          )
+        )
+        .catch((err) => console.error("[goal-health] Batch goal health update error:", err));
     }
   }
 

@@ -10,7 +10,7 @@
  * can create an account first.
  */
 
-import React, { useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Loader2, CheckCircle2 } from "lucide-react";
 

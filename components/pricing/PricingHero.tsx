@@ -1,7 +1,5 @@
 "use client";
 
-import React from "react";
-
 interface PricingHeroProps {
   isAnnual: boolean;
   setIsAnnual: (isAnnual: boolean) => void;

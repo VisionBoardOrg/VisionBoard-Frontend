@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { FileText, MessageSquare, Workflow, LucideIcon } from "lucide-react";
 
 interface DocFeatureItem {

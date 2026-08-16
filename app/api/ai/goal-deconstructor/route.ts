@@ -118,9 +118,11 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     .filter(Boolean)
     .join("\n\n");
 
-  // ── AbortSignal timeout — prevents a hung AI call from blocking the worker ──
+  // ── AbortSignal timeout & client disconnect chaining ──
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const handleClientAbort = () => controller.abort();
+  request.signal.addEventListener("abort", handleClientAbort, { once: true });
 
   try {
     const response = await openrouter.chat.completions.create(
@@ -206,5 +208,6 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     );
   } finally {
     clearTimeout(timeoutId);
+    request.signal.removeEventListener("abort", handleClientAbort);
   }
 }

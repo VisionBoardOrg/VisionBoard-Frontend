@@ -2,7 +2,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Suspense } from "react";
-import { AppShell } from "@/components/layout/AppShell";
 import { InviteMemberModal } from "@/components/settings/InviteMemberModal";
 import { PendingInvitesList } from "@/components/settings/PendingInvitesList";
 import { WorkspaceRenameInline } from "@/components/settings/WorkspaceRenameInline";

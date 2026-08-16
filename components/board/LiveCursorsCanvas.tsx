@@ -1,6 +1,6 @@
 "use client";
 
-import React, { memo, useMemo } from "react";
+import { memo, useMemo } from "react";
 import Image from "next/image";
 import type { RemoteCursor } from "@/hooks/useWebSocket";
 

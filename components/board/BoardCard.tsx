@@ -28,7 +28,7 @@ import type { RemoteCursor } from "@/hooks/useWebSocket";
 interface BoardCardProps {
   item: BoardItemFull;
   isSelected: boolean;
-  onSelect: () => void;
+  onSelect: (id: string) => void;
   onDelete?: (id: string) => void;
   remoteViewers?: RemoteCursor[];
 }
@@ -37,6 +37,10 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
   });
+
+  const handleClick = useCallback(() => {
+    onSelect(item.id);
+  }, [onSelect, item.id]);
 
   const [isReadyToMove, setIsReadyToMove] = useState(false);
   const [isPressing, setIsPressing] = useState(false);
@@ -133,7 +137,7 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
           ? "ring-2 ring-offset-1 shadow-md cursor-grab active:scale-[0.98]"
           : "hover:shadow-md cursor-grab active:scale-[0.98]"
       }`}
-      onClick={onSelect}
+      onClick={handleClick}
     >
       {/* Draggable Active Indicator Badge */}
       {activeMove && (
@@ -292,8 +296,31 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
 
 /**
  * Memoised board card — only re-renders when this card's own data, selection
- * state, or click handler changes. Prevents 500-card re-renders on unrelated
- * state changes (e.g. another card's task status update).
+ * state, or remote viewers change. Prevents 500-card re-renders on unrelated
+ * state changes (e.g. cursor moves, other cards changing).
  */
-export const BoardCard = memo(BoardCardInner);
+export const BoardCard = memo(BoardCardInner, (prev, next) => {
+  if (prev.item !== next.item) return false;
+  if (prev.isSelected !== next.isSelected) return false;
+  if (prev.onSelect !== next.onSelect) return false;
+  if (prev.onDelete !== next.onDelete) return false;
+
+  const prevViewers = prev.remoteViewers;
+  const nextViewers = next.remoteViewers;
+  if (prevViewers === nextViewers) return true;
+  if (!prevViewers && !nextViewers) return true;
+  if (!prevViewers || !nextViewers) return false;
+  if (prevViewers.length !== nextViewers.length) return false;
+  for (let i = 0; i < prevViewers.length; i++) {
+    if (
+      prevViewers[i].userId !== nextViewers[i].userId ||
+      prevViewers[i].userColor !== nextViewers[i].userColor ||
+      prevViewers[i].userName !== nextViewers[i].userName ||
+      prevViewers[i].userImage !== nextViewers[i].userImage
+    ) {
+      return false;
+    }
+  }
+  return true;
+});
 
