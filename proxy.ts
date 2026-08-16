@@ -1,8 +1,8 @@
 /**
- * proxy.ts — Next.js Edge Middleware (this project uses the "proxy" convention).
+ * proxy.ts — Next.js 16 Edge Proxy (Next.js 16 uses the proxy convention).
  *
  * CRITICAL: Only import Edge-compatible modules here.
- * - verifyAdminSession  uses Web Crypto API (SubtleCrypto) — Edge safe ✓
+ * - verifyAdminSession uses Web Crypto API (SubtleCrypto) — Edge safe ✓
  * - NextAuth({ authConfig }) uses the lean config with no Prisma/bcrypt — Edge safe ✓
  *
  * Do NOT import lib/auth/index.ts here — it pulls in Prisma + bcryptjs which
@@ -24,11 +24,8 @@ const PROTECTED_PREFIXES = ["/dashboard", "/workspace", "/onboarding"];
 // Routes that authenticated users should not see
 const AUTH_ROUTES = ["/auth/login", "/auth/register"];
 
-
 /**
- * Build the Content-Security-Policy header value for a given nonce.
- * Using a per-request nonce removes the need for 'unsafe-inline' on script-src.
- * Next.js injects the nonce automatically when it is present in the CSP header.
+ * Build the Content-Security-Policy header value.
  */
 function buildCsp(): string {
   return [
@@ -80,7 +77,6 @@ export async function proxy(request: NextRequest) {
   }
 
   // ── 3. User Authentication for Protected & Auth Routes ─────────────────────
-  // auth() here only decodes the JWT — no DB calls, safe in Edge Runtime.
   const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
   const isAuthRoute  = AUTH_ROUTES.some((p) => pathname.startsWith(p));
 
@@ -100,7 +96,6 @@ export async function proxy(request: NextRequest) {
   }
 
   // ── 4. Security headers + CSP ────────────────────────────────────────────
-  // Skip CSP injection for static assets and API routes (no HTML to protect)
   const isHtmlRoute = !pathname.startsWith("/api/") &&
     !pathname.startsWith("/_next/") &&
     !pathname.match(/\.(ico|png|jpg|jpeg|svg|webp|woff2?|ttf|css|js|map)$/);
@@ -119,11 +114,8 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-/**
- * Route matcher — tells Next.js which paths this proxy function runs on.
- * Excludes static files, Next.js internals, and common asset extensions
- * so the middleware doesn't add latency to requests that don't need it.
- */
+export default proxy;
+
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|css|js|map)$).*)",

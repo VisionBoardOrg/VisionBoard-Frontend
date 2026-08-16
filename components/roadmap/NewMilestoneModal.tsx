@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { X, Plus, Layers, Link2, AlertCircle } from "lucide-react";
+import { X, Plus, Layers, Link2, AlertCircle, Target } from "lucide-react";
 import { GanttMilestone } from "@/lib/gantt-engine";
 
 interface NewMilestoneModalProps {
@@ -12,6 +12,7 @@ interface NewMilestoneModalProps {
   allMilestones: GanttMilestone[];
   onClose: () => void;
   onCreated: (newMilestone: GanttMilestone) => void;
+  onCreateGoalClick?: () => void;
 }
 
 export function NewMilestoneModal({
@@ -22,6 +23,7 @@ export function NewMilestoneModal({
   allMilestones,
   onClose,
   onCreated,
+  onCreateGoalClick,
 }: NewMilestoneModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -116,7 +118,33 @@ export function NewMilestoneModal({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {goals.length === 0 ? (
+          <div className="p-6 bg-slate-50 border border-border rounded-xl text-center space-y-3">
+            <div className="w-10 h-10 rounded-xl bg-blue/10 border border-blue/20 flex items-center justify-center mx-auto text-blue">
+              <Target size={18} />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-ink">No Goals Found</h4>
+              <p className="text-xs text-slate mt-0.5 max-w-xs mx-auto">
+                You need at least one goal in this workspace before creating standalone milestones.
+              </p>
+            </div>
+            {onCreateGoalClick && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onCreateGoalClick();
+                }}
+                className="inline-flex items-center gap-1.5 bg-blue text-white text-xs font-semibold px-4 py-2 rounded-xl hover:bg-blue-mid transition-all shadow-xs"
+              >
+                <Plus size={13} />
+                <span>Create a Goal</span>
+              </button>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-4">
           {/* Title */}
           <div>
             <label className="text-xs font-semibold text-slate uppercase tracking-wider block mb-1">
@@ -281,6 +309,7 @@ export function NewMilestoneModal({
             </button>
           </div>
         </form>
+        )}
       </div>
     </div>
   );

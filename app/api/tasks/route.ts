@@ -9,11 +9,12 @@ const createSchema = z.object({
   title: z.string().min(1).max(300),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional().default("medium"),
   assigneeId: z.string().nullable().optional(),
+  dueDate: z.string().or(z.date()).optional(),
 });
 
 export async function GET(request: NextRequest) {
   const session = await auth();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const milestoneId = searchParams.get("milestoneId");
@@ -22,6 +23,26 @@ export async function GET(request: NextRequest) {
   if (!milestoneId && !workspaceId) {
     return NextResponse.json({ error: "milestoneId or workspaceId required" }, { status: 400 });
   }
+
+  let targetWorkspaceId = workspaceId;
+
+  if (milestoneId) {
+    const milestone = await prisma.milestone.findUnique({
+      where: { id: milestoneId },
+      include: { goal: { select: { workspaceId: true } } },
+    });
+    if (!milestone) return NextResponse.json({ error: "Milestone not found" }, { status: 404 });
+    targetWorkspaceId = milestone.goal.workspaceId;
+  }
+
+  if (!targetWorkspaceId) {
+    return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
+  }
+
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId: targetWorkspaceId, userId: session.user.id } },
+  });
+  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const tasks = await prisma.task.findMany({
     where: {
@@ -76,6 +97,16 @@ export async function POST(request: NextRequest) {
   });
   const order = (maxOrderResult._max.order ?? -1) + 1;
 
+  let taskDueDate: Date;
+  if (parsed.data.dueDate) {
+    const parsedDate = new Date(parsed.data.dueDate);
+    taskDueDate = isNaN(parsedDate.getTime())
+      ? (milestone.targetDate ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))
+      : parsedDate;
+  } else {
+    taskDueDate = milestone.targetDate ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  }
+
   const task = await prisma.task.create({
     data: {
       milestoneId: parsed.data.milestoneId,
@@ -84,6 +115,7 @@ export async function POST(request: NextRequest) {
       assigneeId: parsed.data.assigneeId ?? null,
       status: "todo",
       order,
+      dueDate: taskDueDate,
     },
   });
 

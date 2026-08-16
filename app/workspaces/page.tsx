@@ -19,9 +19,15 @@ export default async function WorkspacesPage() {
     }),
     prisma.workspaceMember.findMany({
       where: { userId: session.user.id },
-      include: {
+      select: {
+        role: true,
+        joinedAt: true,
         workspace: {
-          include: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            ownerId: true,
             owner: { select: { id: true, name: true, email: true, plan: true } },
             _count: { select: { members: true, goals: true, documents: true } },
           },

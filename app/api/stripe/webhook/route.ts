@@ -19,7 +19,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { stripe, planFromPriceId } from "@/lib/stripe";
 import { prisma } from "@/lib/prisma";
 import { sendPaymentConfirmationEmail, sendPaymentFailureEmail } from "@/lib/billing-email";
-import { dispatchBillingNotification } from "@/lib/notifications";
 import type Stripe from "stripe";
 
 

@@ -78,9 +78,7 @@ interface KanbanViewProps {
 export function KanbanView({
   workspaceId,
   items,
-  goals,
   milestones,
-  members,
   selectedId,
   onSelectCard,
   onItemAdded,
@@ -191,6 +189,10 @@ export function KanbanView({
     try {
       const defaultMilestone = milestones[0];
       if (defaultMilestone) {
+        const dueDate = defaultMilestone.targetDate
+          ? new Date(defaultMilestone.targetDate).toISOString()
+          : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
         const res = await fetch(`/api/tasks`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -199,6 +201,7 @@ export function KanbanView({
             milestoneId: defaultMilestone.id,
             status,
             priority: "medium",
+            dueDate,
           }),
         });
         if (res.ok) {

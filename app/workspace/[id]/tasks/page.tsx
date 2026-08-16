@@ -3,11 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
 import Link from "next/link";
-import {
-  CheckCircle2, Circle, Clock, AlertTriangle,
-  ChevronRight, ListTodo, Flame, ArrowUp, ArrowDown, Minus
-} from "lucide-react";
-import { TaskStatusDropdown } from "@/components/tasks/TaskStatusDropdown";
+import { ListTodo } from "lucide-react";
 import { TasksFilteredList } from "@/components/tasks/TasksFilteredList";
 
 interface TasksPageProps {

@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Check, LayoutGrid, Kanban, Layers, ArrowRight, Settings2 } from "lucide-react";
+import { X, LayoutGrid, Kanban, Layers, ArrowRight, Settings2 } from "lucide-react";
 
 export type BoardLayoutMode = "canvas" | "kanban";
 

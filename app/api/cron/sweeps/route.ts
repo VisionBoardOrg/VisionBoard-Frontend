@@ -9,6 +9,22 @@ import {
   dispatchQuotaNotification,
 } from "@/lib/notifications";
 
+import { timingSafeEqual } from "crypto";
+
+function safeCompare(a: string, b: string): boolean {
+  try {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) {
+      timingSafeEqual(bufA, bufA);
+      return false;
+    }
+    return timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * GET /api/cron/sweeps
  *
@@ -26,10 +42,19 @@ export async function GET(request: NextRequest) {
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
   const token = cronSecretHeader || bearerToken;
 
-  const expectedSecret = process.env.CRON_SECRET || "dev-cron-secret";
+  const expectedSecret = process.env.CRON_SECRET;
 
-  if (process.env.NODE_ENV === "production" && token !== expectedSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!expectedSecret || expectedSecret.length < 16) {
+    if (process.env.NODE_ENV === "production") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!token || !safeCompare(token, "dev-cron-secret")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  } else {
+    if (!token || !safeCompare(token, expectedSecret)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   const now = new Date();
@@ -286,30 +311,19 @@ export async function GET(request: NextRequest) {
       overdueCount: overdueTasks.length,
       dueSoon24hCount: dueSoon24hTasks.length,
       dueUpcoming48hCount: dueUpcoming48hTasks.length,
-      overdueTaskIds: overdueTasks.map((t) => t.id),
-      dueSoon24hTaskIds: dueSoon24hTasks.map((t) => t.id),
     },
     milestoneSweep: {
       slippingDetected: slippingMilestones.length,
       newlyDelayedCount,
-      delayedMilestoneIds: slippingMilestones.map((m) => m.id),
     },
     goalHealthSweep: {
       totalEvaluated: goalEvaluations.length,
       atRiskCount: atRiskGoals.length,
       degradedCount: degradedGoals.length,
-      evaluations: goalEvaluations.map((g) => ({
-        goalId: g.goalId,
-        title: g.goalTitle,
-        healthScore: g.healthScore,
-        status: g.status,
-        degraded: g.degraded,
-      })),
     },
     quotaSweep: {
       totalWorkspacesChecked: allWorkspaces.length,
       workspacesWithWarningsCount: quotaWarnings.length,
-      warnings: quotaWarnings,
     },
   });
 }

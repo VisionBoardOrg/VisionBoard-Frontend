@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe } from "@/lib/stripe";
+import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 import { z } from "zod";
 
 const schema = z.object({
@@ -46,8 +47,10 @@ export async function POST(request: NextRequest) {
 
   const appUrl = process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
-  const targetReturnUrl = returnUrl
-    ? returnUrl
+  const safeReturn = returnUrl && typeof returnUrl === "string" ? getSafeCallbackUrl(returnUrl, "") : "";
+
+  const targetReturnUrl = safeReturn
+    ? `${appUrl}${safeReturn}`
     : workspaceId
       ? `${appUrl}/workspace/${workspaceId}/settings`
       : `${appUrl}/account`;

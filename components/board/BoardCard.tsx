@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useCallback, useRef } from "react";
-
+import Image from "next/image";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import type { BoardItemFull } from "@/types/board";
@@ -152,9 +152,12 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
               title={`${viewer.userName} is viewing`}
             >
               {viewer.userImage ? (
-                <img
+                <Image
                   src={viewer.userImage}
                   alt={viewer.userName}
+                  width={20}
+                  height={20}
+                  unoptimized
                   className="w-5 h-5 rounded-full object-cover border-2 border-white shadow-sm"
                   style={{ borderColor: viewer.userColor }}
                 />

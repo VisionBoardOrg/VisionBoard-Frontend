@@ -20,7 +20,7 @@ type FullWorkspace = Workspace & {
 
 interface EngDashboardProps { workspace: FullWorkspace; userId: string; userName: string }
 
-export function EngDashboard({ workspace, userId, userName }: EngDashboardProps) {
+export function EngDashboard({ workspace, userId }: EngDashboardProps) {
   const activeSprint = workspace.sprints[0];
   const sprintTasks = activeSprint?.tasks ?? [];
   const counts = taskStatusCounts(sprintTasks);

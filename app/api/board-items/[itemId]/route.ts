@@ -28,7 +28,7 @@ const BOARD_ITEM_INCLUDE = {
   linkedMilestone: {
     select: {
       id: true, title: true, status: true, goalId: true,
-      tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true } },
+      tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true, dueDate: true } },
     },
   },
 } as const;

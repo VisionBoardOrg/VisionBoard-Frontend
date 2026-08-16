@@ -115,9 +115,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             getWorkspaceMembership(token.id as string),
             prisma.user.findUnique({
               where: { id: token.id as string },
-              select: { plan: true },
+              select: { plan: true, scheduledDeletion: true },
             }),
           ]);
+
+          if (!dbUser || dbUser.scheduledDeletion) {
+            return null;
+          }
+
           token.role                = membership?.role            ?? null;
           token.workspaceId         = membership?.workspaceId     ?? null;
           token.plan                = dbUser?.plan                ?? "free";

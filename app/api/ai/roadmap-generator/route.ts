@@ -11,9 +11,9 @@ const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
 /** Hard timeout for the AI call — prevents blocking a Node.js worker indefinitely */
-const AI_TIMEOUT_MS = 25_000;
+const AI_TIMEOUT_MS = 45_000;
 
 const schema = z.object({
   workspaceId: z.string(),
@@ -74,8 +74,11 @@ export async function POST(request: NextRequest) {
   }
   // ───────────────────────────────────────────────────────────────────────────
 
-  const systemPrompt = `You are a product roadmap expert. Return ONLY valid JSON — no markdown fences, no explanation:
+  const systemPrompt = `You are a product roadmap and goal planning expert. Given a project description, idea, or initiative, generate a suitable high-level Goal Title, Goal Objective, and a breakdown of chronological milestones with target dates.
+Return ONLY valid JSON — no markdown fences, no explanation:
 {
+  "goalTitle": "string (a concise, professional, and impactful project or goal title)",
+  "goalObjective": "string (a clear 1-2 sentence description of what success looks like)",
   "milestones": [
     {
       "title": "string",
@@ -86,7 +89,7 @@ export async function POST(request: NextRequest) {
     }
   ]
 }
-Generate 3-7 milestones. Return ONLY the JSON object.`;
+Generate a fitting goal title, goal objective, and 3-7 chronological milestones with realistic target dates. Return ONLY the JSON object.`;
 
   // ── AbortSignal timeout — prevents a hung AI call from blocking the worker ──
   const controller = new AbortController();
@@ -125,9 +128,9 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
     const withoutThink = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
     const cleaned = withoutThink.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
 
-    let result: { milestones: unknown[] };
+    let result: { goalTitle?: string; goalObjective?: string; milestones?: unknown[] };
     try {
-      result = JSON.parse(cleaned) as { milestones: unknown[] };
+      result = JSON.parse(cleaned) as { goalTitle?: string; goalObjective?: string; milestones?: unknown[] };
     } catch {
       console.warn("[api/ai/roadmap-generator] JSON parse failed. Raw response:", raw);
       await prisma.user.update({
@@ -140,6 +143,14 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
       );
     }
 
+    const milestones = Array.isArray(result.milestones) ? result.milestones : [];
+    const goalTitle = typeof result.goalTitle === "string" && result.goalTitle.trim()
+      ? result.goalTitle.trim()
+      : text.slice(0, 50).trim() || "New Project Roadmap";
+    const goalObjective = typeof result.goalObjective === "string" && result.goalObjective.trim()
+      ? result.goalObjective.trim()
+      : text.slice(0, 300).trim();
+
     // Audit log creation with fallback
     let generationId: string | undefined;
     try {
@@ -148,7 +159,7 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
           workspaceId, userId: session.user.id,
           feature: "roadmap_generator",
           promptInput: hashPrompt(text),
-          modelOutput: JSON.stringify(result),
+          modelOutput: JSON.stringify({ goalTitle, goalObjective, milestones }),
           tokensUsed:
             (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
           accepted: null,
@@ -159,7 +170,12 @@ Generate 3-7 milestones. Return ONLY the JSON object.`;
       console.error("[api/ai/roadmap-generator] Log write failed:", err);
     }
 
-    return NextResponse.json({ milestones: result.milestones, generationId });
+    return NextResponse.json({
+      goalTitle,
+      goalObjective,
+      milestones,
+      generationId,
+    });
   } catch (err) {
     const isTimeout = err instanceof Error && err.name === "AbortError";
     console.error("[api/ai/roadmap-generator]", isTimeout ? "Request timed out" : err);

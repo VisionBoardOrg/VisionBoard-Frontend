@@ -11,9 +11,9 @@ const openrouter = new OpenAI({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const OPENROUTER_MODEL = "inclusionai/ling-3.0-flash:free";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
 /** Hard timeout for the AI call — prevents blocking a Node.js worker indefinitely */
-const AI_TIMEOUT_MS = 25_000;
+const AI_TIMEOUT_MS = 45_000;
 
 const schema = z.object({
   workspaceId: z.string(),

@@ -12,7 +12,7 @@ import { BoardLayoutSidePanel, type BoardLayoutMode } from "./BoardLayoutSidePan
 import { KanbanView } from "./KanbanView";
 import { Kanban, RotateCcw, X } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple } from "@/types/board";
-import { useBoard, useBoardStore } from "@/store/board-store";
+import { useBoard } from "@/store/board-store";
 import { useWebSocket, type RemoteCursor } from "@/hooks/useWebSocket";
 
 // ── Module-level pure functions — defined outside the component so they are
@@ -101,7 +101,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const [layoutMode, setLayoutMode] = useState<BoardLayoutMode>("canvas");
   const [layoutSidePanelOpen, setLayoutSidePanelOpen] = useState(false);
 
-  // Restore saved layout preference from localStorage on page load
+  // Restore saved layout preference from localStorage after mount
   useEffect(() => {
     try {
       const saved =
@@ -370,6 +370,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
                       title: t.title,
                       priority: t.priority ?? "medium",
                       assigneeId: t.assigneeId,
+                      dueDate: t.dueDate ?? new Date().toISOString(),
                     }),
                   }).catch(console.error);
                 }

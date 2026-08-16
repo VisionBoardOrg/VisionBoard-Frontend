@@ -60,11 +60,11 @@ export async function PATCH(
     const isAdmin = requester.role === "admin";
 
     if (isSelf) {
-      // Self role switch — allowed for everyone, but non-admin/non-owner cannot
-      // self-escalate to admin.
-      if (role === "admin" && !isOwner && !isAdmin) {
+      // Self role switch — allowed for standard view personas, but non-admin/non-owner cannot
+      // self-escalate to privileged roles (admin or pm) which grant deletion and invitation powers.
+      if ((role === "admin" || role === "pm") && !isOwner && !isAdmin) {
         return NextResponse.json(
-          { error: "You do not have permission to assign yourself the admin role." },
+          { error: "You do not have permission to assign yourself privileged roles (admin or pm)." },
           { status: 403 }
         );
       }

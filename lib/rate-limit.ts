@@ -55,9 +55,10 @@ function ensureSweep() {
  *
  * Priority order:
  * 1. cf-connecting-ip  — set by Cloudflare, cannot be spoofed on CF-proxied deployments
- * 2. x-real-ip         — set by nginx; single trusted value
- * 3. x-forwarded-for   — use the LAST entry (added by the outermost trusted proxy)
- * 4. Fallback "unknown" — all requests share one bucket; still caps total rate
+ * 2. x-real-ip         — set by reverse proxy (nginx, Caddy); single trusted value
+ * 3. x-vercel-ip       — set by Vercel edge infrastructure
+ * 4. x-forwarded-for   — use the first valid client IP in the chain
+ * 5. Fallback "unknown" — all requests share one bucket; still caps total rate
  */
 export function getClientIp(req: NextRequest): string {
   const cfIp = req.headers.get("cf-connecting-ip");
@@ -66,10 +67,13 @@ export function getClientIp(req: NextRequest): string {
   const xRealIp = req.headers.get("x-real-ip");
   if (xRealIp && isValidIp(xRealIp.trim())) return xRealIp.trim();
 
+  const xVercelIp = req.headers.get("x-vercel-ip");
+  if (xVercelIp && isValidIp(xVercelIp.trim())) return xVercelIp.trim();
+
   const xForwardedFor = req.headers.get("x-forwarded-for");
   if (xForwardedFor) {
     const parts = xForwardedFor.split(",").map((p) => p.trim()).filter(Boolean);
-    const candidate = parts[parts.length - 1];
+    const candidate = parts[0];
     if (candidate && isValidIp(candidate)) return candidate;
   }
 

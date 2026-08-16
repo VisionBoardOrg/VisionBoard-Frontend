@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { randomUUID } from "crypto";
 
 // Sentinel email used to identify workspace-level (open) invite links
 const LINK_SENTINEL = "__invite_link__";
@@ -41,7 +40,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       data: {
         workspaceId,
         email: LINK_SENTINEL,
-        role: "pm",
+        role: "eng",
         inviterId: session.user.id,
         // Far-future expiry — open links don't expire on their own
         expiresAt: new Date("2099-01-01"),
@@ -76,7 +75,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     data: {
       workspaceId,
       email: LINK_SENTINEL,
-      role: "pm",
+      role: "eng",
       inviterId: session.user.id,
       expiresAt: new Date("2099-01-01"),
     },

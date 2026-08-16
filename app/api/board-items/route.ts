@@ -28,6 +28,7 @@ const TASK_SELECT = {
   status: true,
   priority: true,
   assigneeId: true,
+  dueDate: true,
 } as const;
 
 const BOARD_ITEM_INCLUDE = {

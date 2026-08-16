@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   AtSign,
   MessageSquare,
@@ -159,9 +160,12 @@ export function NotificationItem({
       {/* Type Icon / Avatar */}
       <div className="relative shrink-0">
         {notification.actor?.image ? (
-          <img
+          <Image
             src={notification.actor.image}
             alt={notification.actor.name || "Actor"}
+            width={32}
+            height={32}
+            unoptimized
             className="w-8 h-8 rounded-full object-cover border border-border"
           />
         ) : (

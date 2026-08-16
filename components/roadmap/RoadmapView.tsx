@@ -54,7 +54,9 @@ export function RoadmapView({
   const [aiInput, setAiInput] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<{
-    milestones: { title: string; description: string; targetDate: string }[];
+    goalTitle?: string;
+    goalObjective?: string;
+    milestones: { title: string; description: string; targetDate: string; suggestedTasks?: string[] }[];
     generationId: string;
   } | null>(null);
   const [aiError, setAiError] = useState("");
@@ -119,6 +121,13 @@ export function RoadmapView({
         setAiError(data.error || "AI generation failed.");
       } else {
         setAiResult(data);
+        if (data.goalTitle) {
+          setCommitGoalId("__NEW_AI_GOAL__");
+        } else if (goals.length > 0) {
+          setCommitGoalId(goals[0]?.id || null);
+        } else {
+          setCommitGoalId(null);
+        }
       }
     } catch {
       setAiError("Network error while generating roadmap.");
@@ -206,7 +215,7 @@ export function RoadmapView({
           <textarea
             value={aiInput}
             onChange={(e) => setAiInput(e.target.value)}
-            placeholder="e.g. Build an enterprise security feature pack including SAML 2.0 SSO, SCIM user provisioning, audit logging, and custom RBAC matrix over the next 8 weeks..."
+            placeholder="e.g. Build an app called EduLaod: a digital library for Engineering students in FUOYE so they can download course materials online before exam season, with AI CBT generation..."
             rows={3}
             className="w-full border border-border rounded-xl px-4 py-2.5 text-xs text-ink placeholder:text-muted resize-none focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
           />
@@ -233,18 +242,27 @@ export function RoadmapView({
           {/* AI Result Review Box */}
           {aiResult && (
             <div className="p-4 bg-slate-50 border border-border rounded-xl space-y-3">
-              <h4 className="text-xs font-bold text-ink uppercase tracking-wider">
-                Review & Select Target Goal:
-              </h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-ink uppercase tracking-wider">
+                  Review & Select Target Goal:
+                </h4>
+                {aiResult.goalTitle && (
+                  <span className="text-xs text-blue font-medium flex items-center gap-1">
+                    <Sparkles size={12} /> Suggested Goal: &quot;{aiResult.goalTitle}&quot;
+                  </span>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                 {aiResult.milestones.map((m, i) => (
                   <div key={i} className="bg-white border border-border rounded-xl p-2.5 text-xs space-y-1">
                     <div className="font-semibold text-ink">{m.title}</div>
                     <div className="text-[11px] text-muted line-clamp-2">{m.description}</div>
-                    <div className="text-[10px] text-blue font-medium pt-1">
-                      Target: {new Date(m.targetDate).toLocaleDateString()}
-                    </div>
+                    {m.targetDate && (
+                      <div className="text-[10px] text-blue font-medium pt-1">
+                        Target: {new Date(m.targetDate).toLocaleDateString()}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -253,16 +271,25 @@ export function RoadmapView({
                 <select
                   value={commitGoalId ?? ""}
                   onChange={(e) => setCommitGoalId(e.target.value)}
-                  className="w-full sm:w-64 bg-white border border-border rounded-xl px-3 py-2 text-xs text-ink cursor-pointer focus:outline-none focus:border-blue"
+                  className="w-full sm:w-80 bg-white border border-border rounded-xl px-3 py-2 text-xs text-ink cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
                 >
                   <option value="" disabled>
                     Select target goal…
                   </option>
-                  {goals.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.title}
+                  {aiResult.goalTitle && (
+                    <option value="__NEW_AI_GOAL__" className="font-semibold text-blue">
+                      ✨ Create new goal: &quot;{aiResult.goalTitle}&quot;
                     </option>
-                  ))}
+                  )}
+                  {goals.length > 0 && (
+                    <optgroup label="Existing Goals">
+                      {goals.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
 
                 <div className="flex gap-2 w-full sm:w-auto">
@@ -271,30 +298,58 @@ export function RoadmapView({
                     onClick={async () => {
                       if (!commitGoalId || !aiResult) return;
                       setCommitLoading(true);
-                      const res = await fetch("/api/ai/roadmap-generator/commit", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          generationId: aiResult.generationId,
-                          goalId: commitGoalId,
-                          milestones: aiResult.milestones,
-                        }),
-                      });
-                      setCommitLoading(false);
-                      if (res.ok) {
-                        setAiResult(null);
-                        setCommitGoalId(null);
-                        window.location.reload();
-                      } else {
-                        const data = await res.json();
-                        setAiError(data.error || "Failed to commit milestones.");
+                      setAiError("");
+
+                      try {
+                        const payload =
+                          commitGoalId === "__NEW_AI_GOAL__"
+                            ? {
+                                generationId: aiResult.generationId,
+                                newGoal: {
+                                  title: aiResult.goalTitle || "New Project Roadmap",
+                                  objective: aiResult.goalObjective || "Generated from AI Roadmap Synthesizer",
+                                  status: "active",
+                                },
+                                milestones: aiResult.milestones,
+                              }
+                            : {
+                                generationId: aiResult.generationId,
+                                goalId: commitGoalId,
+                                milestones: aiResult.milestones,
+                              };
+
+                        const res = await fetch("/api/ai/roadmap-generator/commit", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify(payload),
+                        });
+
+                        if (res.ok) {
+                          setAiResult(null);
+                          setCommitGoalId(null);
+                          setIsAiOpen(false);
+                          window.location.reload();
+                        } else {
+                          const data = await res.json();
+                          setAiError(data.error || "Failed to commit milestones.");
+                        }
+                      } catch (err) {
+                        console.error("Commit error:", err);
+                        setAiError("Network error while committing milestones.");
+                      } finally {
+                        setCommitLoading(false);
                       }
                     }}
                     className="flex-1 sm:flex-none bg-blue text-white text-xs font-semibold px-4 py-2 rounded-xl hover:bg-blue-mid transition-all disabled:opacity-50"
                   >
-                    {commitLoading ? "Applying…" : "Apply to Roadmap"}
+                    {commitLoading
+                      ? commitGoalId === "__NEW_AI_GOAL__"
+                        ? "Creating Goal…"
+                        : "Applying…"
+                      : "Apply to Roadmap"}
                   </button>
                   <button
+                    type="button"
                     onClick={() => {
                       setAiResult(null);
                       setCommitGoalId(null);
@@ -455,6 +510,7 @@ export function RoadmapView({
         goals={goals.map((g) => ({ id: g.id, title: g.title }))}
         allMilestones={allMilestones}
         onClose={() => setIsNewMilestoneOpen(false)}
+        onCreateGoalClick={() => setIsNewGoalOpen(true)}
         onCreated={(newMilestone) => {
           setGoals((prev) =>
             prev.map((g) =>

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import Image from "next/image";
 import { User, CheckCircle2, Briefcase, ListTodo } from "lucide-react";
 
 interface UserSummaryCardsProps {
@@ -10,8 +12,6 @@ interface UserSummaryCardsProps {
   assignedTaskCount: number;
   completionRate: number;
 }
-
-import { useState } from "react";
 
 export function UserSummaryCards({
   userName,
@@ -28,9 +28,12 @@ export function UserSummaryCards({
       {/* Profile card */}
       <div className="bg-white rounded-2xl border border-border p-5 flex items-center gap-4 sm:col-span-2 lg:col-span-1">
         {userImage && !imgError ? (
-          <img
+          <Image
             src={userImage}
             alt={userName}
+            width={48}
+            height={48}
+            unoptimized
             onError={() => setImgError(true)}
             className="w-12 h-12 rounded-2xl object-cover border border-border shrink-0"
           />

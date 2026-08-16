@@ -1,8 +1,9 @@
 "use client";
 
-import { ZoomIn, ZoomOut, RotateCcw, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw, LayoutGrid, Kanban, SlidersHorizontal } from "lucide-react";
+import { ZoomIn, ZoomOut, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw, LayoutGrid, Kanban, SlidersHorizontal } from "lucide-react";
 import type { GoalSimple, MilestoneWithTasks, BoardItemFull } from "@/types/board";
 import { useState, useRef, useEffect } from "react";
+import Image from "next/image";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
 
 // ── Layout constants for the Goal → Milestone → Task hierarchy ──────────────
@@ -114,13 +115,13 @@ export function BoardToolbar({
   const [msError, setMsError] = useState("");
   const msTitleRef = useRef<HTMLInputElement>(null);
 
+  const effectiveGoalId = msGoalId || (goals.length === 1 ? goals[0].id : "");
+
   useEffect(() => {
     if (msModalOpen) {
-      // Pre-select first goal if only one exists
-      if (goals.length === 1) setMsGoalId(goals[0].id);
       setTimeout(() => msTitleRef.current?.focus(), 50);
     }
-  }, [msModalOpen, goals]);
+  }, [msModalOpen]);
 
   useEffect(() => {
     function close(e: MouseEvent) {
@@ -206,7 +207,7 @@ export function BoardToolbar({
     e.preventDefault();
     const title = msTitle.trim();
     if (!title) { setMsError("Title is required."); return; }
-    if (!msGoalId) { setMsError("Please select a goal for this milestone."); return; }
+    if (!effectiveGoalId) { setMsError("Please select a goal for this milestone."); return; }
 
     setMsCreating(true);
     setMsError("");
@@ -214,7 +215,7 @@ export function BoardToolbar({
       const res = await fetch("/api/milestones", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, goalId: msGoalId, title }),
+        body: JSON.stringify({ workspaceId, goalId: effectiveGoalId, title }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -414,9 +415,12 @@ export function BoardToolbar({
                     title={`${c.userName} is online`}
                   >
                     {c.userImage ? (
-                      <img
+                      <Image
                         src={c.userImage}
                         alt={c.userName}
+                        width={20}
+                        height={20}
+                        unoptimized
                         className="w-5 h-5 rounded-full object-cover border border-white shadow-xs"
                         style={{ borderColor: c.userColor }}
                       />
@@ -490,9 +494,9 @@ export function BoardToolbar({
                   </p>
                 ) : (
                   <select
-                    value={msGoalId}
+                    value={effectiveGoalId}
                     onChange={(e) => setMsGoalId(e.target.value)}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-transparent bg-white"
+                    className="w-full text-xs rounded-lg border border-border px-2.5 py-1.5 bg-white text-ink focus:outline-none focus:border-violet-500"
                   >
                     <option value="">Select a goal…</option>
                     {goals.map((g) => (
@@ -516,7 +520,7 @@ export function BoardToolbar({
                 </button>
                 <button
                   type="submit"
-                  disabled={msCreating || !msTitle.trim() || !msGoalId}
+                  disabled={msCreating || !msTitle.trim() || !effectiveGoalId}
                   className="px-4 py-2 text-sm font-semibold bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors flex items-center gap-2"
                 >
                   {msCreating ? (

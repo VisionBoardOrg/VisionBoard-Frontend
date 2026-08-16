@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { stripe, getPriceId, BillingPeriod, PaidTier } from "@/lib/stripe";
+import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 import { z } from "zod";
 
 const schema = z.object({
@@ -75,14 +76,16 @@ export async function POST(request: NextRequest) {
 
   const appUrl = process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
 
-  const successUrl = returnUrl
-    ? `${returnUrl}?checkout=success`
+  const safeReturn = returnUrl && typeof returnUrl === "string" ? getSafeCallbackUrl(returnUrl, "") : "";
+
+  const successUrl = safeReturn
+    ? `${appUrl}${safeReturn}${safeReturn.includes("?") ? "&" : "?"}checkout=success`
     : workspaceId
       ? `${appUrl}/workspace/${workspaceId}/settings?checkout=success`
       : `${appUrl}/account?checkout=success`;
 
-  const cancelUrl = returnUrl
-    ? `${returnUrl}?checkout=cancelled`
+  const cancelUrl = safeReturn
+    ? `${appUrl}${safeReturn}${safeReturn.includes("?") ? "&" : "?"}checkout=cancelled`
     : workspaceId
       ? `${appUrl}/workspace/${workspaceId}/settings?checkout=cancelled`
       : `${appUrl}/account?checkout=cancelled`;

@@ -1,23 +1,21 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ShieldCheck, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 
 function CancelDeletionContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const emailParam = searchParams.get("email") || "";
 
-  const [email, setEmail] = useState(emailParam);
+  const [email, setEmail] = useState(() => emailParam);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (emailParam) {
-      setEmail(emailParam);
       handleCancel(emailParam);
     }
   }, [emailParam]);

@@ -20,7 +20,7 @@ type FullWorkspace = Workspace & {
 
 interface ExecDashboardProps { workspace: FullWorkspace; userId: string; userName: string }
 
-export function ExecDashboard({ workspace, userName }: ExecDashboardProps) {
+export function ExecDashboard({ workspace }: ExecDashboardProps) {
   const goals = workspace.goals;
   const allTasks = goals.flatMap((g) => g.milestones.flatMap((m) => m.tasks));
   const donePercent = allTasks.length

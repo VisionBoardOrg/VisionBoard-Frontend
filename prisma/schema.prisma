@@ -170,7 +170,7 @@ model Task {
   description String?
   assigneeId  String?
   sprintId    String?
-  dueDate     DateTime?
+  dueDate     DateTime   @default(now())
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   storyPoints Int?

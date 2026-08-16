@@ -92,6 +92,11 @@ export function InteractiveGantt({
   onAddMilestoneClick,
 }: InteractiveGanttProps) {
   const [goals, setGoals] = useState<GoalGroup[]>(initialGoals);
+  const [prevInitialGoals, setPrevInitialGoals] = useState<GoalGroup[]>(initialGoals);
+  if (initialGoals !== prevInitialGoals) {
+    setPrevInitialGoals(initialGoals);
+    setGoals(initialGoals);
+  }
   const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
   const [selectedMilestone, setSelectedMilestone] = useState<GanttMilestone | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -120,11 +125,6 @@ export function InteractiveGantt({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollableTimelineRef = useRef<HTMLDivElement>(null);
-
-  // Keep local state synchronized with props
-  useEffect(() => {
-    setGoals(initialGoals);
-  }, [initialGoals]);
 
   // Flatten all milestones across goals
   const allMilestones = useMemo(() => {
@@ -485,97 +485,105 @@ export function InteractiveGantt({
 
           {/* Goal & Milestone Rows */}
           <div className="overflow-hidden">
-            {filteredGoals.map((goal) => {
-              const isCollapsed = collapsedGoals.has(goal.id);
-              const completedCount = goal.milestones.filter((m) => m.status === "completed").length;
-              const progressPct =
-                goal.milestones.length > 0
-                  ? Math.round((completedCount / goal.milestones.length) * 100)
-                  : 0;
+            {filteredGoals.length === 0 ? (
+              <div className="p-6 text-center text-xs text-muted space-y-2">
+                <Target size={20} className="text-slate-300 mx-auto" />
+                <p className="font-medium text-slate">No goals to display.</p>
+                <p className="text-[11px] text-muted">Create a goal or generate a roadmap with AI to get started.</p>
+              </div>
+            ) : (
+              filteredGoals.map((goal) => {
+                const isCollapsed = collapsedGoals.has(goal.id);
+                const completedCount = goal.milestones.filter((m) => m.status === "completed").length;
+                const progressPct =
+                  goal.milestones.length > 0
+                    ? Math.round((completedCount / goal.milestones.length) * 100)
+                    : 0;
 
-              return (
-                <div key={goal.id} className="border-b border-border last:border-b-0">
-                  {/* Goal Header Row */}
-                  <div
-                    className="flex items-center justify-between px-3 hover:bg-slate-100/70 transition-colors cursor-pointer"
-                    style={{ height: GOAL_HEADER_HEIGHT }}
-                    onClick={() => toggleGoalCollapse(goal.id)}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <button className="text-muted hover:text-ink p-0.5">
-                        {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                      </button>
-                      <Target size={14} className="text-blue shrink-0" />
-                      <span className="font-bold text-ink text-xs truncate" title={goal.title}>
-                        {goal.title}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[10px] font-semibold text-muted bg-white border border-border px-1.5 py-0.5 rounded-md">
-                        {progressPct}%
-                      </span>
-                      {onAddMilestoneClick && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onAddMilestoneClick(goal.id);
-                          }}
-                          className="p-1 text-muted hover:text-blue hover:bg-white rounded-md transition-colors"
-                          title="Add Milestone"
-                        >
-                          <Plus size={13} />
+                return (
+                  <div key={goal.id} className="border-b border-border last:border-b-0">
+                    {/* Goal Header Row */}
+                    <div
+                      className="flex items-center justify-between px-3 hover:bg-slate-100/70 transition-colors cursor-pointer"
+                      style={{ height: GOAL_HEADER_HEIGHT }}
+                      onClick={() => toggleGoalCollapse(goal.id)}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button className="text-muted hover:text-ink p-0.5">
+                          {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                         </button>
-                      )}
-                    </div>
-                  </div>
+                        <Target size={14} className="text-blue shrink-0" />
+                        <span className="font-bold text-ink text-xs truncate" title={goal.title}>
+                          {goal.title}
+                        </span>
+                      </div>
 
-                  {/* Milestones List */}
-                  {!isCollapsed && (
-                    <div>
-                      {goal.milestones.map((ms) => {
-                        const isCritical =
-                          highlightCriticalPath && criticalMilestoneIds.has(ms.id);
-
-                        return (
-                          <div
-                            key={ms.id}
-                            style={{ height: ROW_HEIGHT }}
-                            className="flex items-center justify-between pl-8 pr-3 border-t border-border/40 hover:bg-blue-faint/30 transition-colors cursor-pointer group"
-                            onClick={() => {
-                              setSelectedMilestone(ms);
-                              setIsDrawerOpen(true);
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[10px] font-semibold text-muted bg-white border border-border px-1.5 py-0.5 rounded-md">
+                          {progressPct}%
+                        </span>
+                        {onAddMilestoneClick && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onAddMilestoneClick(goal.id);
                             }}
+                            className="p-1 text-muted hover:text-blue hover:bg-white rounded-md transition-colors"
+                            title="Add Milestone"
                           >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div
-                                className={`w-2 h-2 rounded-full shrink-0 ${
-                                  STATUS_THEMES[ms.status]?.barBg || "bg-slate-400"
-                                }`}
-                              />
-                              <span
-                                className={`text-xs truncate ${
-                                  isCritical ? "font-bold text-rose-700" : "text-slate font-medium"
-                                } group-hover:text-blue transition-colors`}
-                                title={ms.title}
-                              >
-                                {ms.title}
-                              </span>
-                            </div>
-
-                            {isCritical && (
-                              <span className="text-[9px] font-bold uppercase text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded-md shrink-0">
-                                Critical
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
+                            <Plus size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
+
+                    {/* Milestones List */}
+                    {!isCollapsed && (
+                      <div>
+                        {goal.milestones.map((ms) => {
+                          const isCritical =
+                            highlightCriticalPath && criticalMilestoneIds.has(ms.id);
+
+                          return (
+                            <div
+                              key={ms.id}
+                              style={{ height: ROW_HEIGHT }}
+                              className="flex items-center justify-between pl-8 pr-3 border-t border-border/40 hover:bg-blue-faint/30 transition-colors cursor-pointer group"
+                              onClick={() => {
+                                setSelectedMilestone(ms);
+                                setIsDrawerOpen(true);
+                              }}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className={`w-2 h-2 rounded-full shrink-0 ${
+                                    STATUS_THEMES[ms.status]?.barBg || "bg-slate-400"
+                                  }`}
+                                />
+                                <span
+                                  className={`text-xs truncate ${
+                                    isCritical ? "font-bold text-rose-700" : "text-slate font-medium"
+                                  } group-hover:text-blue transition-colors`}
+                                  title={ms.title}
+                                >
+                                  {ms.title}
+                                </span>
+                              </div>
+
+                              {isCritical && (
+                                <span className="text-[9px] font-bold uppercase text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded-md shrink-0">
+                                  Critical
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 

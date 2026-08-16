@@ -2,14 +2,13 @@
 
 import { useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
 import Logo from "@/components/reusables/Logo";
 import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 
 function RegisterForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   // Preserve callbackUrl so invite tokens survive the post-registration redirect
   const callbackUrl = getSafeCallbackUrl(searchParams.get("callbackUrl"), "/onboarding");

@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       linkedMilestone: {
         select: {
           id: true, title: true, status: true, goalId: true,
-          tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true } },
+          tasks: { select: { id: true, title: true, status: true, priority: true, assigneeId: true, dueDate: true } },
         },
       },
     },

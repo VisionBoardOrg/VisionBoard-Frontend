@@ -419,11 +419,20 @@ function MilestoneDetailDrawerContent({
                           {task.title}
                         </span>
                       </div>
-                      {task.dueDate && (
-                        <span className="text-[10px] text-muted shrink-0">
-                          {new Date(task.dueDate).toLocaleDateString()}
-                        </span>
-                      )}
+                      {(() => {
+                        const dateObj = task.dueDate ? new Date(task.dueDate) : null;
+                        const isOverdue = dateObj && !isDone && dateObj < new Date(new Date().setHours(0, 0, 0, 0));
+                        return dateObj ? (
+                          <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border shrink-0 ${
+                            isOverdue
+                              ? "bg-red-50 text-danger border-red-200 font-semibold"
+                              : "bg-slate-50 text-slate-600 border-slate-200"
+                          }`}>
+                            <Calendar size={9} className={isOverdue ? "text-danger" : "text-muted"} />
+                            {dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        ) : null;
+                      })()}
                     </div>
                   );
                 })}

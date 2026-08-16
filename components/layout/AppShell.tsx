@@ -14,7 +14,7 @@ import { RoleSwitcher } from "@/components/workspace/RoleSwitcher";
 import type { MemberRole } from "@/components/workspace/RoleSwitcher";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { NotificationToast } from "@/components/notifications/NotificationToast";
-import { useNotifications } from "@/hooks/useNotifications";
+import { useNotifications, NotificationProvider } from "@/hooks/useNotifications";
 
 interface AppShellProps {
   workspaceId: string | null;
@@ -61,29 +61,25 @@ const PLAN_LABEL: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
-export function AppShell({ workspaceId, role, plan, children, userId, isOwner, aiCreditsUsed, aiCreditsMax }: AppShellProps) {
+function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, aiCreditsUsed, aiCreditsMax }: AppShellProps) {
   const pathname = usePathname();
-  // Real-time live notifications & toasts
-  const { latestLiveEvent, dismissToast } = useNotifications(workspaceId);
+  // Real-time live notifications & toasts (consumed from shared NotificationProvider)
+  const { latestLiveEvent, dismissToast } = useNotifications();
 
-  // On mobile the sidebar starts closed; on desktop it starts open
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop sidebar default is open (true)
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const roleDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Default side nav to collapsed (not expanded) by default when reloaded
+  // Restore saved sidebar preference after mount to prevent SSR hydration mismatch
   useEffect(() => {
     try {
       const saved = localStorage.getItem("visionboard_sidebar_open");
       if (saved !== null) {
         setSidebarOpen(saved === "true");
-      } else {
-        setSidebarOpen(false); // Default collapsed on load/reload
       }
-    } catch {
-      setSidebarOpen(false);
-    }
+    } catch {}
   }, []);
 
   const toggleSidebar = () => {
@@ -95,11 +91,6 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
       return next;
     });
   };
-
-  // Close mobile drawer on route change
-  useEffect(() => {
-    setMobileOpen(false);
-  }, [pathname]);
 
   // Close role dropdown on outside click
   useEffect(() => {
@@ -123,7 +114,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
     : `${creditsUsed} / ${creditsMax} credits used`;
 
   /** Shared sidebar content — rendered both in the fixed desktop aside and the mobile drawer */
-  function SidebarContent({ onNavClick }: { onNavClick?: () => void }) {
+  function renderSidebarContent(onNavClick?: () => void) {
     const showLabel = sidebarOpen || mobileOpen;
 
     return (
@@ -293,7 +284,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
         >
           <X size={18} />
         </button>
-        <SidebarContent onNavClick={() => setMobileOpen(false)} />
+        {renderSidebarContent(() => setMobileOpen(false))}
       </aside>
 
       {/* ── Desktop sidebar ── */}
@@ -303,7 +294,7 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
         }`}
         aria-label="Desktop navigation"
       >
-        <SidebarContent />
+        {renderSidebarContent()}
       </aside>
 
       {/* Main */}
@@ -377,3 +368,12 @@ export function AppShell({ workspaceId, role, plan, children, userId, isOwner, a
     </div>
   );
 }
+
+export function AppShell(props: AppShellProps) {
+  return (
+    <NotificationProvider workspaceId={props.workspaceId}>
+      <AppShellContent {...props} />
+    </NotificationProvider>
+  );
+}
+

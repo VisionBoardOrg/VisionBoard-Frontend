@@ -130,6 +130,7 @@ export async function seedWorkspace({
               priority: taskDef.priority,
               storyPoints: taskDef.storyPoints,
               order: taskDef.order,
+              dueDate: msDef.targetDate ?? new Date(),
               sprintId: taskDef.status === "in_progress" || taskDef.status === "todo" ? firstSprintId : null,
               assigneeId: userId,
             },

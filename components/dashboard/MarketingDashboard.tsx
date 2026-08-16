@@ -11,7 +11,7 @@ type FullWorkspace = Workspace & {
 
 interface MarketingDashboardProps { workspace: FullWorkspace; userId: string; userName: string }
 
-export function MarketingDashboard({ workspace, userName }: MarketingDashboardProps) {
+export function MarketingDashboard({ workspace }: MarketingDashboardProps) {
   // Find milestones with upcoming target dates (treat as launch milestones)
   const allMilestones = workspace.goals.flatMap((g) => g.milestones);
   const now = new Date();

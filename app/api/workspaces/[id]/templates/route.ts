@@ -86,6 +86,7 @@ export async function POST(
                   priority: t.priority,
                   storyPoints: t.storyPoints,
                   order: t.order,
+                  dueDate: ms.targetDate ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
                 })),
               },
             })),

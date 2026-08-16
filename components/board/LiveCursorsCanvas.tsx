@@ -1,6 +1,7 @@
 "use client";
 
 import React, { memo, useMemo } from "react";
+import Image from "next/image";
 import type { RemoteCursor } from "@/hooks/useWebSocket";
 
 interface CursorItemProps {
@@ -41,11 +42,12 @@ const CursorItem = memo(function CursorItem({ cursor }: CursorItemProps) {
         style={{ backgroundColor: cursor.userColor }}
       >
         {cursor.userImage ? (
-          <img
+          <Image
             src={cursor.userImage}
             alt={cursor.userName}
-            decoding="async"
-            loading="eager"
+            width={16}
+            height={16}
+            unoptimized
             className="w-4 h-4 rounded-full object-cover border border-white/40"
             draggable={false}
           />

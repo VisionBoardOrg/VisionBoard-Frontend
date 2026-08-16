@@ -28,7 +28,7 @@ export interface GanttMilestone {
     id: string;
     title: string;
     status: string;
-    dueDate?: Date | string | null;
+    dueDate?: Date | string;
   }>;
 }
 

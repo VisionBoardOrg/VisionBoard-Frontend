@@ -12,35 +12,39 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const parsed = bodySchema.safeParse(body);
 
-  let userIdToRestore: string | null = null;
-
   if (session?.user?.id) {
-    userIdToRestore = session.user.id;
-  } else if (parsed.success && parsed.data.email) {
+    await prisma.user.update({
+      where: { id: session.user.id },
+      data: { scheduledDeletion: null },
+    });
+    return NextResponse.json({
+      success: true,
+      message: "Account deletion cancelled successfully. Your account has been reactivated.",
+    });
+  }
+
+  if (parsed.success && parsed.data.email) {
     const user = await prisma.user.findUnique({
       where: { email: parsed.data.email },
-      select: { id: true },
+      select: { id: true, scheduledDeletion: true },
     });
-    if (user) {
-      userIdToRestore = user.id;
+
+    if (user?.scheduledDeletion) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { scheduledDeletion: null },
+      });
     }
+
+    // Always return uniform response to prevent email enumeration
+    return NextResponse.json({
+      success: true,
+      message: "If that account was scheduled for deletion, it has been cancelled and reactivated.",
+    });
   }
 
-  if (!userIdToRestore) {
-    return NextResponse.json(
-      { error: "Invalid request. Please provide an email address or log in to restore your account." },
-      { status: 400 }
-    );
-  }
-
-  const updatedUser = await prisma.user.update({
-    where: { id: userIdToRestore },
-    data: { scheduledDeletion: null },
-    select: { id: true, email: true },
-  });
-
-  return NextResponse.json({
-    success: true,
-    message: `Account deletion cancelled successfully for ${updatedUser.email}. Your account has been reactivated.`,
-  });
+  return NextResponse.json(
+    { error: "Invalid request. Please provide an email address or log in to restore your account." },
+    { status: 400 }
+  );
 }

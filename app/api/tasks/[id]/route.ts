@@ -13,6 +13,7 @@ const patchSchema = z.object({
   status: z.enum(["todo", "in_progress", "in_review", "blocked", "done"]).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   title: z.string().min(1).optional(),
+  dueDate: z.string().or(z.date()).optional(),
   blockedReason: z.string().max(500).nullable().optional(),
 });
 
@@ -55,6 +56,14 @@ export async function PATCH(
   }
 
   const updateData: Record<string, unknown> = { ...parsed.data };
+  if (parsed.data.dueDate) {
+    const parsedDate = new Date(parsed.data.dueDate);
+    if (!isNaN(parsedDate.getTime())) {
+      updateData.dueDate = parsedDate;
+    } else {
+      delete updateData.dueDate;
+    }
+  }
   if (parsed.data.status && parsed.data.status !== "blocked" && !("blockedReason" in parsed.data)) {
     updateData.blockedReason = null;
   }

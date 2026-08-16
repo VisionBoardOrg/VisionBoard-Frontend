@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import Image from "next/image";
-import { X, Link2, User, CheckCircle2, Clock, AlertTriangle, Circle, ChevronDown, Check, Plus, Trash2 } from "lucide-react";
+import { X, Link2, User, CheckCircle2, Clock, AlertTriangle, Circle, ChevronDown, Check, Plus, Trash2, Calendar } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple, WebSocketEvent } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
 
@@ -337,18 +337,66 @@ function TaskRow({
     }
   }
 
+  async function updateDueDate(newDateStr: string) {
+    const prevDueDate = task.dueDate;
+    const newDueDate = new Date(newDateStr);
+    if (isNaN(newDueDate.getTime())) return;
+
+    // 1. Optimistic UI update locally & in Zustand store
+    onUpdate({ ...task, dueDate: newDueDate });
+    if (milestoneId) {
+      useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { dueDate: newDueDate });
+    }
+
+    // 2. Broadcast via WebSocket
+    if (sendEvent && workspaceId) {
+      sendEvent({
+        type: "TASK_UPDATED",
+        workspaceId,
+        milestoneId,
+        taskId: task.id,
+        dueDate: newDueDate.toISOString(),
+      });
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dueDate: newDueDate.toISOString() }),
+      });
+      if (!res.ok) {
+        onUpdate({ ...task, dueDate: prevDueDate });
+        if (milestoneId) {
+          useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { dueDate: prevDueDate });
+        }
+      }
+    } catch {
+      onUpdate({ ...task, dueDate: prevDueDate });
+      if (milestoneId) {
+        useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { dueDate: prevDueDate });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [priorityOpen, setPriorityOpen] = useState(false);
+  const [dueDateOpen, setDueDateOpen] = useState(false);
   const assignRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
   const priorityRef = useRef<HTMLDivElement>(null);
+  const dueDateRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handle(e: MouseEvent) {
       if (assignRef.current && !assignRef.current.contains(e.target as Node)) setAssignOpen(false);
       if (statusRef.current && !statusRef.current.contains(e.target as Node)) setStatusOpen(false);
       if (priorityRef.current && !priorityRef.current.contains(e.target as Node)) setPriorityOpen(false);
+      if (dueDateRef.current && !dueDateRef.current.contains(e.target as Node)) setDueDateOpen(false);
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
@@ -389,6 +437,97 @@ function TaskRow({
       <span className={`flex-1 text-[13px] truncate ${task.status === "done" ? "line-through text-slate-400" : "text-slate-700"}`}>
         {task.title}
       </span>
+
+      {/* Due Date picker popover */}
+      <div className="relative flex-shrink-0" ref={dueDateRef}>
+        {(() => {
+          const dateObj = task.dueDate ? new Date(task.dueDate) : new Date();
+          const isValid = !isNaN(dateObj.getTime());
+          const isOverdue = isValid && dateObj < new Date(new Date().setHours(0, 0, 0, 0)) && task.status !== "done";
+          const isToday = isValid && dateObj.toDateString() === new Date().toDateString();
+          const displayDate = isValid
+            ? dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+            : "Set due date";
+
+          return (
+            <>
+              <button
+                type="button"
+                onClick={() => setDueDateOpen(!dueDateOpen)}
+                title={`Due date: ${isValid ? dateObj.toLocaleDateString() : "None"} (Click to edit)`}
+                className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border transition-all hover:ring-2 ring-blue-200 ${
+                  isOverdue
+                    ? "bg-red-50 text-red-600 border-red-200 hover:bg-red-100"
+                    : isToday
+                    ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <Calendar size={10} className={isOverdue ? "text-red-500" : isToday ? "text-amber-500" : "text-slate-400"} />
+                <span>{displayDate}</span>
+              </button>
+
+              {dueDateOpen && (
+                <div className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-56 animate-in fade-in duration-150">
+                  <div className="text-[11px] font-semibold text-slate-600 mb-2 flex items-center justify-between">
+                    <span>Task Due Date</span>
+                    <button
+                      type="button"
+                      onClick={() => setDueDateOpen(false)}
+                      className="text-slate-400 hover:text-slate-600"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+
+                  {/* Quick Presets */}
+                  <div className="grid grid-cols-2 gap-1 mb-2.5">
+                    {[
+                      { label: "Today", days: 0 },
+                      { label: "Tomorrow", days: 1 },
+                      { label: "In 3 Days", days: 3 },
+                      { label: "In 1 Week", days: 7 },
+                    ].map((preset) => {
+                      const target = new Date();
+                      target.setDate(target.getDate() + preset.days);
+                      const isoDate = target.toISOString().split("T")[0];
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => {
+                            updateDueDate(isoDate);
+                            setDueDateOpen(false);
+                          }}
+                          className="text-[10px] font-medium text-left px-2 py-1 rounded bg-slate-50 hover:bg-blue-50 hover:text-blue-600 text-slate-700 transition-colors"
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Custom Date Input */}
+                  <div>
+                    <label className="block text-[10px] font-medium text-slate-500 mb-1">Pick date</label>
+                    <input
+                      type="date"
+                      defaultValue={isValid ? dateObj.toISOString().split("T")[0] : ""}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          updateDueDate(e.target.value);
+                          setDueDateOpen(false);
+                        }
+                      }}
+                      className="w-full text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
+      </div>
 
       {/* Priority chip dropdown */}
       <div className="relative flex-shrink-0" ref={priorityRef}>
@@ -529,14 +668,28 @@ function MilestoneSection({
   const [taskInputOpen, setTaskInputOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const defaultDueDate = localItem.linkedMilestone?.targetDate
+    ? new Date(localItem.linkedMilestone.targetDate).toISOString().split("T")[0]
+    : new Date().toISOString().split("T")[0];
+  const [newTaskDueDate, setNewTaskDueDate] = useState<string>(defaultDueDate);
+
   useEffect(() => {
-    if (taskInputOpen) inputRef.current?.focus();
-  }, [taskInputOpen]);
+    if (taskInputOpen) {
+      inputRef.current?.focus();
+      if (localItem.linkedMilestone?.targetDate) {
+        setNewTaskDueDate(new Date(localItem.linkedMilestone.targetDate).toISOString().split("T")[0]);
+      }
+    }
+  }, [taskInputOpen, localItem.linkedMilestone?.targetDate]);
 
   async function submitNewTask(e?: React.FormEvent) {
     e?.preventDefault();
     const title = newTaskTitle.trim();
     if (!title || !milestoneId) return;
+
+    const effectiveDueDate = newTaskDueDate
+      ? new Date(newTaskDueDate)
+      : (localItem.linkedMilestone?.targetDate ? new Date(localItem.linkedMilestone.targetDate) : new Date());
 
     // Optimistic update — show task immediately before the API responds
     const tempId = `temp-${Date.now()}`;
@@ -547,6 +700,7 @@ function MilestoneSection({
       priority: "medium",
       storyPoints: null,
       assigneeId: null,
+      dueDate: effectiveDueDate,
     };
     setLocalTasks((prev) => [...prev, optimisticTask]);
     setNewTaskTitle("");
@@ -557,7 +711,11 @@ function MilestoneSection({
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ milestoneId, title }),
+        body: JSON.stringify({
+          milestoneId,
+          title,
+          dueDate: effectiveDueDate.toISOString(),
+        }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -670,7 +828,7 @@ function MilestoneSection({
 
           {/* Add task input */}
           {taskInputOpen ? (
-            <form onSubmit={submitNewTask} className="mt-2 flex items-center gap-1.5">
+            <form onSubmit={submitNewTask} className="mt-2 p-2 bg-slate-50 border border-slate-200 rounded-xl space-y-2 animate-in fade-in duration-150">
               <input
                 ref={inputRef}
                 type="text"
@@ -678,22 +836,37 @@ function MilestoneSection({
                 onChange={(e) => setNewTaskTitle(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Escape") { setTaskInputOpen(false); setNewTaskTitle(""); } }}
                 placeholder="Task title…"
-                className="flex-1 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
+                className="w-full border border-slate-200 bg-white rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
               />
-              <button
-                type="submit"
-                disabled={!newTaskTitle.trim() || addingTask}
-                className="px-2.5 py-1.5 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {addingTask ? "…" : "Add"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setTaskInputOpen(false); setNewTaskTitle(""); }}
-                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
-              >
-                <X size={13} />
-              </button>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-500 bg-white border border-slate-200 rounded-md px-2 py-0.5">
+                  <Calendar size={11} className="text-slate-400" />
+                  <span className="text-[10px] text-slate-400 font-medium">Due:</span>
+                  <input
+                    type="date"
+                    value={newTaskDueDate}
+                    onChange={(e) => setNewTaskDueDate(e.target.value)}
+                    className="text-[11px] text-slate-700 bg-transparent focus:outline-none cursor-pointer"
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => { setTaskInputOpen(false); setNewTaskTitle(""); }}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-200 transition-colors"
+                    title="Cancel"
+                  >
+                    <X size={13} />
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newTaskTitle.trim() || addingTask}
+                    className="px-2.5 py-1 text-xs font-semibold bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
+                  >
+                    {addingTask ? "…" : "Add Task"}
+                  </button>
+                </div>
+              </div>
             </form>
           ) : (
             <button
@@ -730,7 +903,11 @@ interface CardDetailPanelProps {
   onItemDeleted: (itemId: string) => void;
 }
 
-export function CardDetailPanel({
+export function CardDetailPanel(props: CardDetailPanelProps) {
+  return <CardDetailPanelContent key={props.item.id} {...props} />;
+}
+
+function CardDetailPanelContent({
   item,
   goals,
   milestones,
@@ -752,7 +929,6 @@ export function CardDetailPanel({
 
   const [localTasks, setLocalTasks] = useState<TaskSimple[]>(initialTasks);
   const prevTasksRef = useRef<TaskSimple[]>(initialTasks);
-  const prevItemIdRef = useRef<string>(item.id);
 
   // Simple alias so call-sites are unchanged
   const setLocalTasksAndSync = setLocalTasks;
@@ -760,22 +936,12 @@ export function CardDetailPanel({
   const [noteLabel, setNoteLabel] = useState(item.label ?? "");
 
   // Keep local state in sync if item changes from outside (e.g. drag or WebSocket event)
-  useEffect(() => {
+  const [prevItem, setPrevItem] = useState(item);
+  if (item !== prevItem) {
+    setPrevItem(item);
     setLocalItem(item);
     setNoteLabel(item.label ?? "");
-  }, [item]);
-
-  // Reset task list only when the user switches to a different card
-  useEffect(() => {
-    if (prevItemIdRef.current !== item.id) {
-      prevItemIdRef.current = item.id;
-      const currentMilestoneId = item.linkedMilestoneId ?? item.linkedMilestone?.id;
-      const linkedMs = milestones.find((m) => m.id === currentMilestoneId);
-      const nextTasks = item.linkedMilestone?.tasks ?? linkedMs?.tasks ?? [];
-      prevTasksRef.current = nextTasks;
-      setLocalTasks(nextTasks);
-    }
-  }, [item.id, item.linkedMilestoneId, milestones]);
+  }
 
   // Propagate task list changes to the canvas ONLY when tasks were actually modified
   useEffect(() => {
@@ -820,13 +986,6 @@ export function CardDetailPanel({
       setTimeout(() => setSaved(false), 1500);
     }
     setSaving(false);
-  }
-
-  // ── Goal link: links the board item to a goal
-  async function handleGoalLink(goalId: string | null) {
-    const goal = goalId ? goals.find((g) => g.id === goalId) ?? null : null;
-    await patchBoardItem({ linkedGoalId: goalId });
-    setLocalItem((prev) => ({ ...prev, linkedGoalId: goalId, linkedGoal: goal }));
   }
 
   // ── Milestone link: links board item to a milestone

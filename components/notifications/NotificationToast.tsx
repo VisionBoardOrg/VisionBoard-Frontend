@@ -2,6 +2,7 @@
 
 import React, { useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { X, Bell } from "lucide-react";
 import type { NotificationResponseItem } from "@/lib/notifications";
 
@@ -29,9 +30,12 @@ export function NotificationToast({ event, onDismiss }: NotificationToastProps) 
       {/* Icon / Actor Image */}
       <div className="shrink-0 mt-0.5">
         {event.actor?.image ? (
-          <img
+          <Image
             src={event.actor.image}
             alt={event.actor.name || "User"}
+            width={36}
+            height={36}
+            unoptimized
             className="w-9 h-9 rounded-full object-cover border border-blue-light"
           />
         ) : (
