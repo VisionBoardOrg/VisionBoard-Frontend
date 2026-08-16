@@ -43,7 +43,7 @@ export interface TaskSimple {
   priority: string;
   storyPoints: number | null;
   assigneeId: string | null;
-  dueDate: Date | string;
+  dueDate: Date | string | null;
 }
 
 export interface UserSimple {
