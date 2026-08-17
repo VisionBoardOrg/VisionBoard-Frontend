@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { AppShell } from "@/components/layout/AppShell";
 import { GoalDetail } from "@/components/goals/GoalDetail";
 
 interface GoalPageProps { params: Promise<{ id: string; goalId: string }> }
@@ -50,10 +49,6 @@ export default async function GoalPage({ params }: GoalPageProps) {
   if (!goal || goal.workspaceId !== id) redirect(`/workspace/${id}/board`);
 
   return (
-    <AppShell workspaceId={id} role={session.user.role}
-      userId={session.user.id}
-    >
-      <GoalDetail goal={goal as never} workspaceId={id} userId={session.user.id} />
-    </AppShell>
+    <GoalDetail goal={goal as never} workspaceId={id} userId={session.user.id} />
   );
 }
