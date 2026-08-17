@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { tiptapDocSchema } from "@/lib/validations/tiptap-schema";
+import { indexSingleEntity } from "@/lib/ai/indexer";
 
 const patchSchema = z.object({
   title: z.string().min(1).max(255).optional(),
@@ -155,6 +156,11 @@ export async function PATCH(
     `;
   }
 
+  // Background incremental knowledge indexing for AI Copilot
+  indexSingleEntity(doc.workspaceId, "document", id).catch((err) =>
+    console.error("[documents/patch] Incremental index error:", err)
+  );
+
   return NextResponse.json({ document: updated });
 }
 
@@ -187,6 +193,7 @@ export async function DELETE(
 
   await prisma.$transaction([
     prisma.document.delete({ where: { id } }),
+    prisma.workspaceEmbedding.deleteMany({ where: { workspaceId: doc.workspaceId, entityId: id } }),
   ]);
 
   // Decrement storage counter via raw SQL to avoid Prisma client type mismatch

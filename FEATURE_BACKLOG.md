@@ -101,12 +101,12 @@
 - **Problem**: Knowledge is fragmented across PRDs, comments, goals, and sprint notes. AI can only execute isolated one-shot prompts.
 - **Solution**: Vectorize workspace knowledge (`pgvector`) and deploy a floating AI Copilot that answers strategic questions with source citations.
 - **Core Capabilities**:
-  - [ ] Configure `pgvector` extension in PostgreSQL and Prisma schema.
-  - [ ] Chunk and embed PRDs (`Document`), task comments, and goal specs on create/update.
-  - [ ] Global Copilot drawer component (`<AICopilotDrawer />`) accessible across all workspace views.
-  - [ ] Natural language Q&A: *"What were the key blockers in Q2 sprint 4?"*, *"Draft a spec for Stripe webhooks based on our docs"*.
-  - [ ] Real-time Server-Sent Events (SSE) streaming with interactive citation badges linking to exact docs/tasks.
-  - [ ] One-click Weekly Executive Summary & Standup Generator.
+  - [x] Configure `pgvector` extension in PostgreSQL and Prisma schema.
+  - [x] Chunk and embed PRDs (`Document`), task comments, and goal specs on create/update.
+  - [x] Global Copilot drawer component (`<AICopilotDrawer />`) accessible across all workspace views.
+  - [x] Natural language Q&A: *"What were the key blockers in Q2 sprint 4?"*, *"Draft a spec for Stripe webhooks based on our docs"*.
+  - [x] Real-time Server-Sent Events (SSE) streaming with interactive citation badges linking to exact docs/tasks.
+  - [x] One-click Weekly Executive Summary & Standup Generator.
 
 ---
 

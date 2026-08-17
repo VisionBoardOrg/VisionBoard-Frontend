@@ -40,6 +40,7 @@ model User {
   memberships     WorkspaceMember[]
   notifications   Notification[]    @relation("UserNotifications")
   triggeredNotifications Notification[] @relation("ActorNotifications")
+  copilotConversations CopilotConversation[]
 }
 
 model Account {
@@ -100,6 +101,8 @@ model Workspace {
   invites       WorkspaceInvite[]
   members       WorkspaceMember[]
   notifications Notification[]
+  embeddings    WorkspaceEmbedding[]
+  copilotConversations CopilotConversation[]
 
   @@index([ownerId])
 }
@@ -413,6 +416,57 @@ enum AIFeature {
   goal_deconstructor
   progress_insights
   nl_board_edit
+  workspace_copilot
+  executive_summary
+}
+
+model WorkspaceEmbedding {
+  id          String    @id @default(cuid())
+  workspaceId String
+  entityType  String    // "document" | "goal" | "milestone" | "task" | "comment"
+  entityId    String
+  chunkIndex  Int       @default(0)
+  title       String
+  content     String    @db.Text
+  embedding   Float[]
+  metadata    Json?     // { authorName, status, priority, url, updatedAt, tags }
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, entityType])
+  @@index([entityId])
+  @@index([workspaceId, entityId])
+}
+
+model CopilotConversation {
+  id          String           @id @default(cuid())
+  workspaceId String
+  userId      String
+  title       String           @default("New Conversation")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  messages    CopilotMessage[]
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, userId])
+  @@index([workspaceId, createdAt])
+}
+
+model CopilotMessage {
+  id             String              @id @default(cuid())
+  conversationId String
+  role           String              // "user" | "assistant" | "system"
+  content        String              @db.Text
+  citations      Json?               // [{ id, entityType, entityId, title, snippet, url }]
+  tokensUsed     Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  conversation   CopilotConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
 }
 
 model Notification {

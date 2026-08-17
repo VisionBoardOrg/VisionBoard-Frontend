@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
 import { tiptapDocSchema } from "@/lib/validations/tiptap-schema";
+import { indexSingleEntity } from "@/lib/ai/indexer";
 
 const createSchema = z.object({
   workspaceId: z.string(),
@@ -125,6 +126,11 @@ export async function POST(request: NextRequest) {
     SET "storageUsedBytes" = "storageUsedBytes" + ${incomingBytes}
     WHERE id = ${workspaceId}
   `;
+
+  // Background incremental knowledge indexing for AI Copilot
+  indexSingleEntity(workspaceId, "document", document.id).catch((err) =>
+    console.error("[documents/create] Incremental index error:", err)
+  );
 
   return NextResponse.json({ document }, { status: 201 });
 }

@@ -462,10 +462,85 @@ BEGIN
 END $$;
 
 
--- ---------------------------------------------------------------------------
--- 17. User TABLE — add scheduledDeletion for soft-delete / 30-day retention.
---     Set when a user requests account deletion. A nightly cron job purges
---     users whose scheduledDeletion date has passed.
--- ---------------------------------------------------------------------------
-
 ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "scheduledDeletion" TIMESTAMP(3);
+
+
+-- ---------------------------------------------------------------------------
+-- 18. AIFeature ENUM — add workspace_copilot and executive_summary
+-- ---------------------------------------------------------------------------
+DO $$ BEGIN
+  ALTER TYPE "AIFeature" ADD VALUE IF NOT EXISTS 'workspace_copilot';
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TYPE "AIFeature" ADD VALUE IF NOT EXISTS 'executive_summary';
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+
+-- ---------------------------------------------------------------------------
+-- 19. pgvector EXTENSION & WorkspaceEmbedding TABLE
+-- ---------------------------------------------------------------------------
+DO $$ BEGIN
+  CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "WorkspaceEmbedding" (
+  "id" TEXT NOT NULL,
+  "workspaceId" TEXT NOT NULL,
+  "entityType" TEXT NOT NULL,
+  "entityId" TEXT NOT NULL,
+  "chunkIndex" INTEGER NOT NULL DEFAULT 0,
+  "title" TEXT NOT NULL,
+  "content" TEXT NOT NULL,
+  "embedding" DOUBLE PRECISION[],
+  "metadata" JSONB,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT "WorkspaceEmbedding_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "WorkspaceEmbedding_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "WorkspaceEmbedding_workspaceId_idx" ON "WorkspaceEmbedding"("workspaceId");
+CREATE INDEX IF NOT EXISTS "WorkspaceEmbedding_workspaceId_entityType_idx" ON "WorkspaceEmbedding"("workspaceId", "entityType");
+CREATE INDEX IF NOT EXISTS "WorkspaceEmbedding_entityId_idx" ON "WorkspaceEmbedding"("entityId");
+CREATE INDEX IF NOT EXISTS "WorkspaceEmbedding_workspaceId_entityId_idx" ON "WorkspaceEmbedding"("workspaceId", "entityId");
+
+
+-- ---------------------------------------------------------------------------
+-- 20. CopilotConversation & CopilotMessage TABLES
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS "CopilotConversation" (
+  "id" TEXT NOT NULL,
+  "workspaceId" TEXT NOT NULL,
+  "userId" TEXT NOT NULL,
+  "title" TEXT NOT NULL DEFAULT 'New Conversation',
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT "CopilotConversation_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "CopilotConversation_workspaceId_fkey" FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "CopilotConversation_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "CopilotConversation_workspaceId_userId_idx" ON "CopilotConversation"("workspaceId", "userId");
+CREATE INDEX IF NOT EXISTS "CopilotConversation_workspaceId_createdAt_idx" ON "CopilotConversation"("workspaceId", "createdAt");
+
+CREATE TABLE IF NOT EXISTS "CopilotMessage" (
+  "id" TEXT NOT NULL,
+  "conversationId" TEXT NOT NULL,
+  "role" TEXT NOT NULL,
+  "content" TEXT NOT NULL,
+  "citations" JSONB,
+  "tokensUsed" INTEGER NOT NULL DEFAULT 0,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT "CopilotMessage_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "CopilotMessage_conversationId_fkey" FOREIGN KEY ("conversationId") REFERENCES "CopilotConversation"("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "CopilotMessage_conversationId_createdAt_idx" ON "CopilotMessage"("conversationId", "createdAt");
+

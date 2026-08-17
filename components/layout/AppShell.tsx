@@ -5,16 +5,15 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
-  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronDown, ChevronLeft, X, Menu, UserCircle, Users,
+  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronLeft, X, Menu, UserCircle, Users,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 
 import Logo, { VBMark } from "../reusables/Logo";
-import { RoleSwitcher } from "@/components/workspace/RoleSwitcher";
-import type { MemberRole } from "@/components/workspace/RoleSwitcher";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { NotificationToast } from "@/components/notifications/NotificationToast";
 import { useNotifications, NotificationProvider } from "@/hooks/useNotifications";
+import { AICopilotDrawer } from "@/components/copilot/AICopilotDrawer";
 
 interface AppShellProps {
   workspaceId: string | null;
@@ -69,8 +68,7 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
   // Desktop sidebar default is open (true)
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
-  const roleDropdownRef = useRef<HTMLDivElement>(null);
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   // Restore saved sidebar preference after mount to prevent SSR hydration mismatch
   useEffect(() => {
@@ -91,17 +89,6 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
       return next;
     });
   };
-
-  // Close role dropdown on outside click
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (roleDropdownRef.current && !roleDropdownRef.current.contains(e.target as Node)) {
-        setRoleDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const personalItems = PERSONAL_NAV;
   const workspaceItems = workspaceId ? WORKSPACE_NAV(workspaceId) : [];
@@ -327,44 +314,24 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
 
           {/* Notification Bell */}
           <NotificationBell workspaceId={workspaceId} />
-
-          {/* Role switcher dropdown */}
-          {role && workspaceId && (
-            <div className="relative" ref={roleDropdownRef}>
-              <button
-                onClick={() => setRoleDropdownOpen((o) => !o)}
-                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-blue-faint text-blue font-medium capitalize hover:bg-blue/10 transition-colors cursor-pointer"
-                aria-label="Switch role"
-              >
-                <span className="hidden sm:inline">
-                  {isOwner ? "Owner" : role.replace("_", " ")}
-                </span>
-                <span className="sm:hidden">
-                  {isOwner ? "O" : role.charAt(0).toUpperCase()}
-                </span>
-                <ChevronDown size={11} className={`transition-transform ${roleDropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              {roleDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 z-50 bg-white border border-border rounded-2xl shadow-xl p-4 w-64 sm:w-72">
-                  <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Switch dashboard view</p>
-                  <RoleSwitcher
-                    workspaceId={workspaceId!}
-                    currentRole={role as MemberRole}
-                    userId={userId ?? undefined}
-                    isOwner={isOwner}
-                    compact
-                    onRoleChange={() => setRoleDropdownOpen(false)}
-                  />
-                </div>
-              )}
-            </div>
-          )}
         </header>
 
         {/* Page content */}
         <main className="flex-1 overflow-auto p-4 md:p-6 no-scrollbar">{children}</main>
       </div>
+
+      {/* ── Global Semantic AI Copilot Drawer ── */}
+      {workspaceId && (
+        <AICopilotDrawer
+          workspaceId={workspaceId}
+          plan={plan}
+          aiCreditsUsed={aiCreditsUsed}
+          aiCreditsMax={aiCreditsMax}
+          isOpen={copilotOpen}
+          onClose={() => setCopilotOpen(false)}
+          onOpen={() => setCopilotOpen(true)}
+        />
+      )}
     </div>
   );
 }
