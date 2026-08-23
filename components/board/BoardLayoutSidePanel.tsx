@@ -65,29 +65,27 @@ export function BoardLayoutSidePanel({
               Select Active Layout
             </label>
             <div className="space-y-4">
-              {/* Option 1: Spatial Canvas View */}
+              {/* Option 1: Canvas View */}
               <div
                 onClick={() => onSelectLayout("canvas")}
-                className={`group relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                  currentLayout === "canvas"
-                    ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
-                    : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
-                }`}
+                className={`group relative p-4 rounded-xl border-2 cursor-pointer transition-all ${currentLayout === "canvas"
+                  ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
+                  : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
+                  }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`p-2.5 rounded-lg ${
-                        currentLayout === "canvas"
-                          ? "bg-indigo-600 text-white"
-                          : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
-                      }`}
+                      className={`p-2.5 rounded-lg ${currentLayout === "canvas"
+                        ? "bg-indigo-600 text-white"
+                        : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
+                        }`}
                     >
                       <LayoutGrid size={20} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-slate-900">Spatial Canvas</h3>
+                        <h3 className="text-sm font-semibold text-slate-900">Canvas</h3>
                         {currentLayout === "canvas" && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white uppercase tracking-wider">
                             Active
@@ -125,26 +123,24 @@ export function BoardLayoutSidePanel({
               {/* Option 2: Status Kanban Columns View */}
               <div
                 onClick={() => onSelectLayout("kanban")}
-                className={`group relative p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                  currentLayout === "kanban"
-                    ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
-                    : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
-                }`}
+                className={`group relative p-4 rounded-xl border-2 cursor-pointer transition-all ${currentLayout === "kanban"
+                  ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
+                  : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
+                  }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`p-2.5 rounded-lg ${
-                        currentLayout === "kanban"
-                          ? "bg-indigo-600 text-white"
-                          : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
-                      }`}
+                      className={`p-2.5 rounded-lg ${currentLayout === "kanban"
+                        ? "bg-indigo-600 text-white"
+                        : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
+                        }`}
                     >
                       <Kanban size={20} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-slate-900">Status Columns</h3>
+                        <h3 className="text-sm font-semibold text-slate-900">Kanban</h3>
                         {currentLayout === "kanban" && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white uppercase tracking-wider">
                             Active
@@ -152,7 +148,7 @@ export function BoardLayoutSidePanel({
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Structured status columns (To Do, In Progress, Complete) with drag-and-drop
+                        Structured Kanban (To Do, In Progress, Complete) with drag-and-drop
                       </p>
                     </div>
                   </div>

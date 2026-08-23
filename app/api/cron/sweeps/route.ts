@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { evaluateAllGoalsHealth } from "@/lib/goal-health";
+import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { evaluateQuotaThresholds, checkAndRecordQuotaWarning } from "@/lib/quota-alerts";
 import {
   dispatchMilestoneDelayedNotification,
@@ -33,6 +34,8 @@ function safeCompare(a: string, b: string): boolean {
  * 2. Milestone slippage evaluation & auto-marking overdue milestones as "delayed".
  * 3. Goal health score recalculation across all active workspaces.
  * 4. Proactive AI & storage quota threshold sweeps (80%/90% capacity warnings).
+ * 5. Retention cleanup: activity logs past each workspace's plan retention
+ *    window and read notifications older than 90 days.
  *
  * Protected by CRON_SECRET verification.
  */
@@ -67,6 +70,9 @@ export async function GET(request: NextRequest) {
       status: { not: "done" },
       dueDate: { lte: fortyEightHoursFromNow },
     },
+    // Defensive cap — a pathological backlog should not make this query
+    // return (and hold) an unbounded row set in memory.
+    take: 1000,
     select: {
       id: true,
       title: true,
@@ -106,6 +112,8 @@ export async function GET(request: NextRequest) {
       status: { notIn: ["completed", "delayed"] },
       targetDate: { lt: now },
     },
+    // Defensive cap, same rationale as the task sweep above.
+    take: 1000,
     select: {
       id: true,
       title: true,
@@ -123,31 +131,38 @@ export async function GET(request: NextRequest) {
     });
     newlyDelayedCount = updateResult.count;
 
-    // Record activity logs & dispatch notifications for delayed milestones
-    for (const m of slippingMilestones) {
-      await prisma.activityLog.create({
-        data: {
-          workspaceId: m.goal.workspaceId,
-          userId: null,
-          entityType: "milestone",
-          entityId: m.id,
-          action: "milestone_delayed_auto",
-          diff: {
-            reason: "Target date elapsed without completion",
-            targetDate: m.targetDate,
-            detectedAt: now.toISOString(),
-          },
-        },
-      }).catch((err) => console.error("[cron/sweeps] Activity log failed for milestone:", err));
+    // Record activity logs for delayed milestones — single batched insert
+    // instead of one awaited round-trip per milestone.
+    const delayLogRows = slippingMilestones.map((m) => ({
+      workspaceId: m.goal.workspaceId,
+      userId: null,
+      entityType: "milestone",
+      entityId: m.id,
+      action: "milestone_delayed_auto",
+      diff: {
+        reason: "Target date elapsed without completion",
+        targetDate: m.targetDate,
+        detectedAt: now.toISOString(),
+      },
+    }));
+    await prisma.activityLog
+      .createMany({ data: delayLogRows })
+      .catch((err) => console.error("[cron/sweeps] Batched activity log write failed:", err));
 
-      // Dispatch milestone delayed notification
+    // Dispatch milestone delayed notifications in chunks of 10 so we never
+    // flood the database with dozens of concurrent dispatches.
+    const delayNotifDispatches = slippingMilestones.map((m) =>
       dispatchMilestoneDelayedNotification({
         milestoneId: m.id,
         milestoneTitle: m.title,
         targetDate: m.targetDate,
         goalId: m.goal.id,
         workspaceId: m.goal.workspaceId,
-      }).catch((err) => console.error("[cron/sweeps] Milestone delayed notification failed:", err));
+      }).catch((err) => console.error("[cron/sweeps] Milestone delayed notification failed:", err))
+    );
+    const NOTIF_CHUNK = 10;
+    for (let i = 0; i < delayNotifDispatches.length; i += NOTIF_CHUNK) {
+      await Promise.allSettled(delayNotifDispatches.slice(i, i + NOTIF_CHUNK));
     }
   }
 
@@ -246,8 +261,10 @@ export async function GET(request: NextRequest) {
   }
 
   // ── 4. Quota Threshold Warnings (AI & Storage) ───────────────────────────
+  // Also fetches each owner's plan here so the retention phase below can reuse
+  // this single workspace scan (no second full-table read).
   const allWorkspaces = await prisma.workspace.findMany({
-    select: { id: true, ownerId: true },
+    select: { id: true, ownerId: true, owner: { select: { plan: true } } },
   });
 
   const quotaWarnings: Array<Record<string, unknown>> = [];
@@ -299,6 +316,43 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // ── 5. Retention Cleanup (Activity Logs & Read Notifications) ────────────
+  // Non-fatal: any failure is logged and never aborts the sweep.
+  let activityLogsDeleted = 0;
+  let readNotificationsDeleted = 0;
+  try {
+    // a) Delete activity logs older than each workspace's plan retention
+    //    window. Group workspace ids by retention length (reusing the single
+    //    workspace fetch from the quota phase) so we run one deleteMany per
+    //    tier instead of one per workspace.
+    const retentionGroups = new Map<number, string[]>();
+    for (const ws of allWorkspaces) {
+      const plan = ws.owner.plan ?? "free";
+      const days = PLAN_LIMITS[plan].activityLogDays;
+      if (days < 0) continue; // -1 = unlimited retention (enterprise)
+      const ids = retentionGroups.get(days);
+      if (ids) ids.push(ws.id);
+      else retentionGroups.set(days, [ws.id]);
+    }
+
+    for (const [days, workspaceIds] of retentionGroups) {
+      const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+      const result = await prisma.activityLog.deleteMany({
+        where: { workspaceId: { in: workspaceIds }, createdAt: { lt: cutoff } },
+      });
+      activityLogsDeleted += result.count;
+    }
+
+    // b) Delete read notifications older than 90 days.
+    const notificationCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const notifResult = await prisma.notification.deleteMany({
+      where: { read: true, readAt: { lt: notificationCutoff } },
+    });
+    readNotificationsDeleted = notifResult.count;
+  } catch (err) {
+    console.error("[cron/sweeps] Retention cleanup failed:", err);
+  }
+
   return NextResponse.json({
     success: true,
     timestamp: now.toISOString(),
@@ -319,6 +373,10 @@ export async function GET(request: NextRequest) {
     quotaSweep: {
       totalWorkspacesChecked: allWorkspaces.length,
       workspacesWithWarningsCount: quotaWarnings.length,
+    },
+    retentionSweep: {
+      activityLogsDeleted,
+      readNotificationsDeleted,
     },
   });
 }

@@ -22,8 +22,8 @@ export default async function RootLayout({
   const session = await auth();
 
   return (
-    <html lang="en" className={`${jakarta.variable} font-sans h-full antialiased`}>
-      <body className="h-full bg-offwhite text-ink">
+    <html lang="en" className={`${jakarta.variable} font-sans h-full antialiased`} suppressHydrationWarning>
+      <body className="h-full bg-offwhite text-ink" suppressHydrationWarning>
         <SessionProvider session={session} refetchOnWindowFocus={false}>
           {children}
         </SessionProvider>

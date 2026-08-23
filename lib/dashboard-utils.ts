@@ -28,8 +28,8 @@ export function computeGoalHealth(goal: GoalWithRelations): number {
   return Math.min(100, score);
 }
 
-/** Sprint velocity helpers */
-export function computeSprintVelocity(tasks: Task[]) {
+/** Sprint velocity helpers — structural input so slim dashboard projections work */
+export function computeSprintVelocity(tasks: Array<{ status: string; storyPoints?: number | null }>) {
   const planned = tasks.reduce((sum, t) => sum + (t.storyPoints ?? 0), 0);
   const completed = tasks
     .filter((t) => t.status === "done")
@@ -38,7 +38,7 @@ export function computeSprintVelocity(tasks: Task[]) {
 }
 
 /** Count tasks by status */
-export function taskStatusCounts(tasks: Task[]) {
+export function taskStatusCounts(tasks: Array<{ status: string }>) {
   return {
     todo: tasks.filter((t) => t.status === "todo").length,
     in_progress: tasks.filter((t) => t.status === "in_progress").length,

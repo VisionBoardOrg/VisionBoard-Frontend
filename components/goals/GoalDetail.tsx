@@ -6,6 +6,7 @@ import { computeGoalHealth } from "@/lib/dashboard-utils";
 import { Zap, FileText, MessageCircle, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { MentionInput, renderMentionedBody } from "@/components/ui/MentionInput";
+import { useConfirm } from "@/context/ConfirmContext";
 
 const GoalHealthScore = dynamic(
   () => import("@/components/dashboard/GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
@@ -58,6 +59,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 };
 
 export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
+  const { confirm: confirmDialog } = useConfirm();
   const [comment, setComment] = useState("");
   const [comments, setComments] = useState(goal.comments);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -429,7 +431,13 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                       </button>
                       <button
                         onClick={async () => {
-                          if (!confirm("Delete this comment?")) return;
+                          const ok = await confirmDialog({
+                            title: "Delete this comment?",
+                            description: "This cannot be undone.",
+                            confirmLabel: "Delete",
+                            danger: true,
+                          });
+                          if (!ok) return;
                           const res = await fetch(`/api/comments/${c.id}`, { method: "DELETE" });
                           if (res.ok) setComments((prev) => prev.filter((x) => x.id !== c.id));
                         }}

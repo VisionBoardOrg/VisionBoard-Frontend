@@ -3,6 +3,7 @@
 import { memo, useMemo } from "react";
 import Image from "next/image";
 import type { RemoteCursor } from "@/hooks/useWebSocket";
+import { useCursorStore } from "@/store/cursor-store";
 
 interface CursorItemProps {
   cursor: RemoteCursor;
@@ -77,11 +78,17 @@ const CursorItem = memo(function CursorItem({ cursor }: CursorItemProps) {
 });
 
 interface LiveCursorsCanvasProps {
-  cursors: Record<string, RemoteCursor>;
   currentUserId?: string | null;
 }
 
-function LiveCursorsCanvasInner({ cursors, currentUserId }: LiveCursorsCanvasProps) {
+/**
+ * Cursor overlay. Subscribes DIRECTLY to the cursor store so the 25Hz remote
+ * cursor stream re-renders only this lightweight overlay — never BoardCanvas
+ * or the card tree.
+ */
+function LiveCursorsCanvasInner({ currentUserId }: LiveCursorsCanvasProps) {
+  const cursors = useCursorStore((s) => s.cursors);
+
   const remoteCursors = useMemo(() => {
     const out: RemoteCursor[] = [];
     for (const c of Object.values(cursors)) {

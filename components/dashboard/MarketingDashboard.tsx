@@ -1,15 +1,8 @@
 "use client";
 
-import { Goal, Milestone, Sprint, Task, Workspace, WorkspaceMember, User } from "@prisma/client";
+import type { DashboardWorkspace } from "@/types/dashboard";
 
-type FullWorkspace = Workspace & {
-  goals: (Goal & { milestones: (Milestone & { tasks: Task[] })[] })[];
-  sprints: (Sprint & { tasks: Task[] })[];
-  members: (WorkspaceMember & { user: User })[];
-  _count: { goals: number; documents: number; members: number };
-};
-
-interface MarketingDashboardProps { workspace: FullWorkspace; userId: string; userName: string }
+interface MarketingDashboardProps { workspace: DashboardWorkspace; userId: string; userName: string }
 
 export function MarketingDashboard({ workspace }: MarketingDashboardProps) {
   // Find milestones with upcoming target dates (treat as launch milestones)
@@ -29,7 +22,7 @@ export function MarketingDashboard({ workspace }: MarketingDashboardProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-ink">Marketing / Growth</h1>
+        <h2 className="text-2xl font-bold text-ink">Marketing / Growth</h2>
         <p className="text-slate text-sm mt-1">Campaign milestones and launch timelines</p>
       </div>
 

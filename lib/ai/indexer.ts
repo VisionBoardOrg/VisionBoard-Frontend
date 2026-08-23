@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { prisma } from "@/lib/prisma";
 import {
   formatDocumentForEmbedding,
@@ -6,7 +7,7 @@ import {
   formatTaskForEmbedding,
 } from "./text-extractor";
 import { chunkText } from "./chunker";
-import { generateBatchEmbeddings, generateEmbedding } from "./embeddings";
+import { generateBatchEmbeddings } from "./embeddings";
 
 export interface IndexStats {
   documentsCount: number;
@@ -45,50 +46,71 @@ export async function getWorkspaceIndexStats(workspaceId: string): Promise<Index
 }
 
 /**
+ * Keeps the native pgvector column ("embeddingVec", see
+ * prisma/migrations/apply_vector_embeddings.sql) in sync with the Prisma-
+ * writable Float[] column after an insert. Ids are generated client-side so
+ * this runs as a single UPDATE regardless of chunk count. No-op when the
+ * vector column doesn't exist yet — the Float[] fallback search still works.
+ */
+async function syncVectorColumns(ids: string[], embeddings: number[][]): Promise<void> {
+  if (ids.length === 0) return;
+  try {
+    const vecTexts = embeddings.map((v) => JSON.stringify(v));
+    await prisma.$executeRaw`
+      UPDATE "WorkspaceEmbedding" e
+      SET "embeddingVec" = x.vec::vector
+      FROM unnest(${ids}::text[], ${vecTexts}::text[]) AS x(id, vec)
+      WHERE e.id = x.id
+    `;
+  } catch (err) {
+    console.warn(
+      "[indexer] embeddingVec sync skipped (pgvector migration not applied?):",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
  * Re-indexes all workspace documents, goals, milestones, and tasks.
  */
 export async function indexWorkspace(workspaceId: string) {
-  // 1. Fetch all documents
-  const docs = await prisma.document.findMany({
-    where: { workspaceId },
-    include: {
-      author: { select: { name: true } },
-      linkedGoal: { select: { title: true } },
-      linkedMilestone: { select: { title: true } },
-      linkedTask: { select: { title: true } },
-    },
-  });
-
-  // 2. Fetch all goals
-  const goals = await prisma.goal.findMany({
-    where: { workspaceId },
-    include: {
-      milestones: { select: { title: true, status: true, targetDate: true } },
-    },
-  });
-
-  // 3. Fetch all milestones
-  const milestones = await prisma.milestone.findMany({
-    where: { goal: { workspaceId } },
-    include: {
-      goal: { select: { title: true } },
-      tasks: { select: { title: true, status: true, priority: true } },
-    },
-  });
-
-  // 4. Fetch all tasks
-  const tasks = await prisma.task.findMany({
-    where: { milestone: { goal: { workspaceId } } },
-    include: {
-      assignee: { select: { name: true } },
-      milestone: { select: { title: true } },
-      sprint: { select: { name: true } },
-      comments: {
-        include: { author: { select: { name: true } } },
-        orderBy: { createdAt: "asc" },
+  // Fetch all source entities in parallel (was a 4-step sequential waterfall)
+  const [docs, goals, milestones, tasks] = await Promise.all([
+    prisma.document.findMany({
+      where: { workspaceId },
+      include: {
+        author: { select: { name: true } },
+        linkedGoal: { select: { title: true } },
+        linkedMilestone: { select: { title: true } },
+        linkedTask: { select: { title: true } },
       },
-    },
-  });
+    }),
+    prisma.goal.findMany({
+      where: { workspaceId },
+      include: {
+        milestones: { select: { title: true, status: true, targetDate: true } },
+      },
+    }),
+    prisma.milestone.findMany({
+      where: { goal: { workspaceId } },
+      include: {
+        goal: { select: { title: true } },
+        tasks: { select: { title: true, status: true, priority: true } },
+      },
+    }),
+    prisma.task.findMany({
+      where: { milestone: { goal: { workspaceId } } },
+      include: {
+        assignee: { select: { name: true } },
+        milestone: { select: { title: true } },
+        sprint: { select: { name: true } },
+        comments: {
+          include: { author: { select: { name: true } } },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    }),
+  ]);
 
   // Prepare chunks to embed
   const rawChunksToProcess: Array<{
@@ -240,11 +262,15 @@ export async function indexWorkspace(workspaceId: string) {
   const chunkTexts = rawChunksToProcess.map((c) => c.content);
   const embeddings = await generateBatchEmbeddings(chunkTexts);
 
+  // Client-side ids so the pgvector column can be synced after insert
+  const chunkIds = rawChunksToProcess.map(() => randomUUID());
+
   // Replace old embeddings for this workspace
   await prisma.$transaction([
     prisma.workspaceEmbedding.deleteMany({ where: { workspaceId } }),
     prisma.workspaceEmbedding.createMany({
       data: rawChunksToProcess.map((c, i) => ({
+        id: chunkIds[i],
         workspaceId: c.workspaceId,
         entityType: c.entityType,
         entityId: c.entityId,
@@ -256,6 +282,9 @@ export async function indexWorkspace(workspaceId: string) {
       })),
     }),
   ]);
+
+  // Populate the native vector column for ANN search (no-op pre-migration)
+  await syncVectorColumns(chunkIds, embeddings);
 
   return {
     documentsIndexed: docs.length,
@@ -393,10 +422,13 @@ export async function indexSingleEntity(
 
   if (chunksToInsert.length === 0) return;
 
-  const embeddings = await Promise.all(chunksToInsert.map((c) => generateEmbedding(c.content)));
+  // Batch the embedding API calls (was an unbounded Promise.all of single-input calls)
+  const embeddings = await generateBatchEmbeddings(chunksToInsert.map((c) => c.content));
+  const chunkIds = chunksToInsert.map(() => randomUUID());
 
   await prisma.workspaceEmbedding.createMany({
     data: chunksToInsert.map((c, i) => ({
+      id: chunkIds[i],
       workspaceId: c.workspaceId,
       entityType: c.entityType,
       entityId: c.entityId,
@@ -407,4 +439,7 @@ export async function indexSingleEntity(
       metadata: c.metadata as never,
     })),
   });
+
+  // Populate the native vector column for ANN search (no-op pre-migration)
+  await syncVectorColumns(chunkIds, embeddings);
 }

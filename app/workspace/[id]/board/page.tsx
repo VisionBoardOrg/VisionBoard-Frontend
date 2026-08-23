@@ -50,17 +50,16 @@ export default async function BoardPage({ params }: BoardPageProps) {
       where: { workspaceId: id },
       take: 500,
       include: {
+        // Only the identity fields — the richer goal/milestone data is merged
+        // in from the dedicated queries below, so fetching it here would
+        // duplicate every row across up to 500 board items in the RSC payload
         linkedGoal: {
-          select: { id: true, title: true, status: true, healthScore: true, objective: true, targetDate: true },
+          select: { id: true, title: true },
         },
         linkedMilestone: {
           select: {
             id: true,
             title: true,
-            description: true,
-            status: true,
-            targetDate: true,
-            startDate: true,
             goalId: true,
           },
         },
@@ -127,7 +126,9 @@ export default async function BoardPage({ params }: BoardPageProps) {
   const goalMap = new Map(goals.map((g) => [g.id, g]));
   const milestoneMap = new Map(updatedMilestones.map((m) => [m.id, m]));
   const updatedBoardItems = boardItems.map((item) => {
-    let linkedGoal = item.linkedGoal;
+    let linkedGoal = item.linkedGoal as
+      | (Record<string, unknown> & { id: string; title: string })
+      | null;
     if (linkedGoal) {
       const g = goalMap.get(linkedGoal.id);
       if (g) {

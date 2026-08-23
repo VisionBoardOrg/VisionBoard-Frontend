@@ -211,44 +211,123 @@ export function generateTimeHeaders(
   const subHeaders: TimeHeaderCell[] = [];
 
   if (scale === "day") {
-    // Top headers: Months
-    // Sub headers: Individual Days
-    let curMonth = new Date(timelineStart.getFullYear(), timelineStart.getMonth(), 1);
-    while (curMonth <= timelineEnd) {
-      const nextMonth = new Date(curMonth.getFullYear(), curMonth.getMonth() + 1, 1);
-      const mStart = curMonth < timelineStart ? timelineStart : curMonth;
-      const mEnd = nextMonth > timelineEnd ? timelineEnd : nextMonth;
-      const daysInBlock = Math.max(1, diffDays(mEnd, mStart));
-      const left = diffDays(mStart, timelineStart) * pxPerDay;
-      const width = daysInBlock * pxPerDay;
+    // Granularity degradation — one cell per day explodes the header on long
+    // timelines (>120 days → weekly buckets, >730 days → monthly buckets).
+    // Bucket left/width stay multiples of pxPerDay so positions computed via
+    // dateToPixel remain perfectly aligned with the grid.
+    if (totalDays > 730) {
+      // Top headers: Years — Sub headers: Months ("Sep 2026")
+      let curYear = new Date(timelineStart.getFullYear(), 0, 1);
+      while (curYear <= timelineEnd) {
+        const nextYear = new Date(curYear.getFullYear() + 1, 0, 1);
+        const yStart = curYear < timelineStart ? timelineStart : curYear;
+        const yEnd = nextYear > timelineEnd ? timelineEnd : nextYear;
+        const daysInBlock = Math.max(1, diffDays(yEnd, yStart));
 
-      topHeaders.push({
-        id: `m-${curMonth.toISOString()}`,
-        label: curMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-        startDate: mStart,
-        endDate: mEnd,
-        left,
-        width,
-      });
-      curMonth = nextMonth;
-    }
+        topHeaders.push({
+          id: `y-${curYear.getFullYear()}`,
+          label: curYear.getFullYear().toString(),
+          startDate: yStart,
+          endDate: yEnd,
+          left: diffDays(yStart, timelineStart) * pxPerDay,
+          width: daysInBlock * pxPerDay,
+        });
+        curYear = nextYear;
+      }
 
-    // Sub headers for each day
-    let curDay = new Date(timelineStart);
-    while (curDay <= timelineEnd) {
-      const left = diffDays(curDay, timelineStart) * pxPerDay;
-      const isToday = diffDays(curDay, today) === 0;
-      subHeaders.push({
-        id: `d-${curDay.toISOString()}`,
-        label: curDay.getDate().toString(),
-        subLabel: curDay.toLocaleDateString("en-US", { weekday: "narrow" }),
-        startDate: curDay,
-        endDate: addDays(curDay, 1),
-        left,
-        width: pxPerDay,
-        isToday,
-      });
-      curDay = addDays(curDay, 1);
+      let curMonth = new Date(timelineStart.getFullYear(), timelineStart.getMonth(), 1);
+      while (curMonth <= timelineEnd) {
+        const nextMonth = new Date(curMonth.getFullYear(), curMonth.getMonth() + 1, 1);
+        const isToday = today >= curMonth && today < nextMonth;
+
+        subHeaders.push({
+          id: `m-${curMonth.toISOString()}`,
+          label: curMonth.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+          startDate: curMonth,
+          endDate: nextMonth,
+          left: diffDays(curMonth, timelineStart) * pxPerDay,
+          width: diffDays(nextMonth, curMonth) * pxPerDay,
+          isToday,
+        });
+        curMonth = nextMonth;
+      }
+    } else if (totalDays > 120) {
+      // Top headers: Months — Sub headers: Weeks ("W34 2026")
+      let curMonth = new Date(timelineStart.getFullYear(), timelineStart.getMonth(), 1);
+      while (curMonth <= timelineEnd) {
+        const nextMonth = new Date(curMonth.getFullYear(), curMonth.getMonth() + 1, 1);
+        const mStart = curMonth < timelineStart ? timelineStart : curMonth;
+        const mEnd = nextMonth > timelineEnd ? timelineEnd : nextMonth;
+        const daysInBlock = Math.max(1, diffDays(mEnd, mStart));
+
+        topHeaders.push({
+          id: `m-${curMonth.toISOString()}`,
+          label: curMonth.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+          startDate: mStart,
+          endDate: mEnd,
+          left: diffDays(mStart, timelineStart) * pxPerDay,
+          width: daysInBlock * pxPerDay,
+        });
+        curMonth = nextMonth;
+      }
+
+      let curWeek = new Date(timelineStart);
+      while (curWeek <= timelineEnd) {
+        const nextWeek = addDays(curWeek, 7);
+        const isToday = today >= curWeek && today < nextWeek;
+
+        subHeaders.push({
+          id: `w-${curWeek.toISOString()}`,
+          label: `W${getWeekNumber(curWeek)} ${curWeek.getFullYear()}`,
+          subLabel: curWeek.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }),
+          startDate: curWeek,
+          endDate: nextWeek,
+          left: diffDays(curWeek, timelineStart) * pxPerDay,
+          width: 7 * pxPerDay,
+          isToday,
+        });
+        curWeek = nextWeek;
+      }
+    } else {
+      // Top headers: Months
+      // Sub headers: Individual Days
+      let curMonth = new Date(timelineStart.getFullYear(), timelineStart.getMonth(), 1);
+      while (curMonth <= timelineEnd) {
+        const nextMonth = new Date(curMonth.getFullYear(), curMonth.getMonth() + 1, 1);
+        const mStart = curMonth < timelineStart ? timelineStart : curMonth;
+        const mEnd = nextMonth > timelineEnd ? timelineEnd : nextMonth;
+        const daysInBlock = Math.max(1, diffDays(mEnd, mStart));
+        const left = diffDays(mStart, timelineStart) * pxPerDay;
+        const width = daysInBlock * pxPerDay;
+
+        topHeaders.push({
+          id: `m-${curMonth.toISOString()}`,
+          label: curMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+          startDate: mStart,
+          endDate: mEnd,
+          left,
+          width,
+        });
+        curMonth = nextMonth;
+      }
+
+      // Sub headers for each day
+      let curDay = new Date(timelineStart);
+      while (curDay <= timelineEnd) {
+        const left = diffDays(curDay, timelineStart) * pxPerDay;
+        const isToday = diffDays(curDay, today) === 0;
+        subHeaders.push({
+          id: `d-${curDay.toISOString()}`,
+          label: curDay.getDate().toString(),
+          subLabel: curDay.toLocaleDateString("en-US", { weekday: "narrow" }),
+          startDate: curDay,
+          endDate: addDays(curDay, 1),
+          left,
+          width: pxPerDay,
+          isToday,
+        });
+        curDay = addDays(curDay, 1);
+      }
     }
   } else if (scale === "week") {
     // Top headers: Months

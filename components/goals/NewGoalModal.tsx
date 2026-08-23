@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Target, Check, X, Loader2 } from "lucide-react";
+import { useModalA11y } from "@/hooks/useModalA11y";
 
 interface NewGoalModalProps {
   workspaceId: string;
@@ -20,6 +21,8 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const titleRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, onClose);
 
   useEffect(() => {
     setTimeout(() => titleRef.current?.focus(), 50);
@@ -60,20 +63,25 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
       onClick={onClose}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-goal-modal-title"
         className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-bold text-ink flex items-center gap-2">
-            <Target size={16} className="text-blue" />
+          <h2 id="new-goal-modal-title" className="text-base font-bold text-ink flex items-center gap-2">
+            <Target size={16} className="text-blue" aria-hidden="true" />
             New Goal
           </h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-offwhite text-muted hover:text-ink transition-colors"
+            aria-label="Close dialog"
+            className="p-1 rounded-lg hover:bg-offwhite text-muted hover:text-ink transition-colors cursor-pointer"
           >
-            <X size={16} />
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
 

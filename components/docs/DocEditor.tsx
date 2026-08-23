@@ -63,6 +63,48 @@ export function DocEditor({ workspaceId, initialData, goals = [], milestones = [
     fileInputRef.current?.click();
   }
 
+  // Downscale via canvas before base64-embedding: a 5 MB photo would otherwise
+  // become a ~6.7 MB string inside the document JSON that is re-uploaded on
+  // every save and re-downloaded on every open.
+  const IMAGE_MAX_DIMENSION = 1600;
+  const IMAGE_TARGET_BYTES = 300 * 1024;
+
+  async function downscaleToDataUrl(file: File): Promise<string> {
+    const originalDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    // SVGs and small images go in as-is (vector content can't be redrawn safely)
+    if (file.type === "image/svg+xml" || originalDataUrl.length <= IMAGE_TARGET_BYTES) {
+      return originalDataUrl;
+    }
+
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new window.Image();
+      el.onload = () => resolve(el);
+      el.onerror = reject;
+      el.src = originalDataUrl;
+    });
+
+    const scale = Math.min(1, IMAGE_MAX_DIMENSION / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return originalDataUrl;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    // Step down quality until under the byte budget (floor at 0.6)
+    for (let quality = 0.85; quality >= 0.6; quality -= 0.1) {
+      const out = canvas.toDataURL("image/webp", quality);
+      if (out.length <= IMAGE_TARGET_BYTES) return out;
+    }
+    return canvas.toDataURL("image/webp", 0.6);
+  }
+
   async function handleImageFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !editor) return;
@@ -81,14 +123,8 @@ export function DocEditor({ workspaceId, initialData, goals = [], milestones = [
     setError("");
 
     try {
-      // Convert to base64 data-URL so the image is embedded in the document JSON
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
+      // Downscaled + re-compressed data-URL embedded in the document JSON
+      const dataUrl = await downscaleToDataUrl(file);
       editor.chain().focus().setImage({ src: dataUrl, alt: file.name }).run();
     } catch {
       setError("Failed to load image. Please try again.");

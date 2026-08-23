@@ -119,7 +119,9 @@ export async function GET(
     boardItems,
   };
 
-  const json = JSON.stringify(exportPayload, null, 2);
+  // Minified payload — pretty-printing roughly doubles the response size for
+  // large workspaces; the file is machine-consumed, so no indentation needed.
+  const json = JSON.stringify(exportPayload);
   const safeName = member.workspace.slug.replace(/[^a-z0-9-]/g, "-");
   const filename = `visionboard-${safeName}-${new Date().toISOString().split("T")[0]}.json`;
 

@@ -9,6 +9,10 @@ import {
   Building2, Users, CreditCard, ChevronRight,
   Crown, Hash
 } from "lucide-react";
+import { PMDashboard } from "@/components/dashboard/PMDashboard";
+import { ExecDashboard } from "@/components/dashboard/ExecDashboard";
+import { EngDashboard } from "@/components/dashboard/EngDashboard";
+import { MarketingDashboard } from "@/components/dashboard/MarketingDashboard";
 
 interface WorkspacePageProps {
   params: Promise<{ id: string }>;
@@ -59,7 +63,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
 
   const { id } = await params;
 
-  // Member lookup with full workspace includes and currentUser plan
+  // Member lookup with full workspace graph for the role dashboard + current user plan
   const [member, currentUser] = await Promise.all([
     prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
@@ -68,10 +72,51 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
           include: {
             owner: { select: { id: true, name: true, email: true, plan: true } },
             members: {
+              // Safe user shape only — never leak hashedPassword / Stripe fields to the client
               include: { user: { select: { id: true, name: true, email: true, image: true } } },
               orderBy: { joinedAt: "asc" },
             },
-            _count: { select: { goals: true, documents: true } },
+            // Slim projections for the role dashboards — persisted healthScore
+            // instead of full task rows (descriptions, blockedReason, dates…)
+            goals: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                healthScore: true,
+                targetDate: true,
+                milestones: {
+                  select: {
+                    id: true,
+                    title: true,
+                    status: true,
+                    targetDate: true,
+                    tasks: { select: { id: true, status: true, assigneeId: true } },
+                  },
+                },
+              },
+            },
+            sprints: {
+              select: {
+                id: true,
+                name: true,
+                startDate: true,
+                endDate: true,
+                status: true,
+                tasks: {
+                  select: {
+                    id: true,
+                    title: true,
+                    status: true,
+                    priority: true,
+                    storyPoints: true,
+                    assigneeId: true,
+                  },
+                },
+              },
+              orderBy: { startDate: "desc" },
+            },
+            _count: { select: { goals: true, documents: true, members: true } },
           },
         },
       },
@@ -91,8 +136,21 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
   const isAdmin = myRole === "admin";
   const isOwner = workspace.ownerId === session.user.id;
 
+  // Role-driven dashboard — each role sees the workspace through its own lens.
+  // Admins fall back to the PM view (most general).
+  const dashboardProps = {
+    workspace,
+    userId: session.user.id,
+    userName: session.user.name ?? session.user.email ?? "",
+  };
+  const roleDashboard =
+    myRole === "exec" ? <ExecDashboard {...dashboardProps} /> :
+    myRole === "eng" ? <EngDashboard {...dashboardProps} /> :
+    myRole === "marketing" ? <MarketingDashboard {...dashboardProps} /> :
+    <PMDashboard {...dashboardProps} />;
+
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div className="max-w-6xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 rounded-2xl bg-blue-faint flex items-center justify-center shrink-0">
@@ -131,6 +189,11 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
             </div>
           ))}
         </div>
+
+        {/* Role dashboard */}
+        <section aria-label={`${ROLE_META[myRole]?.label ?? myRole} dashboard`}>
+          {roleDashboard}
+        </section>
 
         {/* Your role in this workspace */}
         <section className="bg-white rounded-2xl border border-border p-6">

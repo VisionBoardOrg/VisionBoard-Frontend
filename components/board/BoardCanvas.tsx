@@ -13,7 +13,9 @@ import { KanbanView } from "./KanbanView";
 import { Kanban, RotateCcw, X } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple } from "@/types/board";
 import { useBoard } from "@/store/board-store";
-import { useWebSocket, type RemoteCursor } from "@/hooks/useWebSocket";
+import { useCursorStore } from "@/store/cursor-store";
+import { useWebSocket } from "@/hooks/useWebSocket";
+import { useToast } from "@/context/ToastContext";
 
 // ── Module-level pure functions — defined outside the component so they are
 // stable references and do not cause useMemo dependencies to change every render.
@@ -35,13 +37,13 @@ function getUserColor(id?: string | null): string {
 }
 
 function cardEdges(item: BoardItemFull): Record<Edge, Point> {
-  const w = item.width  ?? 200;
+  const w = item.width ?? 200;
   const h = item.height ?? 120;
   return {
-    right:  { x: item.x + w,     y: item.y + h / 2 },
-    left:   { x: item.x,         y: item.y + h / 2 },
-    bottom: { x: item.x + w / 2, y: item.y + h     },
-    top:    { x: item.x + w / 2, y: item.y          },
+    right: { x: item.x + w, y: item.y + h / 2 },
+    left: { x: item.x, y: item.y + h / 2 },
+    bottom: { x: item.x + w / 2, y: item.y + h },
+    top: { x: item.x + w / 2, y: item.y },
   };
 }
 
@@ -65,8 +67,8 @@ function smartConnector(src: BoardItemFull, tgt: BoardItemFull): string {
   const p2 = tgtEdges[best.tgtEdge];
   const CTRL = Math.max(40, best.d * 0.35);
   const offsets: Record<Edge, Point> = {
-    right:  { x:  CTRL, y: 0 }, left: { x: -CTRL, y: 0 },
-    bottom: { x: 0, y:  CTRL }, top:  { x: 0, y: -CTRL },
+    right: { x: CTRL, y: 0 }, left: { x: -CTRL, y: 0 },
+    bottom: { x: 0, y: CTRL }, top: { x: 0, y: -CTRL },
   };
   const c1 = { x: p1.x + offsets[best.srcEdge].x, y: p1.y + offsets[best.srcEdge].y };
   const c2 = { x: p2.x + offsets[best.tgtEdge].x, y: p2.y + offsets[best.tgtEdge].y };
@@ -83,6 +85,7 @@ interface BoardCanvasProps {
 
 export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, milestones: initialMilestones, members }: BoardCanvasProps) {
   const { items, moveItem, setItems } = useBoard(workspaceId, initialItems);
+  const { toast } = useToast();
 
   // Read current logged-in user session for presence broadcasting
   const { data: session } = useSession();
@@ -92,7 +95,11 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const currentUserColor = useMemo(() => getUserColor(currentUserId), [currentUserId]);
 
   // ── Single WebSocket instance for this board session ─────────────────────
-  const { sendEvent, cursors } = useWebSocket(workspaceId);
+  // Remote cursors are written to useCursorStore (not local state) so the
+  // 25Hz cursor stream only re-renders the cursor overlay — never this tree.
+  const { sendEvent } = useWebSocket(workspaceId);
+  const viewersByCard = useCursorStore((s) => s.viewersByCard);
+  const activeCollaborators = useCursorStore((s) => s.activeUsers);
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -110,7 +117,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       if (saved === "kanban" || saved === "canvas") {
         setLayoutMode(saved as BoardLayoutMode);
       }
-    } catch {}
+    } catch { }
   }, [workspaceId]);
 
   // Persist layout selection to localStorage whenever changed
@@ -120,7 +127,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       try {
         localStorage.setItem(`visionboard_layout_${workspaceId}`, mode);
         localStorage.setItem("visionboard_preferred_layout", mode);
-      } catch {}
+      } catch { }
     },
     [workspaceId]
   );
@@ -142,6 +149,35 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const isPanning = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const lastCursorEmitRef = useRef<number>(0);
+  // Identity is sent on the first cursor packet after connect and then every
+  // 25th (~1/sec) — keeps 40ms position packets minimal while letting
+  // newcomers learn who is who without a presence-join protocol.
+  const cursorPacketCountRef = useRef(0);
+  // rAF coalescing for pan updates — one setState per frame max instead of
+  // one per mousemove event
+  const panRafRef = useRef<number | null>(null);
+  const pendingPanRef = useRef({ x: 0, y: 0 });
+
+  const applyPan = useCallback((dx: number, dy: number) => {
+    pendingPanRef.current = {
+      x: pendingPanRef.current.x + dx,
+      y: pendingPanRef.current.y + dy,
+    };
+    if (panRafRef.current === null) {
+      panRafRef.current = requestAnimationFrame(() => {
+        panRafRef.current = null;
+        const delta = pendingPanRef.current;
+        pendingPanRef.current = { x: 0, y: 0 };
+        setPan((prev) => ({ x: prev.x + delta.x, y: prev.y + delta.y }));
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (panRafRef.current !== null) cancelAnimationFrame(panRafRef.current);
+    };
+  }, []);
 
   function onMouseDown(e: React.MouseEvent) {
     if ((e.target as HTMLElement).closest("[data-board-card]")) return;
@@ -154,7 +190,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     if (isPanning.current) {
       const dx = e.clientX - lastPos.current.x;
       const dy = e.clientY - lastPos.current.y;
-      setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+      applyPan(dx, dy);
       lastPos.current = { x: e.clientX, y: e.clientY };
     }
 
@@ -163,6 +199,8 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       const now = Date.now();
       if (now - lastCursorEmitRef.current >= 40) {
         lastCursorEmitRef.current = now;
+        cursorPacketCountRef.current += 1;
+        const includeIdentity = cursorPacketCountRef.current % 25 === 1;
         const rect = canvasRef.current.getBoundingClientRect();
         const canvasX = (e.clientX - rect.left - pan.x) / zoom;
         const canvasY = (e.clientY - rect.top - pan.y) / zoom;
@@ -171,12 +209,16 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           type: "CURSOR_MOVED",
           workspaceId,
           userId: currentUserId,
-          userName: currentUserName,
-          userColor: currentUserColor,
-          userImage: currentUserImage,
           x: canvasX,
           y: canvasY,
           selectedCardId: selectedId,
+          ...(includeIdentity
+            ? {
+              userName: currentUserName,
+              userColor: currentUserColor,
+              userImage: currentUserImage,
+            }
+            : {}),
         });
       }
     }
@@ -205,7 +247,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     e.preventDefault();
     const dx = e.touches[0].clientX - lastPos.current.x;
     const dy = e.touches[0].clientY - lastPos.current.y;
-    setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+    applyPan(dx, dy);
     lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }
 
@@ -220,9 +262,11 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     setZoom((prev) => Math.min(2, Math.max(0.3, prev - e.deltaY * 0.001)));
   }
 
-  // Keyboard shortcut for command bar + Escape to close panel
+  // Keyboard shortcut for the AI command bar + Escape to close panel.
+  // ⌘/ opens the board AI command bar — ⌘K is reserved app-wide for the
+  // global command palette in AppShell (both used to fire at once here).
   function onKeyDown(e: React.KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+    if ((e.metaKey || e.ctrlKey) && (e.key === "/" || e.key === "?")) {
       e.preventDefault();
       setCommandOpen(true);
     }
@@ -271,7 +315,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     if (typeof window !== "undefined" && "vibrate" in navigator) {
       try {
         navigator.vibrate(35);
-      } catch {}
+      } catch { }
     }
   }, []);
 
@@ -363,21 +407,23 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
             if (data.milestone?.id) {
               restoredMilestoneId = data.milestone.id;
 
-              // Restore tasks if any
+              // Restore tasks if any — all requests in parallel (was a serial N+1 loop)
               if (ms.tasks && ms.tasks.length > 0) {
-                for (const t of ms.tasks) {
-                  await fetch(`/api/tasks`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      milestoneId: restoredMilestoneId,
-                      title: t.title,
-                      priority: t.priority ?? "medium",
-                      assigneeId: t.assigneeId,
-                      dueDate: t.dueDate ?? new Date().toISOString(),
-                    }),
-                  }).catch(console.error);
-                }
+                await Promise.allSettled(
+                  ms.tasks.map((t) =>
+                    fetch(`/api/tasks`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        milestoneId: restoredMilestoneId,
+                        title: t.title,
+                        priority: t.priority ?? "medium",
+                        assigneeId: t.assigneeId,
+                        dueDate: t.dueDate ?? new Date().toISOString(),
+                      }),
+                    }).catch(console.error)
+                  )
+                );
               }
             }
           }
@@ -439,49 +485,92 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
 
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
+      const activeTag = document.activeElement?.tagName?.toLowerCase();
+      const isEditable = (document.activeElement as HTMLElement)?.isContentEditable;
+      if (activeTag === "input" || activeTag === "textarea" || isEditable) {
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
-        const activeTag = document.activeElement?.tagName?.toLowerCase();
-        const isEditable = (document.activeElement as HTMLElement)?.isContentEditable;
-        if (activeTag === "input" || activeTag === "textarea" || isEditable) {
-          return;
-        }
         e.preventDefault();
         handleUndo();
+        return;
+      }
+
+      // Zoom keyboard shortcuts (canvas layout only) — + / - / 0 to reset
+      if (layoutMode === "canvas" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          setZoom((prev) => Math.min(2, prev + 0.1));
+        } else if (e.key === "-" || e.key === "_") {
+          e.preventDefault();
+          setZoom((prev) => Math.max(0.3, prev - 0.1));
+        } else if (e.key === "0") {
+          e.preventDefault();
+          setZoom(1);
+        }
       }
     }
     window.addEventListener("keydown", handleGlobalKeyDown);
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
-  }, [handleUndo]);
+  }, [handleUndo, layoutMode]);
 
   const handleItemStatusChange = useCallback(
     async (itemId: string, newStatus: string) => {
       const item = items.find((i) => i.id === itemId);
       if (!item) return;
 
-      if (item.entityType === "goal" && item.linkedGoalId) {
-        setGoals((prev) =>
-          prev.map((g) => (g.id === item.linkedGoalId ? { ...g, status: newStatus } : g))
-        );
-        fetch(`/api/goals/${item.linkedGoalId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus }),
-        }).catch(console.error);
-      } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
-        setMilestones((prev) =>
-          prev.map((m) => (m.id === item.linkedMilestoneId ? { ...m, status: newStatus } : m))
-        );
-        fetch(`/api/milestones/${item.linkedMilestoneId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus }),
-        }).catch(console.error);
-      } else if (item.entityType === "task" && item.linkedTaskId) {
-        fetch(`/api/tasks/${item.linkedTaskId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: newStatus }),
-        }).catch(console.error);
+      // Revert the optimistic local update if the server rejects the change
+      const reportFailure = () => {
+        if (item.entityType === "goal" && item.linkedGoalId) {
+          const oldStatus = goals.find((g) => g.id === item.linkedGoalId)?.status;
+          setGoals((prev) =>
+            prev.map((g) => (g.id === item.linkedGoalId ? { ...g, status: oldStatus ?? g.status } : g))
+          );
+        } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
+          const oldStatus = milestones.find((m) => m.id === item.linkedMilestoneId)?.status;
+          setMilestones((prev) =>
+            prev.map((m) => (m.id === item.linkedMilestoneId ? { ...m, status: oldStatus ?? m.status } : m))
+          );
+        }
+        toast({
+          type: "error",
+          title: "Couldn't save status change",
+          description: `Moving “${item.label ?? item.entityType}” to ${newStatus.replace("_", " ")} failed. The change was reverted — please try again.`,
+        });
+      };
+
+      try {
+        if (item.entityType === "goal" && item.linkedGoalId) {
+          setGoals((prev) =>
+            prev.map((g) => (g.id === item.linkedGoalId ? { ...g, status: newStatus } : g))
+          );
+          const res = await fetch(`/api/goals/${item.linkedGoalId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: newStatus }),
+          });
+          if (!res.ok) reportFailure();
+        } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
+          setMilestones((prev) =>
+            prev.map((m) => (m.id === item.linkedMilestoneId ? { ...m, status: newStatus } : m))
+          );
+          const res = await fetch(`/api/milestones/${item.linkedMilestoneId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: newStatus }),
+          });
+          if (!res.ok) reportFailure();
+        } else if (item.entityType === "task" && item.linkedTaskId) {
+          const res = await fetch(`/api/tasks/${item.linkedTaskId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: newStatus }),
+          });
+          if (!res.ok) reportFailure();
+        }
+      } catch {
+        reportFailure();
       }
 
       if (sendEvent) {
@@ -492,54 +581,75 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         });
       }
     },
-    [items, workspaceId, sendEvent]
+    [items, goals, milestones, workspaceId, sendEvent, setGoals, setMilestones, toast]
   );
 
   const handleTaskToggle = useCallback(
     async (taskId: string, newStatus: string, milestoneId?: string) => {
-      if (milestoneId) {
-        setMilestones((prev) =>
-          prev.map((m) => {
-            if (m.id === milestoneId) {
-              const mTasks = m.tasks ?? [];
-              const updatedTasks = mTasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
-              const allDone = updatedTasks.length > 0 && updatedTasks.every((t: TaskSimple) => t.status === "done");
-              const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-              const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
-              return { ...m, status: newMilestoneStatus, tasks: updatedTasks };
-            }
-            return m;
-          })
-        );
-        setItems(
-          items.map((item) => {
-            if (item.entityType === "milestone" && item.linkedMilestoneId === milestoneId && item.linkedMilestone) {
-              const mTasks = item.linkedMilestone.tasks ?? [];
-              const updatedTasks = mTasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status: newStatus } : t));
-              const allDone = updatedTasks.length > 0 && updatedTasks.every((t: TaskSimple) => t.status === "done");
-              const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-              const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
-              return {
-                ...item,
-                linkedMilestone: {
-                  ...item.linkedMilestone,
-                  status: newMilestoneStatus,
-                  tasks: updatedTasks,
-                },
-              };
-            }
-            return item;
-          })
-        );
-      }
+      // Apply a task status (and its cascading milestone status) to local state
+      const applyTaskStatus = (status: string) => {
+        if (milestoneId) {
+          setMilestones((prev) =>
+            prev.map((m) => {
+              if (m.id === milestoneId) {
+                const mTasks = m.tasks ?? [];
+                const updatedTasks = mTasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status } : t));
+                const allDone = updatedTasks.length > 0 && updatedTasks.every((t: TaskSimple) => t.status === "done");
+                const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+                const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
+                return { ...m, status: newMilestoneStatus, tasks: updatedTasks };
+              }
+              return m;
+            })
+          );
+          setItems(
+            items.map((item) => {
+              if (item.entityType === "milestone" && item.linkedMilestoneId === milestoneId && item.linkedMilestone) {
+                const mTasks = item.linkedMilestone.tasks ?? [];
+                const updatedTasks = mTasks.map((t: TaskSimple) => (t.id === taskId ? { ...t, status } : t));
+                const allDone = updatedTasks.length > 0 && updatedTasks.every((t: TaskSimple) => t.status === "done");
+                const anyStarted = updatedTasks.some((t: TaskSimple) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+                const newMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
+                return {
+                  ...item,
+                  linkedMilestone: {
+                    ...item.linkedMilestone,
+                    status: newMilestoneStatus,
+                    tasks: updatedTasks,
+                  },
+                };
+              }
+              return item;
+            })
+          );
+        }
+      };
 
-      fetch(`/api/tasks/${taskId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
-      }).catch(console.error);
+      const oldStatus =
+        milestones.find((m) => m.id === milestoneId)?.tasks?.find((t) => t.id === taskId)?.status ??
+        items.find((i) => i.linkedMilestoneId === milestoneId)?.linkedMilestone?.tasks?.find((t) => t.id === taskId)?.status ??
+        "todo";
+
+      applyTaskStatus(newStatus);
+
+      try {
+        const res = await fetch(`/api/tasks/${taskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        if (!res.ok) throw new Error(`PATCH failed with ${res.status}`);
+      } catch (err) {
+        console.error("[BoardCanvas] Failed to update task status:", err);
+        applyTaskStatus(oldStatus);
+        toast({
+          type: "error",
+          title: "Couldn't save task status",
+          description: "The task status change failed and was reverted. Check your connection and try again.",
+        });
+      }
     },
-    [items, setMilestones, setItems]
+    [items, milestones, setMilestones, setItems, toast]
   );
 
   const handleAddTaskToMilestone = useCallback(
@@ -583,23 +693,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     [items, setMilestones, setItems]
   );
 
-  // Map remote viewers selecting cards
-  const remoteViewersByCardId = useMemo(() => {
-    const map = new Map<string, RemoteCursor[]>();
-    for (const cursor of Object.values(cursors)) {
-      if (cursor.userId && cursor.userId !== currentUserId && cursor.selectedCardId) {
-        const existing = map.get(cursor.selectedCardId) ?? [];
-        existing.push(cursor);
-        map.set(cursor.selectedCardId, existing);
-      }
-    }
-    return map;
-  }, [cursors, currentUserId]);
-
-  // Active remote collaborators online right now
-  const activeCollaborators = useMemo(() => {
-    return Object.values(cursors).filter((c) => c.userId && c.userId !== currentUserId);
-  }, [cursors, currentUserId]);
+  // Remote viewers per card and online-collaborator identity come from the
+  // cursor store with stable object identity — they only change when the set
+  // of viewers/members changes, not on every cursor position packet.
 
   // SVG connector lines
   const connectors = useMemo(() => {
@@ -686,9 +782,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         totalItemsCount={items.length}
       />
 
-      {/* Main Board View: Kanban Status Columns vs Spatial Canvas */}
+      {/* Main Board View: Kanban vs Canvas — full
+          height now that the toolbar floats at the bottom */}
       {layoutMode === "kanban" ? (
-        <div className="absolute inset-0 top-[52px] overflow-auto no-scrollbar">
+        <div className="absolute inset-0 overflow-auto no-scrollbar">
           <KanbanView
             workspaceId={workspaceId}
             items={items}
@@ -705,10 +802,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           />
         </div>
       ) : (
-        /* Spatial Canvas area */
+        /* Canvas area */
         <div
           ref={canvasRef}
-          className="absolute inset-0 top-[52px] overflow-hidden touch-none"
+          className="absolute inset-0 overflow-hidden touch-none"
           style={{ cursor: "grab" }}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
@@ -739,7 +836,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
             }}
           >
             {/* Real-time remote cursors layer */}
-            <LiveCursorsCanvas cursors={cursors} currentUserId={currentUserId} />
+            <LiveCursorsCanvas currentUserId={currentUserId} />
 
             {/* SVG connector lines */}
             {connectors.length > 0 && (
@@ -769,13 +866,13 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
               </svg>
             )}
 
-            <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <DndContext id="board-canvas-dnd" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
               {items.map((item) => (
                 <BoardCard
                   key={item.id}
                   item={item}
                   isSelected={selectedId === item.id}
-                  remoteViewers={remoteViewersByCardId.get(item.id)}
+                  remoteViewers={viewersByCard[item.id]}
                   onSelect={handleSelectCard}
                   onDelete={handleDeleteCard}
                 />
@@ -855,7 +952,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         />
       )}
 
-      {/* Empty state — only displayed in spatial canvas mode */}
+      {/* Empty state — only displayed in Canvas mode */}
       {layoutMode === "canvas" && items.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <Kanban className="w-12 h-12 text-slate-300 mb-3 stroke-[1.5]" />
@@ -864,9 +961,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         </div>
       )}
 
-      {/* Undo Toast Notification */}
+      {/* Undo Toast Notification — floats above the bottom toolbar */}
       {showUndoToast && lastDeleted && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-bottom-3 duration-200">
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-slate-900 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl border border-slate-700 animate-in fade-in slide-in-from-bottom-3 duration-200">
           <RotateCcw size={14} className="text-blue-400 shrink-0" />
           <span>
             <strong className="font-semibold text-white capitalize">{lastDeleted.item.entityType}</strong> deleted

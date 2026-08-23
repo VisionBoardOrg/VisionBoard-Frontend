@@ -5,15 +5,25 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
-  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronLeft, X, Menu, UserCircle, Users,
+  Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronLeft, X, Menu, UserCircle, Users, Search,
 } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
 
 import Logo, { VBMark } from "../reusables/Logo";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { NotificationToast } from "@/components/notifications/NotificationToast";
 import { useNotifications, NotificationProvider } from "@/hooks/useNotifications";
-import { AICopilotDrawer } from "@/components/copilot/AICopilotDrawer";
+import { CommandPalette } from "@/components/layout/CommandPalette";
+import { ToastProvider } from "@/context/ToastContext";
+import { ConfirmProvider } from "@/context/ConfirmContext";
+
+// The copilot drawer is a ~950-line chunk with markdown rendering — load it
+// on demand instead of shipping it with every workspace page
+const AICopilotDrawer = dynamic(
+  () => import("@/components/copilot/AICopilotDrawer").then((m) => ({ default: m.AICopilotDrawer })),
+  { ssr: false }
+);
 
 interface AppShellProps {
   workspaceId: string | null;
@@ -36,7 +46,7 @@ const PERSONAL_NAV = [
 ];
 
 const WORKSPACE_NAV = (workspaceId: string) => [
-  { href: `/workspace/${workspaceId}/workspace`, label: "Overview & Team", icon: Users },
+  { href: `/workspace/${workspaceId}/workspace`, label: "Overview", icon: Users },
   { href: `/workspace/${workspaceId}/board`, label: "Board", icon: Kanban },
   { href: `/workspace/${workspaceId}/goals`, label: "Goals", icon: Target },
   { href: `/workspace/${workspaceId}/tasks`, label: "My Tasks", icon: ListTodo },
@@ -45,6 +55,28 @@ const WORKSPACE_NAV = (workspaceId: string) => [
   { href: `/workspace/${workspaceId}/templates`, label: "Templates", icon: Layers },
   { href: `/workspace/${workspaceId}/settings`, label: "Workspace Settings", icon: Settings },
 ];
+
+/** Human-readable page title for the top bar, derived from the current route */
+function pageTitle(pathname: string): string {
+  if (pathname.startsWith("/dashboard")) return "Dashboard";
+  if (pathname.startsWith("/workspaces")) return "My Workspaces";
+  if (pathname.startsWith("/account")) return "Account";
+  const workspaceMatch = pathname.match(/^\/workspace\/[^/]+\/([^/]+)/);
+  if (workspaceMatch) {
+    const titles: Record<string, string> = {
+      workspace: "Overview",
+      board: "Board",
+      goals: "Goals",
+      tasks: "My Tasks",
+      roadmap: "Roadmap",
+      docs: "Docs",
+      templates: "Templates",
+      settings: "Workspace Settings",
+    };
+    return titles[workspaceMatch[1]] ?? "Workspace";
+  }
+  return "VisionBoard";
+}
 
 const PLAN_BADGE: Record<string, string> = {
   free: "bg-slate-100 text-slate-600",
@@ -69,6 +101,22 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+
+  // Global ⌘K / Ctrl+K opens the command palette from anywhere in the app
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Restore saved sidebar preference after mount to prevent SSR hydration mismatch
   useEffect(() => {
@@ -310,7 +358,25 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
             </svg>
           </button>
 
+          {/* Page title */}
+          <h1 className="hidden sm:block text-sm font-semibold text-ink truncate">
+            {pageTitle(pathname)}
+          </h1>
+
           <div className="flex-1" />
+
+          {/* Global search / command palette trigger */}
+          <button
+            onClick={openPalette}
+            className="flex items-center gap-2 h-9 px-3 rounded-xl border border-border bg-offwhite/50 text-slate hover:bg-offwhite hover:text-ink transition-colors cursor-pointer"
+            aria-label="Search (Ctrl+K)"
+          >
+            <Search size={15} aria-hidden="true" />
+            <span className="hidden md:inline text-sm font-medium">Search…</span>
+            <kbd className="hidden md:inline-flex items-center h-5 px-1.5 rounded-md bg-white border border-border text-[10px] font-semibold text-slate">
+              ⌘K
+            </kbd>
+          </button>
 
           {/* Notification Bell */}
           <NotificationBell workspaceId={workspaceId} />
@@ -319,6 +385,15 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
         {/* Page content */}
         <main className="flex-1 overflow-auto p-4 md:p-6 no-scrollbar">{children}</main>
       </div>
+
+      {/* ── Global Command Palette (⌘K) — mounted only while open ── */}
+      {paletteOpen && (
+        <CommandPalette
+          workspaceId={workspaceId}
+          onClose={closePalette}
+          onOpenCopilot={() => setCopilotOpen(true)}
+        />
+      )}
 
       {/* ── Global Semantic AI Copilot Drawer ── */}
       {workspaceId && (
@@ -339,7 +414,11 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
 export function AppShell(props: AppShellProps) {
   return (
     <NotificationProvider workspaceId={props.workspaceId}>
-      <AppShellContent {...props} />
+      <ToastProvider>
+        <ConfirmProvider>
+          <AppShellContent {...props} />
+        </ConfirmProvider>
+      </ToastProvider>
     </NotificationProvider>
   );
 }

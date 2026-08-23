@@ -5,6 +5,7 @@ import { PLAN_LIMITS } from "@/lib/plan-limits";
 import OpenAI from "openai";
 import { z } from "zod";
 import { createHash } from "crypto";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const openrouter = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -23,6 +24,15 @@ function hashPrompt(input: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Rate limit: AI generation route (LLM call per request)
+  const rateLimit = checkRateLimit(request, "ai-executive-summary", {
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+  });
+  if (!rateLimit.allowed && rateLimit.response) {
+    return rateLimit.response;
+  }
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -81,7 +91,10 @@ export async function POST(request: NextRequest) {
   }
   // ───────────────────────────────────────────────────────────────────────────
 
-  // Gather workspace data across Goals, Milestones, Tasks, and Docs
+  // Gather workspace data across Goals, Milestones, Tasks, and Docs.
+  // Reads are capped (take) so huge workspaces don't serialize unbounded data
+  // into the prompt — small workspaces behave exactly as before (caps are well
+  // above typical volume and orderBy matches natural creation order).
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -89,10 +102,16 @@ export async function POST(request: NextRequest) {
     prisma.goal.findMany({
       where: { workspaceId },
       select: { id: true, title: true, status: true, healthScore: true, objective: true, targetDate: true },
+      orderBy: { createdAt: "asc" },
+      take: 50,
     }),
     prisma.milestone.findMany({
       where: { goal: { workspaceId } },
-      select: { id: true, title: true, status: true, startDate: true, targetDate: true, goal: { select: { title: true } } },
+      // Flat query across all goals — per-goal caps aren't possible in this
+      // shape, so apply a defensive workspace-wide cap instead.
+      select: { id: true, title: true, status: true, targetDate: true, goal: { select: { title: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 200,
     }),
     prisma.task.findMany({
       where: {
@@ -101,6 +120,8 @@ export async function POST(request: NextRequest) {
         updatedAt: { gte: sevenDaysAgo },
       },
       select: { id: true, title: true, assignee: { select: { name: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 100,
     }),
     prisma.task.findMany({
       where: {
@@ -108,6 +129,8 @@ export async function POST(request: NextRequest) {
         status: "blocked",
       },
       select: { id: true, title: true, blockedReason: true, assignee: { select: { name: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 100,
     }),
     prisma.task.findMany({
       where: {
@@ -115,6 +138,8 @@ export async function POST(request: NextRequest) {
         status: { in: ["in_progress", "in_review"] },
       },
       select: { id: true, title: true, status: true, assignee: { select: { name: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 100,
     }),
     prisma.document.findMany({
       where: { workspaceId },

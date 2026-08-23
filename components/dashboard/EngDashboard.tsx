@@ -1,9 +1,9 @@
 "use client";
 
-import { Goal, Milestone, Sprint, Task, Workspace, WorkspaceMember, User } from "@prisma/client";
 import dynamic from "next/dynamic";
 import { AlertBanner } from "./AlertBanner";
 import { computeSprintVelocity, taskStatusCounts } from "@/lib/dashboard-utils";
+import type { DashboardWorkspace } from "@/types/dashboard";
 import Link from "next/link";
 
 const VelocityChart = dynamic(
@@ -11,14 +11,7 @@ const VelocityChart = dynamic(
   { ssr: false }
 );
 
-type FullWorkspace = Workspace & {
-  goals: (Goal & { milestones: (Milestone & { tasks: Task[] })[] })[];
-  sprints: (Sprint & { tasks: Task[] })[];
-  members: (WorkspaceMember & { user: User })[];
-  _count: { goals: number; documents: number; members: number };
-};
-
-interface EngDashboardProps { workspace: FullWorkspace; userId: string; userName: string }
+interface EngDashboardProps { workspace: DashboardWorkspace; userId: string; userName: string }
 
 export function EngDashboard({ workspace, userId }: EngDashboardProps) {
   const activeSprint = workspace.sprints[0];
@@ -38,7 +31,7 @@ export function EngDashboard({ workspace, userId }: EngDashboardProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-ink">Engineering Ops</h1>
+        <h2 className="text-2xl font-bold text-ink">Engineering Ops</h2>
         <p className="text-slate text-sm mt-1">Sprint tracking and velocity for {workspace.name}</p>
       </div>
 
@@ -98,7 +91,7 @@ export function EngDashboard({ workspace, userId }: EngDashboardProps) {
               <div key={t.id} className="flex items-center gap-3 bg-offwhite rounded-lg px-3 py-2">
                 <StatusDot status={t.status} />
                 <span className="text-sm text-ink truncate flex-1">{t.title}</span>
-                <PriorityBadge priority={t.priority} />
+                <PriorityBadge priority={t.priority ?? "medium"} />
               </div>
             ))}
           </div>

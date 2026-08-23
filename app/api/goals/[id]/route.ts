@@ -72,6 +72,7 @@ export async function GET(
         comments: {
           include: { author: { select: { id: true, name: true, image: true } } },
           orderBy: { createdAt: "asc" },
+          take: 200,
         },
       },
     }),

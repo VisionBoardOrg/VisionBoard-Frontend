@@ -5,6 +5,7 @@ import { PLAN_LIMITS } from "@/lib/plan-limits";
 import OpenAI from "openai";
 import { z } from "zod";
 import { createHash } from "crypto";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const openrouter = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
@@ -31,6 +32,15 @@ const VALID_ACTIONS = new Set(["update", "move", "assign", "create"]);
 const VALID_ENTITIES = new Set(["milestone", "task", "goal"]);
 
 export async function POST(request: NextRequest) {
+  // Rate limit: AI generation route (LLM call per request)
+  const rateLimit = checkRateLimit(request, "ai-nl-board-edit", {
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+  });
+  if (!rateLimit.allowed && rateLimit.response) {
+    return rateLimit.response;
+  }
+
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

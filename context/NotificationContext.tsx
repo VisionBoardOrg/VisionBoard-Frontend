@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type { NotificationResponseItem } from "@/lib/notifications";
 
 export type NotificationCategory = "all" | "mentions" | "tasks" | "system";
@@ -248,20 +248,39 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
     await fetchNotifications();
   }, [fetchNotifications]);
 
-  const value: NotificationContextType = {
-    notifications,
-    unreadCount,
-    isLoading,
-    category,
-    setCategory,
-    markAsRead,
-    markAllAsRead,
-    deleteNotification,
-    clearReadNotifications,
-    latestLiveEvent,
-    dismissToast,
-    refresh,
-  };
+  // Memoized context value — every consumer re-renders when this object's
+  // identity changes, so it must only be recreated when the underlying data
+  // or one of the (already useCallback'd) action functions changes.
+  // setCategory is a useState setter and inherently stable.
+  const value: NotificationContextType = useMemo(
+    () => ({
+      notifications,
+      unreadCount,
+      isLoading,
+      category,
+      setCategory,
+      markAsRead,
+      markAllAsRead,
+      deleteNotification,
+      clearReadNotifications,
+      latestLiveEvent,
+      dismissToast,
+      refresh,
+    }),
+    [
+      notifications,
+      unreadCount,
+      isLoading,
+      category,
+      markAsRead,
+      markAllAsRead,
+      deleteNotification,
+      clearReadNotifications,
+      latestLiveEvent,
+      dismissToast,
+      refresh,
+    ]
+  );
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;
 }

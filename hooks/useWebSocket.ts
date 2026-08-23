@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useBoardStore } from "@/store/board-store";
+import { useCursorStore, type CursorUpdate } from "@/store/cursor-store";
 
 // Exponential backoff configuration for WebSocket reconnection
 // Prevents thundering herd on mass reconnects (e.g. after backend deploy)
@@ -112,28 +113,27 @@ function validateCardUpdated(data: Record<string, unknown>): {
   return { id: item.id as string, safeItem };
 }
 
-function validateCursorMoved(data: Record<string, unknown>): RemoteCursor | null {
+function validateCursorMoved(data: Record<string, unknown>): CursorUpdate | null {
   if (!isNonEmptyString(data.userId)) return null;
   if (typeof data.x !== "number" || !isFinite(data.x)) return null;
   if (typeof data.y !== "number" || !isFinite(data.y)) return null;
 
-  const userName = isNonEmptyString(data.userName) ? (data.userName as string) : "Teammate";
-  const userColor = isNonEmptyString(data.userColor) && /^#[0-9a-fA-F]{3,8}$/.test(data.userColor as string)
-    ? (data.userColor as string)
-    : "#2563EB";
-  const userImage = isNonEmptyString(data.userImage) ? (data.userImage as string) : undefined;
-  const selectedCardId = isNonEmptyString(data.selectedCardId) ? (data.selectedCardId as string) : null;
+  // Identity fields are OPTIONAL on the wire — the protocol sends them only
+  // on the first move (and periodically after) to keep 40ms packets small.
+  // The cursor store merges them with the last known identity.
+  const update: CursorUpdate = { userId: data.userId as string, x: data.x, y: data.y };
 
-  return {
-    userId: data.userId as string,
-    userName,
-    userColor,
-    userImage,
-    x: data.x,
-    y: data.y,
-    selectedCardId,
-    lastSeen: Date.now(),
-  };
+  if (isNonEmptyString(data.userName)) update.userName = data.userName as string;
+  if (
+    isNonEmptyString(data.userColor) &&
+    /^#[0-9a-fA-F]{3,8}$/.test(data.userColor as string)
+  ) {
+    update.userColor = data.userColor as string;
+  }
+  if (isNonEmptyString(data.userImage)) update.userImage = data.userImage as string;
+  if (isNonEmptyString(data.selectedCardId)) update.selectedCardId = data.selectedCardId as string;
+
+  return update;
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -152,8 +152,6 @@ export function useWebSocket(workspaceId: string | null) {
       tokenRef.current = sessionToken;
     }
   }, [sessionToken]);
-
-  const [cursors, setCursors] = useState<Record<string, RemoteCursor>>({});
 
   const connect = useCallback(async () => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
@@ -229,20 +227,14 @@ export function useWebSocket(workspaceId: string | null) {
           if (data.type === "CURSOR_MOVED") {
             const validated = validateCursorMoved(data);
             if (validated) {
-              setCursors((prev) => ({
-                ...prev,
-                [validated.userId]: validated,
-              }));
+              // Written to the cursor store — only the cursor overlay layer
+              // re-renders, never the board tree itself
+              useCursorStore.getState().applyCursor(validated);
             }
           }
 
           if (data.type === "CURSOR_LEFT" && isNonEmptyString(data.userId)) {
-            const leftUserId = data.userId as string;
-            setCursors((prev) => {
-              const next = { ...prev };
-              delete next[leftUserId];
-              return next;
-            });
+            useCursorStore.getState().removeCursor(data.userId as string);
           }
         } catch (err) {
           console.error("[useWebSocket] Error parsing message:", err);
@@ -295,19 +287,7 @@ export function useWebSocket(workspaceId: string | null) {
   // Clean up idle cursors after 8 seconds of inactivity
   useEffect(() => {
     const pruneInterval = setInterval(() => {
-      const now = Date.now();
-      setCursors((prev) => {
-        let changed = false;
-        const next: Record<string, RemoteCursor> = {};
-        for (const [id, cursor] of Object.entries(prev)) {
-          if (now - cursor.lastSeen <= 8000) {
-            next[id] = cursor;
-          } else {
-            changed = true;
-          }
-        }
-        return changed ? next : prev;
-      });
+      useCursorStore.getState().pruneStale(8000);
     }, 4000);
 
     return () => clearInterval(pruneInterval);
@@ -340,6 +320,6 @@ export function useWebSocket(workspaceId: string | null) {
     }
   }, []);
 
-  return { sendEvent, cursors };
+  return { sendEvent };
 }
 

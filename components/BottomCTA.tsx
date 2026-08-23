@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRight } from "lucide-react";
 import SecondaryButton from "./reusables/secondaryButton";
 import Link from "next/link";
@@ -15,7 +13,7 @@ export default function BottomCTA() {
           The future of team execution<br />starts here.
         </h2>
         <p className="text-blue-faint text-[16px] md:text-[18px] font-medium mb-10 max-w-[600px] relative z-10">
-          Join thousands of product leaders using AI-powered roadmaps, connected docs, and visual canvas execution.
+          Built for product leaders and their teams — AI-powered roadmaps, connected docs, and visual canvas execution.
         </p>
         <Link href="/auth/register">
           <SecondaryButton
@@ -23,7 +21,7 @@ export default function BottomCTA() {
             className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm hover:bg-blue-faint transition-colors"
           >
             <span className="flex items-center gap-2">
-              Get Started Free <ArrowRight size={18} />
+              Get Started Free <ArrowRight size={18} aria-hidden="true" />
             </span>
           </SecondaryButton>
         </Link>

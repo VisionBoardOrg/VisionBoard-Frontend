@@ -1,14 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import SecondaryButton from "./reusables/secondaryButton";
 
 export default function HomeHero() {
+  const router = useRouter();
+
   return (
     <section className="relative pt-10 flex flex-col items-center justify-start overflow-hidden bg-offwhite">
       {/* Subtle dot grid */}
-      <div className="absolute inset-0 bg-[radial-gradient(#DBEAFE_1.5px,transparent_1.5px)] bg-size-[24px_24px] opacity-70" />
+      <div aria-hidden="true" className="absolute inset-0 bg-[radial-gradient(#DBEAFE_1.5px,transparent_1.5px)] bg-size-[24px_24px] opacity-70" />
 
       <div className="relative z-10 flex flex-col items-center justify-center gap-6 max-w-4xl text-center px-6 mt-6">
         {/* Social proof badge */}
@@ -17,7 +20,7 @@ export default function HomeHero() {
           <span>Now live — no waitlist, sign up instantly</span>
         </div>
 
-        <h1 className="text-[52px] md:text-[64px] font-extrabold tracking-[-0.03em] text-ink leading-[1.1]">
+        <h1 className="text-4xl sm:text-5xl md:text-[52px] lg:text-[64px] font-extrabold tracking-[-0.03em] text-ink leading-[1.1]">
           Work <span className="text-blue">smarter</span> together with AI, from <span className="text-blue">vision</span> to <span className="text-blue">execution</span>.
         </h1>
 
@@ -26,19 +29,19 @@ export default function HomeHero() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 mt-4">
-          <Link href="/auth/register">
-            <button
-              type="button"
-              className="w-full sm:w-auto px-8 py-3 text-base font-bold bg-blue text-white rounded-xl shadow-lg hover:shadow-xl hover:bg-blue-mid transition-all flex items-center gap-2"
-            >
-              Start for free <ArrowRight size={18} />
-            </button>
+          <Link
+            href="/auth/register"
+            className="w-full sm:w-auto px-8 py-3 text-base font-bold bg-blue text-white rounded-xl shadow-lg hover:shadow-xl hover:bg-blue-mid transition-all flex items-center justify-center gap-2 cursor-pointer"
+          >
+            Start for free <ArrowRight size={18} aria-hidden="true" />
           </Link>
-          <a href="#features">
-            <SecondaryButton size="md" className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm">
-              Explore Features
-            </SecondaryButton>
-          </a>
+          <SecondaryButton
+            size="md"
+            onClick={() => router.push("/#features")}
+            className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm"
+          >
+            Explore Features
+          </SecondaryButton>
         </div>
 
         <p className="text-xs text-muted mt-1">No credit card required · Free plan available · Upgrade anytime</p>
@@ -46,7 +49,7 @@ export default function HomeHero() {
 
       {/* Wavy Background Container */}
       <div className="relative w-full h-[300px] mt-4 flex flex-col justify-end">
-        <svg className="absolute bottom-0 w-full h-[300px]" viewBox="0 0 1440 300" preserveAspectRatio="none">
+        <svg aria-hidden="true" className="absolute bottom-0 w-full h-[300px]" viewBox="0 0 1440 300" preserveAspectRatio="none">
           <path d="M0,120 C480,380 960,380 1440,120 L1440,300 L0,300 Z" fill="var(--color-cyan)" />
           <path d="M0,150 C480,410 960,410 1440,150 L1440,300 L0,300 Z" fill="var(--color-blue)" />
           <path d="M0,200 C480,460 960,460 1440,200 L1440,300 L0,300 Z" fill="var(--color-blue-deep)" />
@@ -54,7 +57,7 @@ export default function HomeHero() {
       </div>
 
       {/* Marquee Banner */}
-      <div className="w-full bg-offwhite border-b border-border py-4 md:py-6 overflow-hidden flex whitespace-nowrap">
+      <div aria-hidden="true" className="w-full bg-offwhite border-b border-border py-4 md:py-6 overflow-hidden flex whitespace-nowrap">
         <div className="animate-marquee flex gap-8 md:gap-12 text-[15px] md:text-[20px] font-bold text-slate/40 tracking-tight italic px-6">
           <span>Cross Team Planning</span>
           <span>AI Powered Roadmap</span>

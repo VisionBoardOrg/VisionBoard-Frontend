@@ -41,6 +41,9 @@ model User {
   notifications   Notification[]    @relation("UserNotifications")
   triggeredNotifications Notification[] @relation("ActorNotifications")
   copilotConversations CopilotConversation[]
+  ownedGoals    Goal[]             @relation("OwnedGoals")
+
+  @@index([scheduledDeletion])
 }
 
 model Account {
@@ -97,6 +100,7 @@ model Workspace {
   documents     Document[]
   goals         Goal[]
   sprints       Sprint[]
+  tasks         Task[]            @relation("WorkspaceTasks")
   owner         User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   invites       WorkspaceInvite[]
   members       WorkspaceMember[]
@@ -137,6 +141,7 @@ model Goal {
   comments    Comment[]   @relation("GoalComments")
   documents   Document[]  @relation("GoalDocuments")
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  owner       User?       @relation("OwnedGoals", fields: [ownerId], references: [id], onDelete: SetNull)
   milestones  Milestone[]
 
   @@index([workspaceId])
@@ -178,6 +183,10 @@ model Task {
   updatedAt   DateTime   @updatedAt
   storyPoints Int?
   milestoneId String
+  /// Denormalized from milestone→goal so workspace-scoped task queries
+  /// (GET /api/tasks?workspaceId=…) don't need a join. Kept in sync on
+  /// task creation; tasks always belong to their milestone's workspace.
+  workspaceId String
   order       Int        @default(0)
   status        TaskStatus @default(todo)
   priority      Priority   @default(medium)
@@ -187,11 +196,14 @@ model Task {
   assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
   milestone   Milestone  @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   sprint      Sprint?    @relation(fields: [sprintId], references: [id])
+  workspace   Workspace  @relation("WorkspaceTasks", fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([milestoneId])
   @@index([assigneeId])
   @@index([sprintId])
   @@index([status])
+  @@index([workspaceId])
+  @@index([status, dueDate])
   @@index([milestoneId, order])
   @@index([milestoneId, status])
   @@index([sprintId, status])
@@ -344,7 +356,6 @@ model WorkspaceInvite {
 
   @@index([workspaceId])
   @@index([email])
-  @@index([token])
 }
 
 enum PlanTier {
@@ -437,7 +448,6 @@ model WorkspaceEmbedding {
 
   @@index([workspaceId])
   @@index([workspaceId, entityType])
-  @@index([entityId])
   @@index([workspaceId, entityId])
 }
 
@@ -489,12 +499,12 @@ model Notification {
   actor       User?            @relation("ActorNotifications", fields: [actorId], references: [id], onDelete: SetNull)
   workspace   Workspace?       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@index([userId, read])
   @@index([userId, read, createdAt])
+  @@index([userId, createdAt])
   @@index([userId, workspaceId, read, createdAt])
   @@index([workspaceId])
   @@index([createdAt])
+  @@index([entityId, createdAt])
 }
 
 enum NotificationType {

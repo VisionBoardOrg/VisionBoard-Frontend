@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Link2, Copy, Check, RefreshCw, Trash2, Loader2, AlertCircle } from "lucide-react";
+import { useConfirm } from "@/context/ConfirmContext";
 
 interface InviteLinkSectionProps {
   workspaceId: string;
@@ -16,6 +17,7 @@ export function InviteLinkSection({
   canManage,
   canAdmin,
 }: InviteLinkSectionProps) {
+  const { confirm: confirmDialog } = useConfirm();
   const [token, setToken] = useState<string | null>(initialToken);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState<"generate" | "regenerate" | "revoke" | null>(null);
@@ -38,7 +40,13 @@ export function InviteLinkSection({
   }
 
   async function handleRegenerate() {
-    if (!confirm("Regenerate the invite link? The old link will stop working immediately.")) return;
+    const ok = await confirmDialog({
+      title: "Regenerate the invite link?",
+      description: "The old link will stop working immediately. Anyone you've already sent it to will need the new one.",
+      confirmLabel: "Regenerate",
+      danger: true,
+    });
+    if (!ok) return;
     setLoading("regenerate");
     setError("");
     try {
@@ -52,7 +60,13 @@ export function InviteLinkSection({
   }
 
   async function handleRevoke() {
-    if (!confirm("Disable the invite link? Anyone with the old link won't be able to join.")) return;
+    const ok = await confirmDialog({
+      title: "Disable the invite link?",
+      description: "Anyone with the old link won't be able to join. You can generate a new link at any time.",
+      confirmLabel: "Disable link",
+      danger: true,
+    });
+    if (!ok) return;
     setLoading("revoke");
     setError("");
     try {

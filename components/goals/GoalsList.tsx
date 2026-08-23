@@ -13,7 +13,11 @@ import { NewGoalModal } from "@/components/goals/NewGoalModal";
 
 const GoalHealthScore = dynamic(
   () => import("@/components/dashboard/GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
-  { ssr: false }
+  {
+    ssr: false,
+    // Small circular placeholder matching the "sm" size (80px) radial chart
+    loading: () => <div aria-hidden="true" className="w-20 h-20 rounded-full bg-border/60 animate-pulse shrink-0" />,
+  }
 );
 
 interface Task {

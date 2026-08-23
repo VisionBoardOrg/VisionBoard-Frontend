@@ -126,6 +126,7 @@ export async function POST(request: NextRequest) {
             create: taskTitles.map((t, ti) => ({
               title: t,
               order: ti,
+              workspaceId,
               dueDate: validTargetDate ?? new Date(Date.now() + (ti + 1) * 2 * 24 * 60 * 60 * 1000),
               assigneeId: session.user.id,
             })),

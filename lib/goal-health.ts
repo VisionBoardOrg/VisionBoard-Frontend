@@ -184,15 +184,15 @@ export async function calculateGoalHealth(goalId: string): Promise<GoalHealthEva
 }
 
 /**
- * Re-evaluates health scores for all active goals across all or a specific workspace.
- * Highly optimized batch implementation: fetches all goals in 1 query, computes in-memory,
- * and bulk updates in batch transactions.
+ * Evaluates all active goals of a single workspace: fetches only that
+ * workspace's goal graph (milestones + slim task rows), computes scores
+ * in-memory, and bulk updates in batch transactions.
  */
-export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<GoalHealthEvaluation[]> {
+async function evaluateWorkspaceGoalsHealth(workspaceId: string): Promise<GoalHealthEvaluation[]> {
   const goals = await prisma.goal.findMany({
     where: {
       status: { in: ["active", "draft"] },
-      ...(workspaceId ? { workspaceId } : {}),
+      workspaceId,
     },
     include: {
       milestones: {
@@ -356,4 +356,45 @@ export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<Goal
   }
 
   return evaluations;
+}
+
+/**
+ * Re-evaluates health scores for all active goals across all or a specific workspace.
+ *
+ * Processes one workspace at a time: instead of loading every active goal with
+ * full milestone + task rows across ALL workspaces in a single query (an
+ * unbounded, ever-growing result set), it first groups active goals by
+ * workspaceId, then fetches and evaluates each workspace's goal graph
+ * separately. A failure in one workspace is caught and logged so it cannot
+ * kill the sweep for the remaining workspaces.
+ */
+export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<GoalHealthEvaluation[]> {
+  // Single-workspace mode: evaluate just that workspace.
+  if (workspaceId) {
+    try {
+      return await evaluateWorkspaceGoalsHealth(workspaceId);
+    } catch (err) {
+      console.error(`[goal-health] Evaluation failed for workspace ${workspaceId}:`, err);
+      return [];
+    }
+  }
+
+  // Discover which workspaces actually have active/draft goals (cheap grouped
+  // count query) so we skip empty workspaces entirely.
+  const workspaceGroups = await prisma.goal.groupBy({
+    by: ["workspaceId"],
+    where: { status: { in: ["active", "draft"] } },
+  });
+
+  const allEvaluations: GoalHealthEvaluation[] = [];
+  for (const group of workspaceGroups) {
+    try {
+      const evaluations = await evaluateWorkspaceGoalsHealth(group.workspaceId);
+      allEvaluations.push(...evaluations);
+    } catch (err) {
+      console.error(`[goal-health] Evaluation failed for workspace ${group.workspaceId}:`, err);
+    }
+  }
+
+  return allEvaluations;
 }

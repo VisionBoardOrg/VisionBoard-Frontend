@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { dispatchTaskAssignmentNotification } from "@/lib/notifications";
+import { syncMilestoneStatus } from "@/lib/milestone-sync";
 
 const createSchema = z.object({
   milestoneId: z.string(),
@@ -47,9 +48,14 @@ export async function GET(request: NextRequest) {
   const tasks = await prisma.task.findMany({
     where: {
       ...(milestoneId ? { milestoneId } : {}),
-      ...(workspaceId ? { milestone: { goal: { workspaceId } } } : {}),
+      // Denormalized workspaceId — avoids the Task→Milestone→Goal join chain
+      // on the hot workspace-list path (indexed)
+      ...(workspaceId ? { workspaceId } : {}),
     },
     orderBy: { order: "asc" },
+    // Hard cap — this endpoint feeds client-side search/boards; callers that
+    // need everything must paginate by milestone
+    take: 500,
   });
 
   return NextResponse.json({ tasks });
@@ -110,6 +116,7 @@ export async function POST(request: NextRequest) {
   const task = await prisma.task.create({
     data: {
       milestoneId: parsed.data.milestoneId,
+      workspaceId,
       title: parsed.data.title,
       priority: parsed.data.priority,
       assigneeId: parsed.data.assigneeId ?? null,
@@ -118,6 +125,12 @@ export async function POST(request: NextRequest) {
       dueDate: taskDueDate,
     },
   });
+
+  // Re-sync parent milestone status (a new todo task must reopen a completed
+  // milestone and clear any stale in_progress) — fire-and-forget
+  syncMilestoneStatus(parsed.data.milestoneId).catch((err: unknown) =>
+    console.error("[tasks POST] Milestone status re-sync failed:", err)
+  );
 
   // Fire-and-forget audit log with the real entityId — non-blocking
   prisma.activityLog.create({

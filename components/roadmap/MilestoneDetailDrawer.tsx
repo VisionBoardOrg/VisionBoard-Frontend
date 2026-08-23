@@ -17,6 +17,7 @@ import {
   canAddDependency,
   calculateBaselineVariance,
 } from "@/lib/gantt-engine";
+import { useConfirm } from "@/context/ConfirmContext";
 
 interface MilestoneDetailDrawerProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ function MilestoneDetailDrawerContent({
   onDelete,
   onToggleTask,
 }: MilestoneDetailDrawerProps & { milestone: GanttMilestone }) {
+  const { confirm: confirmDialog } = useConfirm();
   const [title, setTitle] = useState(milestone.title);
   const [description, setDescription] = useState(milestone.description || "");
   const [status, setStatus] = useState(milestone.status || "planned");
@@ -124,7 +126,13 @@ function MilestoneDetailDrawerContent({
 
   async function handleDelete() {
     if (!milestone) return;
-    if (!confirm(`Are you sure you want to delete "${milestone.title}"?`)) return;
+    const ok = await confirmDialog({
+      title: `Delete "${milestone.title}"?`,
+      description: "This milestone, its schedule, and its dependencies will be permanently removed.",
+      confirmLabel: "Delete milestone",
+      danger: true,
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await onDelete(milestone.id);

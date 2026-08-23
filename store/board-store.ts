@@ -179,7 +179,14 @@ export function useBoardItem(id: string | null): BoardItemFull | undefined {
  * the workspace changes.
  */
 export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
-  const store = useBoardStore();
+  // Subscribe only to the data slices this hook returns. Zustand actions are
+  // stable store references, so they are read imperatively via getState()
+  // without subscribing — a moveItem no longer re-renders every useBoard
+  // consumer (previously useBoardStore() with no selector subscribed to the
+  // entire store).
+  const storeWorkspaceId = useBoardStore((s) => s.workspaceId);
+  const itemsById = useBoardStore((s) => s.itemsById);
+  const itemOrder = useBoardStore((s) => s.itemOrder);
 
   useEffect(() => {
     if (useBoardStore.getState().workspaceId !== workspaceId) {
@@ -188,9 +195,41 @@ export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
     }
   }, [workspaceId, initialItems]);
 
-  const items = useBoardItems();
+  const items = useMemo(() => {
+    const out: BoardItemFull[] = new Array(itemOrder.length);
+    for (let i = 0; i < itemOrder.length; i++) {
+      out[i] = itemsById[itemOrder[i]];
+    }
+    return out;
+  }, [itemsById, itemOrder]);
+
+  // Stable action references — never reassigned after store creation.
+  const {
+    setItems,
+    moveItem,
+    addItem,
+    removeItem,
+    updateBoardItem,
+    updateTaskInMilestone,
+    removeTaskFromMilestone,
+    getAllItems,
+    getItem,
+  } = useBoardStore.getState();
+
+  // Public API is unchanged: same fields as the previous `...store` spread.
   return {
-    ...store,
-    items: store.workspaceId === workspaceId && items.length > 0 ? items : initialItems,
+    setItems,
+    moveItem,
+    addItem,
+    removeItem,
+    updateBoardItem,
+    updateTaskInMilestone,
+    removeTaskFromMilestone,
+    getAllItems,
+    getItem,
+    workspaceId: storeWorkspaceId,
+    itemsById,
+    itemOrder,
+    items: storeWorkspaceId === workspaceId && items.length > 0 ? items : initialItems,
   };
 }

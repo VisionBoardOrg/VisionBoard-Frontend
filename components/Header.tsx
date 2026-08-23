@@ -13,7 +13,6 @@ export default function Header() {
     { name: "Features", href: "/features" },
     { name: "Solutions", href: "/solutions" },
     { name: "Pricing", href: "/pricing" },
-    { name: "Resources", href: "/#features" },
   ];
 
   return (
@@ -53,7 +52,7 @@ export default function Header() {
             aria-label="Toggle mobile menu"
             aria-expanded={isMobileMenuOpen}
           >
-            {isMobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+            {isMobileMenuOpen ? <X size={22} aria-hidden="true" /> : <Menu size={22} aria-hidden="true" />}
           </button>
         </div>
       </div>

@@ -3,14 +3,16 @@
 import { ZoomIn, ZoomOut, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw, LayoutGrid, Kanban, SlidersHorizontal } from "lucide-react";
 import type { GoalSimple, MilestoneWithTasks, BoardItemFull } from "@/types/board";
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
+import { useModalA11y } from "@/hooks/useModalA11y";
 
 // ── Layout constants for the Goal → Milestone → Task hierarchy ──────────────
-const COL_GOAL_X      = 80;
+const COL_GOAL_X = 80;
 const COL_MILESTONE_X = 380;
-const ROW_START_Y     = 80;
-const ROW_GAP         = 150; // vertical spacing between sibling cards
+const ROW_START_Y = 80;
+const ROW_GAP = 150; // vertical spacing between sibling cards
 
 /**
  * Compute the next available Y position in a column so cards don't overlap.
@@ -27,7 +29,7 @@ function nextColumnY(
   return maxBottom + ROW_GAP - cardHeight;
 }
 
-import type { RemoteCursor } from "@/hooks/useWebSocket";
+import type { PresenceUser } from "@/store/cursor-store";
 
 interface BoardToolbarProps {
   zoom: number;
@@ -46,7 +48,7 @@ interface BoardToolbarProps {
   /** Called with newly synced items after a sync */
   onItemsSynced: (items: BoardItemFull[]) => void;
   /** Active live remote collaborators on this canvas */
-  activeCollaborators?: RemoteCursor[];
+  activeCollaborators?: PresenceUser[];
   sendEvent?: (event: Record<string, unknown>) => void;
   /** Current active layout mode */
   layoutMode?: "canvas" | "kanban";
@@ -65,6 +67,9 @@ export function BoardToolbar({
   const [pickerType, setPickerType] = useState<"goal" | "milestone" | null>(null);
   const [adding, setAdding] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuPortalRef = useRef<HTMLDivElement>(null);
+  // Viewport coordinates for the portal-rendered menu (anchored above the trigger)
+  const [menuPos, setMenuPos] = useState<{ left: number; bottom: number } | null>(null);
 
   // Sync state
   const [syncing, setSyncing] = useState(false);
@@ -114,6 +119,8 @@ export function BoardToolbar({
   const [msCreating, setMsCreating] = useState(false);
   const [msError, setMsError] = useState("");
   const msTitleRef = useRef<HTMLInputElement>(null);
+  const msDialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(msDialogRef, () => setMsModalOpen(false), msModalOpen);
 
   const effectiveGoalId = msGoalId || (goals.length === 1 ? goals[0].id : "");
 
@@ -125,13 +132,26 @@ export function BoardToolbar({
 
   useEffect(() => {
     function close(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        menuPortalRef.current && !menuPortalRef.current.contains(target)
+      ) {
         setMenuOpen(false);
         setPickerType(null);
       }
     }
+    // Repositioning on resize is fiddly — just close so it never floats stale
+    function closeOnResize() {
+      setMenuOpen(false);
+      setPickerType(null);
+    }
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    window.addEventListener("resize", closeOnResize);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", closeOnResize);
+    };
   }, []);
 
   async function createItem(
@@ -237,13 +257,14 @@ export function BoardToolbar({
 
   return (
     <>
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white border border-border rounded-xl shadow-sm px-2 py-1.5">
+      {/* Bottom floating toolbar — spans the canvas, stays fixed during pan/zoom */}
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-white border border-border rounded-xl shadow-sm px-2 py-1.5 max-w-[calc(100%-1.5rem)] overflow-x-auto no-scrollbar">
         {/* Zoom controls */}
         <ToolbarButton onClick={onZoomOut} title="Zoom out (-)"><ZoomOut size={15} /></ToolbarButton>
 
         <button
           onClick={onZoomReset}
-          className="px-2.5 py-1 text-xs font-mono text-slate hover:text-ink hover:bg-offwhite rounded-lg transition-colors"
+          className="px-2.5 py-1 text-xs font-mono text-slate hover:text-ink hover:bg-offwhite rounded-lg transition-colors cursor-pointer"
           title="Reset zoom"
         >
           {Math.round(zoom * 100)}%
@@ -251,110 +272,135 @@ export function BoardToolbar({
 
         <ToolbarButton onClick={onZoomIn} title="Zoom in (+)"><ZoomIn size={15} /></ToolbarButton>
 
-        <div className="w-px h-5 bg-border mx-1" />
+        <div className="w-px h-5 bg-border mx-1 shrink-0" />
 
-        {/* Add item — drop-down menu */}
-        <div className="relative" ref={menuRef}>
+        {/* Add item — drop-down menu (portaled above the trigger so the
+            toolbar's overflow-x scroll container can't clip it) */}
+        <div className="relative shrink-0" ref={menuRef}>
           <button
-            onClick={() => { setMenuOpen(!menuOpen); setPickerType(null); }}
+            onClick={() => {
+              if (menuOpen) {
+                setMenuOpen(false);
+              } else {
+                // Anchor the portal menu above this button, in viewport space
+                // (clamped so a 180px+ menu can't spill past the right edge)
+                const rect = menuRef.current?.getBoundingClientRect();
+                if (rect) {
+                  setMenuPos({
+                    left: Math.max(8, Math.min(rect.left, window.innerWidth - 196)),
+                    bottom: window.innerHeight - rect.top + 6,
+                  });
+                }
+                setMenuOpen(true);
+              }
+              setPickerType(null);
+            }}
             disabled={adding}
             title="Add card"
-            className="flex items-center gap-1 p-1.5 text-slate hover:text-ink hover:bg-offwhite rounded-lg transition-colors disabled:opacity-50"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            className="flex items-center gap-1 p-1.5 text-slate hover:text-ink hover:bg-offwhite rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
           >
             <Plus size={15} />
             <ChevronDown size={11} className={`transition-transform ${menuOpen ? "rotate-180" : ""}`} />
           </button>
+        </div>
 
-          {menuOpen && (
-            <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[180px]">
-              {/* Note */}
+        {menuOpen && menuPos && createPortal(
+          <div
+            ref={menuPortalRef}
+            role="menu"
+            aria-label="Add card"
+            className="fixed z-[60] bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[180px]"
+            style={{ left: menuPos.left, bottom: menuPos.bottom }}
+          >
+            {/* Note */}
+            <button
+              onClick={() => createItem("note")}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
+            >
+              <StickyNote size={14} className="text-amber-500" />
+              <span className="text-slate-700">Note card</span>
+            </button>
+
+            {/* New goal (always available) */}
+            <button
+              onClick={() => { setMenuOpen(false); setGoalModalOpen(true); }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
+            >
+              <Target size={14} className="text-blue-500" />
+              <span className="text-slate-700">New goal…</span>
+            </button>
+
+            {/* Goal card picker (link to existing goal) */}
+            {goals.length > 0 && (
               <button
-                onClick={() => createItem("note")}
+                onClick={() => setPickerType(pickerType === "goal" ? null : "goal")}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
               >
-                <StickyNote size={14} className="text-amber-500" />
-                <span className="text-slate-700">Note card</span>
+                <Target size={14} className="text-blue-300" />
+                <span className="text-slate-700 flex-1">Goal card</span>
+                <ChevronDown size={11} className={`text-slate-400 transition-transform ${pickerType === "goal" ? "rotate-180" : ""}`} />
               </button>
+            )}
 
-              {/* New goal (always available) */}
+            {pickerType === "goal" && (
+              <div className="bg-slate-50 border-t border-slate-100 max-h-48 overflow-y-auto">
+                {goals.map((g) => (
+                  <button
+                    key={g.id}
+                    onClick={() => createItem("goal", g.id)}
+                    className="w-full text-left px-4 py-2 text-xs hover:bg-white transition-colors"
+                  >
+                    <span className="font-medium text-slate-700">{g.title}</span>
+                    <span className="block text-[10px] text-slate-400 mt-0.5">{g.status}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* New milestone (always available) */}
+            <button
+              onClick={() => { setMenuOpen(false); setMsModalOpen(true); }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
+            >
+              <Milestone size={14} className="text-violet-500" />
+              <span className="text-slate-700">New milestone…</span>
+            </button>
+
+            {/* Milestone card picker (link to existing milestone) */}
+            {milestones.length > 0 && (
               <button
-                onClick={() => { setMenuOpen(false); setGoalModalOpen(true); }}
+                onClick={() => setPickerType(pickerType === "milestone" ? null : "milestone")}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
               >
-                <Target size={14} className="text-blue-500" />
-                <span className="text-slate-700">New goal…</span>
+                <Milestone size={14} className="text-violet-300" />
+                <span className="text-slate-700 flex-1">Milestone card</span>
+                <ChevronDown size={11} className={`text-slate-400 transition-transform ${pickerType === "milestone" ? "rotate-180" : ""}`} />
               </button>
+            )}
 
-              {/* Goal card picker (link to existing goal) */}
-              {goals.length > 0 && (
-                <button
-                  onClick={() => setPickerType(pickerType === "goal" ? null : "goal")}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
-                >
-                  <Target size={14} className="text-blue-300" />
-                  <span className="text-slate-700 flex-1">Goal card</span>
-                  <ChevronDown size={11} className={`text-slate-400 transition-transform ${pickerType === "goal" ? "rotate-180" : ""}`} />
-                </button>
-              )}
-
-              {pickerType === "goal" && (
-                <div className="bg-slate-50 border-t border-slate-100 max-h-48 overflow-y-auto">
-                  {goals.map((g) => (
+            {pickerType === "milestone" && (
+              <div className="bg-slate-50 border-t border-slate-100 max-h-48 overflow-y-auto">
+                {milestones.map((m) => {
+                  const mTasks = m.tasks ?? [];
+                  return (
                     <button
-                      key={g.id}
-                      onClick={() => createItem("goal", g.id)}
+                      key={m.id}
+                      onClick={() => createItem("milestone", m.id)}
                       className="w-full text-left px-4 py-2 text-xs hover:bg-white transition-colors"
                     >
-                      <span className="font-medium text-slate-700">{g.title}</span>
-                      <span className="block text-[10px] text-slate-400 mt-0.5">{g.status}</span>
+                      <span className="font-medium text-slate-700">{m.title}</span>
+                      <span className="block text-[10px] text-slate-400 mt-0.5">
+                        {mTasks.filter((t) => t.status === "done").length}/{mTasks.length} tasks done
+                      </span>
                     </button>
-                  ))}
-                </div>
-              )}
-
-              {/* New milestone (always available) */}
-              <button
-                onClick={() => { setMenuOpen(false); setMsModalOpen(true); }}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
-              >
-                <Milestone size={14} className="text-violet-500" />
-                <span className="text-slate-700">New milestone…</span>
-              </button>
-
-              {/* Milestone card picker (link to existing milestone) */}
-              {milestones.length > 0 && (
-                <button
-                  onClick={() => setPickerType(pickerType === "milestone" ? null : "milestone")}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5"
-                >
-                  <Milestone size={14} className="text-violet-300" />
-                  <span className="text-slate-700 flex-1">Milestone card</span>
-                  <ChevronDown size={11} className={`text-slate-400 transition-transform ${pickerType === "milestone" ? "rotate-180" : ""}`} />
-                </button>
-              )}
-
-              {pickerType === "milestone" && (
-                <div className="bg-slate-50 border-t border-slate-100 max-h-48 overflow-y-auto">
-                  {milestones.map((m) => {
-                    const mTasks = m.tasks ?? [];
-                    return (
-                      <button
-                        key={m.id}
-                        onClick={() => createItem("milestone", m.id)}
-                        className="w-full text-left px-4 py-2 text-xs hover:bg-white transition-colors"
-                      >
-                        <span className="font-medium text-slate-700">{m.title}</span>
-                        <span className="block text-[10px] text-slate-400 mt-0.5">
-                          {mTasks.filter((t) => t.status === "done").length}/{mTasks.length} tasks done
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>,
+          document.body)}
 
         <div className="w-px h-5 bg-border mx-1" />
 
@@ -365,7 +411,7 @@ export function BoardToolbar({
           title="Switch Board Layouts & Open Side Panel"
         >
           {layoutMode === "kanban" ? <Kanban size={14} className="text-purple-600" /> : <LayoutGrid size={14} className="text-indigo-600" />}
-          <span>{layoutMode === "kanban" ? "Status Columns" : "Spatial Canvas"}</span>
+          <span>{layoutMode === "kanban" ? "Kanban" : "Canvas"}</span>
           <SlidersHorizontal size={12} className="text-slate-400 ml-0.5" />
         </button>
 
@@ -391,11 +437,11 @@ export function BoardToolbar({
         <button
           onClick={onCommandOpen}
           className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue hover:bg-blue-faint rounded-lg transition-colors"
-          title="Open AI command bar (⌘K)"
+          title="Open AI command bar (⌘/)"
         >
           <Terminal size={13} />
           <span>AI Edit</span>
-          <kbd className="text-[10px] text-muted bg-offwhite border border-border rounded px-1 font-mono">⌘K</kbd>
+          <kbd className="text-[10px] text-muted bg-offwhite border border-border rounded px-1 font-mono">⌘/</kbd>
         </button>
 
         {/* Live Collaborators Stack */}
@@ -458,14 +504,25 @@ export function BoardToolbar({
       {/* New Milestone modal */}
       {msModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setMsModalOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={msDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="new-milestone-modal-title"
+            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between mb-5">
-              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <Milestone size={16} className="text-violet-500" />
+              <h2 id="new-milestone-modal-title" className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <Milestone size={16} className="text-violet-500" aria-hidden="true" />
                 New Milestone
               </h2>
-              <button onClick={() => setMsModalOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors">
-                <X size={16} />
+              <button
+                onClick={() => setMsModalOpen(false)}
+                aria-label="Close dialog"
+                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+              >
+                <X size={16} aria-hidden="true" />
               </button>
             </div>
 

@@ -64,8 +64,11 @@ export default function PricingFAQ() {
             >
               <button
                 type="button"
+                id={`faq-button-${index}`}
+                aria-expanded={isOpen}
+                aria-controls={`faq-panel-${index}`}
                 onClick={() => toggleFAQ(index)}
-                className="w-full py-4 px-6 text-left flex items-center justify-between gap-4 font-semibold text-slate-900 text-sm md:text-base focus:outline-none"
+                className="w-full py-4 px-6 text-left flex items-center justify-between gap-4 font-semibold text-slate-900 text-sm md:text-base focus:outline-none cursor-pointer"
               >
                 <span>{faq.question}</span>
                 <svg
@@ -76,13 +79,18 @@ export default function PricingFAQ() {
                   viewBox="0 0 24 24"
                   stroke="currentColor"
                   strokeWidth="2.5"
+                  aria-hidden="true"
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
 
               {isOpen && (
-                <div className="px-6 pb-5 pt-1 text-xs md:text-sm text-slate-600 leading-relaxed border-t border-slate-100">
+                <div
+                  id={`faq-panel-${index}`}
+                  aria-labelledby={`faq-button-${index}`}
+                  className="px-6 pb-5 pt-1 text-xs md:text-sm text-slate-600 leading-relaxed border-t border-slate-100"
+                >
                   {faq.answer}
                 </div>
               )}

@@ -5,6 +5,7 @@ import { PLAN_LIMITS } from "@/lib/plan-limits";
 import OpenAI from "openai";
 import { z } from "zod";
 import { createHash } from "crypto";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { searchWorkspaceKnowledge, RetrievedChunk } from "@/lib/ai/semantic-search";
 
 const openrouter = new OpenAI({
@@ -25,6 +26,15 @@ function hashPrompt(input: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Rate limit: AI generation routes are expensive (embedding search + LLM call)
+  const rateLimit = checkRateLimit(request, "ai-copilot-chat", {
+    windowMs: 15 * 60 * 1000,
+    max: 10,
+  });
+  if (!rateLimit.allowed && rateLimit.response) {
+    return rateLimit.response;
+  }
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -99,22 +109,29 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Save User message immediately
-  await prisma.copilotMessage.create({
-    data: {
-      conversationId: conversation.id,
-      role: "user",
-      content: message,
-    },
-  });
-
-  // Fetch recent conversation history (last 6 messages) for multi-turn context
-  const previousMessages = await prisma.copilotMessage.findMany({
-    where: { conversationId: conversation.id },
-    orderBy: { createdAt: "desc" },
-    take: 6,
-  });
-  const history = previousMessages.reverse().slice(0, -1); // exclude current user message
+  // Save User message and fetch recent conversation history (last 6 messages)
+  // in parallel. We fetch take: 7 and exclude the inserted row by id so the
+  // result is identical to the old sequential create-then-read regardless of
+  // which query lands first (the read can no longer rely on seeing the insert).
+  const [savedUserMessage, recentMessages] = await Promise.all([
+    prisma.copilotMessage.create({
+      data: {
+        conversationId: conversation.id,
+        role: "user",
+        content: message,
+      },
+      select: { id: true },
+    }),
+    prisma.copilotMessage.findMany({
+      where: { conversationId: conversation.id },
+      orderBy: { createdAt: "desc" },
+      take: 7,
+    }),
+  ]);
+  const history = recentMessages
+    .filter((m) => m.id !== savedUserMessage.id) // exclude current user message
+    .reverse()
+    .slice(-5);
 
   // 1. Semantic RAG Search across workspace knowledge base
   const retrievedChunks: RetrievedChunk[] = await searchWorkspaceKnowledge(workspaceId, message, {

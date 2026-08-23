@@ -23,7 +23,9 @@ declare global {
 }
 
 const emitter = globalThis.__visionboard_notification_emitter__ ?? new EventEmitter();
-emitter.setMaxListeners(100);
+// 0 = unlimited. Each SSE connection registers a listener; a fixed cap of 100
+// caused spurious MaxListenersExceededWarning for power users with many tabs.
+emitter.setMaxListeners(0);
 
 if (process.env.NODE_ENV !== "production") {
   globalThis.__visionboard_notification_emitter__ = emitter;

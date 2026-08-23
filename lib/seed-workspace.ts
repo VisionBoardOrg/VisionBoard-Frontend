@@ -125,6 +125,7 @@ export async function seedWorkspace({
           await tx.task.create({
             data: {
               milestoneId: milestone.id,
+              workspaceId: ws.id,
               title: taskDef.title,
               status: taskDef.status,
               priority: taskDef.priority,

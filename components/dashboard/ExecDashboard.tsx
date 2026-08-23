@@ -1,6 +1,5 @@
 "use client";
 
-import { Goal, Milestone, Sprint, Task, Workspace, WorkspaceMember, User } from "@prisma/client";
 import dynamic from "next/dynamic";
 import { MetricBar } from "./MetricBar";
 
@@ -9,16 +8,9 @@ const GoalHealthScore = dynamic(
   { ssr: false }
 );
 
-import { computeGoalHealth } from "@/lib/dashboard-utils";
+import type { DashboardWorkspace } from "@/types/dashboard";
 
-type FullWorkspace = Workspace & {
-  goals: (Goal & { milestones: (Milestone & { tasks: Task[] })[] })[];
-  sprints: (Sprint & { tasks: Task[] })[];
-  members: (WorkspaceMember & { user: User })[];
-  _count: { goals: number; documents: number; members: number };
-};
-
-interface ExecDashboardProps { workspace: FullWorkspace; userId: string; userName: string }
+interface ExecDashboardProps { workspace: DashboardWorkspace; userId: string; userName: string }
 
 export function ExecDashboard({ workspace }: ExecDashboardProps) {
   const goals = workspace.goals;
@@ -26,8 +18,9 @@ export function ExecDashboard({ workspace }: ExecDashboardProps) {
   const donePercent = allTasks.length
     ? Math.round((allTasks.filter((t) => t.status === "done").length / allTasks.length) * 100)
     : 0;
+  // Health scores are persisted by the sweeper cron — no client recomputation
   const avgHealth = goals.length
-    ? Math.round(goals.reduce((sum, g) => sum + computeGoalHealth(g), 0) / goals.length)
+    ? Math.round(goals.reduce((sum, g) => sum + (g.healthScore ?? 0), 0) / goals.length)
     : 0;
 
   const sprintTasks = workspace.sprints.flatMap((s) => s.tasks);
@@ -45,7 +38,7 @@ export function ExecDashboard({ workspace }: ExecDashboardProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-ink">Executive Overview</h1>
+        <h2 className="text-2xl font-bold text-ink">Executive Overview</h2>
         <p className="text-slate text-sm mt-1">Company-wide progress for {workspace.name}</p>
       </div>
 
@@ -81,7 +74,7 @@ export function ExecDashboard({ workspace }: ExecDashboardProps) {
           <div className="text-sm text-muted mt-1">Active goals</div>
           <div className="mt-3 space-y-1.5">
             {goals.slice(0, 3).map((g) => {
-              const h = computeGoalHealth(g);
+              const h = g.healthScore ?? 0;
               return (
                 <div key={g.id} className="flex items-center gap-2">
                   <div className={`w-2 h-2 rounded-full ${h >= 70 ? "bg-success" : h >= 40 ? "bg-warning" : "bg-danger"}`} />

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/reusables/Logo";
+import { useConfirm } from "@/context/ConfirmContext";
 import {
   Building2, Plus, Trash2, Pencil, Check, X, Loader2,
   Users, Target, FileText, Crown, ExternalLink, ChevronRight,
@@ -59,6 +60,7 @@ export function WorkspacesClient({
   inAppShell = false,
 }: WorkspacesClientProps) {
   const router = useRouter();
+  const { confirm: confirmDialog } = useConfirm();
   const [workspaces, setWorkspaces] = useState(initialWorkspaces);
 
   // ── New workspace modal ──
@@ -337,7 +339,13 @@ export function WorkspacesClient({
                   ) : (
                     <button
                       onClick={async () => {
-                        if (!confirm("Leave this workspace?")) return;
+                        const ok = await confirmDialog({
+                          title: "Leave this workspace?",
+                          description: "You'll lose access to this workspace's board, goals, and docs. An admin can re-invite you later.",
+                          confirmLabel: "Leave workspace",
+                          danger: true,
+                        });
+                        if (!ok) return;
                         // Leave = remove own membership
                         await fetch(`/api/workspaces/${ws.id}/members/leave`, { method: "POST" });
                         setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));

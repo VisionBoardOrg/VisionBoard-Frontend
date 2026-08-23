@@ -161,7 +161,7 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
                   alt={viewer.userName}
                   width={20}
                   height={20}
-                  unoptimized
+                  sizes="20px"
                   className="w-5 h-5 rounded-full object-cover border-2 border-white shadow-sm"
                   style={{ borderColor: viewer.userColor }}
                 />

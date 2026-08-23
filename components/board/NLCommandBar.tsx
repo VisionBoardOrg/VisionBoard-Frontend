@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Zap, X, Loader2, CheckCircle2 } from "lucide-react";
 import type { AIBoardAction } from "@/types/board";
+import { useModalA11y } from "@/hooks/useModalA11y";
 
 interface NLCommandBarProps {
   workspaceId: string;
@@ -17,6 +18,8 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
   const [error, setError] = useState("");
   const [applied, setApplied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(dialogRef, onClose);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -64,6 +67,31 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
     "Assign the design milestone to Ade",
   ];
 
+  /** Human-readable label for a raw change key (e.g. "dueDate" → "Due date") */
+  const CHANGE_LABELS: Record<string, string> = {
+    status: "Status",
+    assignee: "Assignee",
+    assigneeId: "Assignee",
+    dueDate: "Due date",
+    startDate: "Start date",
+    title: "Title",
+    priority: "Priority",
+    sprint: "Sprint",
+    sprintId: "Sprint",
+    milestone: "Milestone",
+    milestoneId: "Milestone",
+    storyPoints: "Story points",
+  };
+
+  function formatChangeValue(value: unknown): string {
+    if (value === null || value === undefined || value === "") return "—";
+    if (typeof value === "boolean") return value ? "Yes" : "No";
+    const str = String(value);
+    // Pretty-print ISO dates and snake_case enum values
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return new Date(str).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return str.replace(/_/g, " ");
+  }
+
   return (
     <>
       {/* Backdrop */}
@@ -75,6 +103,10 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
 
       {/* Modal */}
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="AI board edit"
         className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-full max-w-xl"
         onKeyDown={handleKeyDown}
       >
@@ -122,9 +154,18 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
             <div className="mx-4 mb-4 p-4 bg-blue-faint border border-blue-light rounded-xl">
               <div className="text-xs font-semibold text-blue mb-2 uppercase tracking-wide">Proposed action</div>
               <p className="text-sm text-ink mb-3">{pendingAction.description}</p>
-              <pre className="text-[10px] text-slate bg-white border border-border rounded-lg p-2 overflow-auto max-h-24">
-                {JSON.stringify(pendingAction.changes, null, 2)}
-              </pre>
+              {pendingAction.changes && Object.keys(pendingAction.changes).length > 0 && (
+                <dl className="bg-white border border-border rounded-lg p-3 space-y-1.5">
+                  {Object.entries(pendingAction.changes).map(([key, value]) => (
+                    <div key={key} className="flex items-baseline justify-between gap-4 text-xs">
+                      <dt className="text-slate shrink-0">
+                        {CHANGE_LABELS[key] ?? key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase())}
+                      </dt>
+                      <dd className="font-semibold text-ink text-right">{formatChangeValue(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               <div className="flex gap-2 mt-3">
                 <button
                   onClick={applyAction}

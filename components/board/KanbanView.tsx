@@ -6,7 +6,6 @@ import {
   CircleDot,
   CheckCircle2,
   Plus,
-  MoreHorizontal,
   Trash2,
   CheckSquare,
   Square,
@@ -16,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple } from "@/types/board";
-import { DndContext, useDraggable, useDroppable, DragEndEvent } from "@dnd-kit/core";
+import { DndContext, useDraggable, useDroppable, DragEndEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 
 export interface StatusGroup {
   id: string;
@@ -87,11 +86,37 @@ export function KanbanView({
   onTaskToggle,
   onAddTaskToMilestone,
 }: KanbanViewProps) {
-  const [groups, setGroups] = useState<StatusGroup[]>(DEFAULT_GROUPS);
+  // Custom column groups restored from localStorage. Safe to read lazily here:
+  // KanbanView only mounts client-side after the layout-mode effect resolves,
+  // so this never runs during SSR/hydration.
+  const [groups, setGroups] = useState<StatusGroup[]>(() => {
+    try {
+      const saved = typeof window !== "undefined"
+        ? localStorage.getItem(`visionboard_kanban_groups_${workspaceId}`)
+        : null;
+      if (saved) {
+        const custom = JSON.parse(saved) as StatusGroup[];
+        const valid = custom.filter(
+          (g) => g && typeof g.id === "string" && !DEFAULT_GROUPS.some((d) => d.id === g.id)
+        );
+        if (valid.length > 0) {
+          return [
+            ...DEFAULT_GROUPS,
+            ...valid.map((g) => ({ ...g, badgeIcon: <CircleDot size={14} className="text-white" /> })),
+          ];
+        }
+      }
+    } catch {}
+    return DEFAULT_GROUPS;
+  });
   const [addingGroup, setAddingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [addingTaskColumn, setAddingTaskColumn] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+
+  // Pointer/touch sensors only — Enter/Space on a focused card opens its
+  // details instead of starting a keyboard drag
+  const sensors = useSensors(useSensor(PointerSensor), useSensor(TouchSensor));
 
   // Map items to column groups based on status (hiding goals & notes)
   const itemsByGroup = useMemo(() => {
@@ -118,7 +143,10 @@ export function KanbanView({
           } else if (anyStarted) {
             rawStatus = "in_progress";
           } else {
-            rawStatus = (item.linkedMilestone.status || "planned").toLowerCase();
+            // No task started: ignore a stale stored "in_progress" (set manually
+            // or left behind by deleted tasks); keep an explicit "delayed" flag
+            const stored = (item.linkedMilestone.status || "planned").toLowerCase();
+            rawStatus = stored === "delayed" ? "delayed" : "planned";
           }
         } else {
           rawStatus = (item.linkedMilestone.status || "planned").toLowerCase();
@@ -249,14 +277,23 @@ export function KanbanView({
       statuses: [id],
     };
 
-    setGroups([...groups, newGroup]);
+    setGroups((prev) => {
+      const next = [...prev, newGroup];
+      // Persist custom groups (excluding built-ins) so they survive reloads
+      try {
+        const custom = next.filter((g) => !DEFAULT_GROUPS.some((d) => d.id === g.id));
+        localStorage.setItem(`visionboard_kanban_groups_${workspaceId}`, JSON.stringify(custom));
+      } catch {}
+      return next;
+    });
     setNewGroupName("");
     setAddingGroup(false);
   }
 
   return (
-    <DndContext onDragEnd={handleDragEnd}>
-      <div className="w-full h-full min-h-[550px] p-6 overflow-x-auto bg-slate-50/50 flex items-start gap-6 select-none no-scrollbar">
+    <DndContext id="kanban-view-dnd" sensors={sensors} onDragEnd={handleDragEnd}>
+      {/* pb-24 keeps column content clear of the bottom floating toolbar */}
+      <div className="w-full h-full min-h-[550px] px-6 pt-6 pb-24 overflow-x-auto bg-slate-50/50 flex items-start gap-6 select-none no-scrollbar">
         {groups.map((group) => {
           const columnItems = itemsByGroup.get(group.id) ?? [];
           return (
@@ -376,16 +413,11 @@ function KanbanColumn({
           <div className="flex items-center gap-1">
             <button
               onClick={() => setAddingTaskColumn(group.id)}
-              className="p-1 text-purple-600 hover:text-purple-800 hover:bg-purple-100/60 rounded-md transition-colors"
+              className="p-1 text-purple-600 hover:text-purple-800 hover:bg-purple-100/60 rounded-md transition-colors cursor-pointer"
               title="Add task"
+              aria-label={`Add task to ${group.name}`}
             >
               <Plus size={16} />
-            </button>
-            <button
-              className="p-1 text-purple-600 hover:text-purple-800 hover:bg-purple-100/60 rounded-md transition-colors"
-              title="Column options"
-            >
-              <MoreHorizontal size={16} />
             </button>
           </div>
         )}
@@ -517,7 +549,15 @@ function KanbanCardItem({
       {...attributes}
       {...listeners}
       onClick={onSelect}
-      className={`bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing group relative ${
+      onKeyDown={(e) => {
+        // Open the card detail panel with Enter/Space when focused via keyboard
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+      aria-label={`${title} — open details`}
+      className={`bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-2xs hover:shadow-md transition-all cursor-grab active:cursor-grabbing group relative focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-600 ${
         isSelected ? "ring-2 ring-purple-600 border-purple-600" : ""
       }`}
     >
@@ -565,8 +605,9 @@ function KanbanCardItem({
               e.stopPropagation();
               setConfirmDelete(true);
             }}
-            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+            className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 cursor-pointer"
             title="Delete milestone"
+            aria-label={`Delete ${title}`}
           >
             <Trash2 size={13} />
           </button>
@@ -640,7 +681,8 @@ function KanbanCardItem({
           {tasks.map((task) => {
             const isDone = task.status === "done";
             return (
-              <div
+              <button
+                type="button"
                 key={task.id}
                 onPointerDown={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
@@ -648,13 +690,14 @@ function KanbanCardItem({
                   e.stopPropagation();
                   onTaskToggle?.(task.id, isDone ? "todo" : "done", milestone?.id);
                 }}
-                className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-slate-50 border border-slate-100 hover:border-purple-200 cursor-pointer transition-all"
+                aria-pressed={isDone}
+                className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-slate-50 border border-slate-100 hover:border-purple-200 cursor-pointer transition-all text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   {isDone ? (
-                    <CheckSquare size={14} className="text-emerald-600 shrink-0" />
+                    <CheckSquare size={14} className="text-emerald-600 shrink-0" aria-hidden="true" />
                   ) : (
-                    <Square size={14} className="text-slate-300 shrink-0 hover:text-purple-500" />
+                    <Square size={14} className="text-slate-300 shrink-0 hover:text-purple-500" aria-hidden="true" />
                   )}
                   <span
                     className={`text-xs text-slate-700 truncate ${
@@ -664,7 +707,7 @@ function KanbanCardItem({
                     {task.title}
                   </span>
                 </div>
-              </div>
+              </button>
             );
           })}
 

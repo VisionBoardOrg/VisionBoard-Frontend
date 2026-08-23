@@ -36,7 +36,7 @@ const plans = [
     features: [
       "1 Workspace",
       "Up to 5 team members",
-      "5 MB document storage",
+      "10 GB document storage",
       "Standard roadmap views & filtering",
       "7-day activity log",
       "Community support",
@@ -55,7 +55,7 @@ const plans = [
     features: [
       "5 Workspaces",
       "Up to 25 team members",
-      "100 MB document storage",
+      "100 GB document storage",
       "Full roadmap & board views",
       "Sprint & milestone tracking",
       "Role-based permissions",
@@ -75,7 +75,7 @@ const plans = [
     features: [
       "Unlimited workspaces",
       "Up to 100 team members",
-      "1 GB document storage",
+      "1 TB document storage",
       "Unlimited AI credits",
       "AI roadmap & goal deconstructor",
       "Extended 90-day activity history",
@@ -222,7 +222,7 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
                         : "border border-blue-600 text-blue-600 hover:bg-blue-50/80 active:scale-[0.99]"
                     }`}
                   >
-                    {isLoading && <Loader2 size={12} className="animate-spin" />}
+                    {isLoading && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
                     {isLoading ? "Redirecting…" : plan.ctaText}
                   </button>
                 ) : (
@@ -245,7 +245,7 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
                 <ul className="space-y-3 text-xs md:text-sm text-slate-700">
                   {plan.features.map((feature, idx) => (
                     <li key={idx} className="flex items-start gap-2.5">
-                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" aria-hidden="true" />
                       <span className={feature.startsWith("Everything in") ? "font-medium text-slate-500" : ""}>
                         {feature}
                       </span>

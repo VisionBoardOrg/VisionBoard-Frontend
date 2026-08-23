@@ -1,6 +1,5 @@
 "use client";
 
-import { Goal, Milestone, Sprint, Task, Workspace, WorkspaceMember, User } from "@prisma/client";
 import dynamic from "next/dynamic";
 
 const GoalHealthScore = dynamic(
@@ -10,28 +9,22 @@ const GoalHealthScore = dynamic(
 
 import { MetricBar } from "./MetricBar";
 import { AlertBanner } from "./AlertBanner";
-import { computeGoalHealth } from "@/lib/dashboard-utils";
+import type { DashboardWorkspace } from "@/types/dashboard";
 import Link from "next/link";
 import { ArrowRight, Zap, Target, HeartPulse, Users, FileText } from "lucide-react";
 
-type FullWorkspace = Workspace & {
-  goals: (Goal & { milestones: (Milestone & { tasks: Task[] })[] })[];
-  sprints: (Sprint & { tasks: Task[] })[];
-  members: (WorkspaceMember & { user: User })[];
-  _count: { goals: number; documents: number; members: number };
-};
-
 interface PMDashboardProps {
-  workspace: FullWorkspace;
+  workspace: DashboardWorkspace;
   userId: string;
   userName: string;
 }
 
 export function PMDashboard({ workspace, userName }: PMDashboardProps) {
   const goals = workspace.goals;
+  // Health scores are persisted by the sweeper cron — no client recomputation
   const avgHealth =
     goals.length > 0
-      ? Math.round(goals.reduce((sum, g) => sum + computeGoalHealth(g), 0) / goals.length)
+      ? Math.round(goals.reduce((sum, g) => sum + (g.healthScore ?? 0), 0) / goals.length)
       : 0;
 
   const activeSprint = workspace.sprints[0];
@@ -40,14 +33,14 @@ export function PMDashboard({ workspace, userName }: PMDashboardProps) {
 
   const roadmapHealth = goals.map((g) => ({
     label: g.title.length > 28 ? g.title.slice(0, 28) + "…" : g.title,
-    value: computeGoalHealth(g),
+    value: g.healthScore ?? 0,
   }));
 
   return (
     <div className="space-y-6">
       {/* Greeting */}
       <div>
-        <h1 className="text-2xl font-bold text-ink">Good day, {userName}</h1>
+        <h2 className="text-2xl font-bold text-ink">Good day, {userName}</h2>
         <p className="text-slate text-sm mt-1">Here&apos;s your product workspace overview.</p>
       </div>
 

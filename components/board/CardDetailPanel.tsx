@@ -141,7 +141,7 @@ function MemberAvatar({ user, size = 24 }: { user?: UserSimple | null; size?: nu
         alt={user.name ?? "Member"}
         width={size}
         height={size}
-        unoptimized
+        sizes={`${size}px`}
         onError={() => setImgError(true)}
         className="rounded-full object-cover border border-white"
         style={{ width: size, height: size }}
@@ -395,7 +395,13 @@ function TaskRow({
   const priorityRef = useRef<HTMLDivElement>(null);
   const dueDateRef = useRef<HTMLDivElement>(null);
 
+  // Only attach the global mousedown listener while one of the dropdowns is
+  // actually open (mirrors the SelectField gating pattern above) — otherwise
+  // every TaskRow keeps an always-on document listener mounted.
+  const anyMenuOpen = assignOpen || statusOpen || priorityOpen || dueDateOpen;
+
   useEffect(() => {
+    if (!anyMenuOpen) return;
     function handle(e: MouseEvent) {
       if (assignRef.current && !assignRef.current.contains(e.target as Node)) setAssignOpen(false);
       if (statusRef.current && !statusRef.current.contains(e.target as Node)) setStatusOpen(false);
@@ -404,7 +410,7 @@ function TaskRow({
     }
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, []);
+  }, [anyMenuOpen]);
 
   const assignee = members.find((m) => m.id === task.assigneeId);
 
@@ -1084,19 +1090,29 @@ function CardDetailPanelContent({
   const milestoneId = localItem.linkedMilestoneId ?? localItem.linkedMilestone?.id;
 
   return (
-    <div
-      className="absolute right-0 top-0 bottom-0 w-full sm:w-80 bg-white border-l border-slate-200 shadow-xl z-30 flex flex-col"
-      style={{ animation: "slideInPanel 0.2s ease-out" }}
-    >
+    <>
+      {/* Mobile backdrop — tap outside the panel to close (desktop keeps the board visible) */}
+      <div
+        className="absolute inset-0 z-20 bg-ink/30 sm:hidden"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      <div
+        className="absolute right-0 top-0 bottom-0 w-full sm:w-[440px] bg-white border-l border-slate-200 shadow-xl z-30 flex flex-col"
+        style={{ animation: "slideInPanel 0.2s ease-out" }}
+        role="dialog"
+        aria-label={`${entityType} details`}
+      >
       {/* slideInPanel keyframe is defined once in globals.css */}
 
       {/* Header */}
-      <div className={`bg-gradient-to-r ${headerColors[entityType] ?? "from-slate-400 to-slate-500"} px-4 py-3 flex items-center justify-between`}>
-        <div>
+      <div className={`bg-gradient-to-r ${headerColors[entityType] ?? "from-slate-400 to-slate-500"} px-4 py-3 flex items-center justify-between gap-3`}>
+        <div className="min-w-0">
           <span className="text-[10px] font-bold uppercase tracking-widest text-white/70">
             {entityType}
           </span>
-          <h2 className="text-sm font-bold text-white leading-tight truncate max-w-[210px]">
+          <h2 className="text-sm font-bold text-white leading-tight truncate">
             {entityType === "milestone"
               ? localItem.linkedMilestone?.title ?? localItem.label ?? "Untitled"
               : localItem.linkedGoal?.title ??
@@ -1289,6 +1305,7 @@ function CardDetailPanelContent({
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { calculateGoalHealth } from "@/lib/goal-health";
+import { syncMilestoneStatus } from "@/lib/milestone-sync";
 import {
   dispatchTaskAssignmentNotification,
   dispatchTaskBlockedNotification,
@@ -72,28 +73,15 @@ export async function PATCH(
 
   // Auto-sync parent milestone status based on task completion status
   if (parsed.data.status && task.milestoneId) {
-    const milestoneTasks = await prisma.task.findMany({
-      where: { milestoneId: task.milestoneId },
-      select: { status: true },
-    });
-    if (milestoneTasks.length > 0) {
-      const allDone = milestoneTasks.every((t) => t.status === "done");
-      const anyStarted = milestoneTasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-      const targetMilestoneStatus = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
-
-      prisma.milestone.update({
-        where: { id: task.milestoneId },
-        data: { status: targetMilestoneStatus },
+    syncMilestoneStatus(task.milestoneId)
+      .then((target) => {
+        if (target && goalId) {
+          calculateGoalHealth(goalId).catch((err) =>
+            console.error("[tasks/[id] PATCH] Auto goal health calculation failed:", err)
+          );
+        }
       })
-        .then(() => {
-          if (goalId) {
-            calculateGoalHealth(goalId).catch((err) =>
-              console.error("[tasks/[id] PATCH] Auto goal health calculation failed:", err)
-            );
-          }
-        })
-        .catch((err: unknown) => console.error("[tasks/[id] PATCH] Auto milestone update failed:", err));
-    }
+      .catch((err: unknown) => console.error("[tasks/[id] PATCH] Auto milestone update failed:", err));
   } else if (goalId && (parsed.data.status || parsed.data.priority)) {
     calculateGoalHealth(goalId).catch((err) =>
       console.error("[tasks/[id] PATCH] Auto goal health calculation failed:", err)
@@ -166,5 +154,13 @@ export async function DELETE(
   }
 
   await prisma.task.delete({ where: { id } });
+
+  // Re-sync parent milestone status (deleting the only started task should
+  // move it back to planned) — fire-and-forget
+  if (task.milestoneId) {
+    syncMilestoneStatus(task.milestoneId).catch((err: unknown) =>
+      console.error("[tasks/[id] DELETE] Milestone status re-sync failed:", err)
+    );
+  }
   return NextResponse.json({ success: true });
 }

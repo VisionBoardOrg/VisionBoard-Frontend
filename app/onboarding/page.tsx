@@ -90,7 +90,7 @@ export default function OnboardingPage() {
         />
       </div>
 
-      <div className="flex-1 flex items-start justify-center pt-12 px-4">
+      <div className="flex-1 flex items-start justify-center pt-12 pb-24 px-4">
         <div className="w-full max-w-2xl">
 
           {/* STEP 1 — Role */}
@@ -108,7 +108,8 @@ export default function OnboardingPage() {
                     <button
                       key={role.value}
                       onClick={() => setSelectedRole(role.value)}
-                      className={`text-left p-5 rounded-2xl border-2 transition-all ${
+                      aria-pressed={isSelected}
+                      className={`text-left p-5 rounded-2xl border-2 transition-all cursor-pointer ${
                         isSelected
                           ? "border-blue bg-blue-faint shadow-primary"
                           : "border-border bg-white hover:border-blue/40"
@@ -117,7 +118,7 @@ export default function OnboardingPage() {
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 transition-colors ${
                         isSelected ? "bg-blue text-white" : "bg-blue/10 text-blue"
                       }`}>
-                        <Icon size={20} />
+                        <Icon size={20} aria-hidden="true" />
                       </div>
                       <div className="font-semibold text-ink text-sm">{role.label}</div>
                       <div className="text-xs text-slate mt-1">{role.description}</div>
@@ -133,7 +134,7 @@ export default function OnboardingPage() {
                   className="bg-blue text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 inline-flex items-center gap-2"
                 >
                   <span>Continue</span>
-                  <ArrowRight size={16} />
+                  <ArrowRight size={16} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -153,7 +154,8 @@ export default function OnboardingPage() {
                     <button
                       key={t.value}
                       onClick={() => setSelectedTemplate(t.value)}
-                      className={`text-left p-5 rounded-2xl border-2 transition-all ${
+                      aria-pressed={isSelected}
+                      className={`text-left p-5 rounded-2xl border-2 transition-all cursor-pointer ${
                         isSelected
                           ? "border-blue bg-blue-faint shadow-primary"
                           : "border-border bg-white hover:border-blue/40"
@@ -162,7 +164,7 @@ export default function OnboardingPage() {
                       <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 transition-colors ${
                         isSelected ? "bg-blue text-white" : "bg-blue/10 text-blue"
                       }`}>
-                        <Icon size={20} />
+                        <Icon size={20} aria-hidden="true" />
                       </div>
                       <div className="font-semibold text-ink text-sm">{t.label}</div>
                       <div className="text-xs text-slate mt-1 mb-3">{t.description}</div>
@@ -191,7 +193,7 @@ export default function OnboardingPage() {
                   className="bg-blue text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 inline-flex items-center gap-2"
                 >
                   <span>Continue</span>
-                  <ArrowRight size={16} />
+                  <ArrowRight size={16} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -260,7 +262,7 @@ export default function OnboardingPage() {
                   {loading ? "Setting up your workspace…" : (
                     <>
                       <span>Launch workspace</span>
-                      <ArrowRight size={16} />
+                      <ArrowRight size={16} aria-hidden="true" />
                     </>
                   )}
                 </button>
