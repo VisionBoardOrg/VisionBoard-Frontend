@@ -9,6 +9,7 @@ import {
   dispatchGoalHealthNotification,
   dispatchQuotaNotification,
 } from "@/lib/notifications";
+import { runUserCleanup, UserCleanupResult } from "@/lib/user-cleanup";
 
 import { timingSafeEqual } from "crypto";
 
@@ -353,6 +354,18 @@ export async function GET(request: NextRequest) {
     console.error("[cron/sweeps] Retention cleanup failed:", err);
   }
 
+  // ── 6. Account Deletion Warnings & Purge Cleanup ─────────────────────────
+  let userCleanup: UserCleanupResult = {
+    warningsSent: 0,
+    purgedCount: 0,
+    purgedUserIds: [],
+  };
+  try {
+    userCleanup = await runUserCleanup();
+  } catch (err) {
+    console.error("[cron/sweeps] User cleanup failed:", err);
+  }
+
   return NextResponse.json({
     success: true,
     timestamp: now.toISOString(),
@@ -378,5 +391,6 @@ export async function GET(request: NextRequest) {
       activityLogsDeleted,
       readNotificationsDeleted,
     },
+    userCleanupSweep: userCleanup,
   });
 }
