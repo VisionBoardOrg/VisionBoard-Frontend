@@ -1,30 +1,21 @@
-"use client";
+import type { Metadata } from "next";
+import PricingClient from "@/components/pricing/PricingClient";
 
-import { useState } from "react";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
-import PricingHero from "@/components/pricing/PricingHero";
-import PricingCards from "@/components/pricing/PricingCards";
-import PricingComparisonTable from "@/components/pricing/PricingComparisonTable";
-import PricingFAQ from "@/components/pricing/PricingFAQ";
-import PricingCTA from "@/components/pricing/PricingCTA";
+export const metadata: Metadata = {
+  title: "Pricing Plans — Transparent for Teams of All Sizes",
+  description:
+    "Explore VisionBoard subscription tiers: Free, Startup, Growth, and Enterprise. Get AI-powered roadmaps, sprint boards, and unlimited collaboration.",
+  openGraph: {
+    title: "VisionBoard Pricing — Flexible Plans from Free to Enterprise",
+    description:
+      "Start free or scale with advanced AI roadmap generation, predictive sprint velocity alerts, and unlimited workspaces.",
+    url: "/pricing",
+  },
+  alternates: {
+    canonical: "/pricing",
+  },
+};
 
 export default function PricingPage() {
-  const [isAnnual, setIsAnnual] = useState(false);
-
-  return (
-    <div className="min-h-screen bg-offwhite text-ink font-sans flex flex-col justify-between">
-      <div>
-        <Header />
-        <main className="space-y-4">
-          <PricingHero isAnnual={isAnnual} setIsAnnual={setIsAnnual} />
-          <PricingCards isAnnual={isAnnual} />
-          <PricingComparisonTable />
-          <PricingFAQ />
-          <PricingCTA />
-        </main>
-      </div>
-      <Footer />
-    </div>
-  );
+  return <PricingClient />;
 }
