@@ -17,17 +17,18 @@ export default function PricingComparisonTable() {
       name: "Progress Tracking",
       features: [
         { name: "Custom roadmap status", free: "1 filter", startup: true, growth: true, enterprise: true },
-        { name: "Timeline & Gantt view", free: false, startup: true, growth: true, enterprise: true },
         { name: "Sprint tracking", free: false, startup: true, growth: true, enterprise: true },
         { name: "Milestone management", free: false, startup: true, growth: true, enterprise: true },
+        { name: "Timeline & Gantt view (coming soon)", free: false, startup: false, growth: true, enterprise: true },
       ],
     },
     {
       name: "AI Co-Pilot",
       features: [
         { name: "AI credits / suggestions", free: "10 / month", startup: "100 / month", growth: "Unlimited", enterprise: "Unlimited" },
-        { name: "Smart issue summarization", free: false, startup: true, growth: true, enterprise: true },
-        { name: "Automated risk spotting", free: false, startup: false, growth: true, enterprise: true },
+        { name: "AI roadmap generator", free: false, startup: true, growth: true, enterprise: true },
+        { name: "Goal deconstructor", free: false, startup: true, growth: true, enterprise: true },
+        { name: "Natural language board editing", free: false, startup: false, growth: true, enterprise: true },
       ],
     },
     {
@@ -39,10 +40,10 @@ export default function PricingComparisonTable() {
       ],
     },
     {
-      name: "Integration & Security",
+      name: "Security & Support",
       features: [
-        { name: "Slack, GitHub, Jira, Figma & Linear", free: false, startup: false, growth: true, enterprise: true },
-        { name: "SSO & SAML", free: false, startup: false, growth: false, enterprise: true },
+        { name: "TLS encryption & secure sessions", free: true, startup: true, growth: true, enterprise: true },
+        { name: "SSO / SAML (coming soon)", free: false, startup: false, growth: false, enterprise: true },
         { name: "Support", free: "Community", startup: "Email", growth: "Priority", enterprise: "Dedicated Manager" },
       ],
     },

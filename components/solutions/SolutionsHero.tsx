@@ -1,14 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
 import Link from "next/link";
 import PrimaryButton from "../reusables/primaryButton";
 import SecondaryButton from "../reusables/secondaryButton";
-import WaitlistModal from "../waitlist/WaitlistModal";
 
 export default function SolutionsHero() {
-  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
-
   return (
     <section className="relative pt-10 flex flex-col items-center justify-start overflow-hidden bg-offwhite">
       {/* Subtle dot grid */}
@@ -24,13 +20,14 @@ export default function SolutionsHero() {
         </p>
 
         <div className="flex flex-col sm:flex-row items-center gap-4 mt-6">
-          <PrimaryButton
-            size="md"
-            onClick={() => setIsWaitlistOpen(true)}
-            className="w-full sm:w-auto px-8"
-          >
-            Join Waitlist
-          </PrimaryButton>
+          <Link href="/auth/register" className="w-full sm:w-auto">
+            <PrimaryButton
+              size="md"
+              className="w-full sm:w-auto px-8"
+            >
+              Get Started Free
+            </PrimaryButton>
+          </Link>
           <Link href="/features">
             <SecondaryButton size="md" className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm">
               Explore Features
@@ -39,10 +36,6 @@ export default function SolutionsHero() {
         </div>
       </div>
 
-      <WaitlistModal
-        isOpen={isWaitlistOpen}
-        onClose={() => setIsWaitlistOpen(false)}
-      />
 
             {/* Wavy Background Container */}
             <div className="relative w-full h-[300px] mt-4 flex flex-col justify-end">
@@ -53,9 +46,9 @@ export default function SolutionsHero() {
                 </svg>
             </div>
 
-            {/* Marquee Banner */}
-            <div className="w-full bg-offwhite border-b border-border py-6 overflow-hidden flex whitespace-nowrap">
-                <div className="animate-marquee flex gap-12 text-[20px] font-bold text-slate/40 tracking-tight italic px-6">
+      {/* Marquee Banner */}
+            <div className="w-full bg-offwhite border-b border-border py-4 md:py-6 overflow-hidden flex whitespace-nowrap">
+                <div className="animate-marquee flex gap-8 md:gap-12 text-[15px] md:text-[20px] font-bold text-slate/40 tracking-tight italic px-6">
                     <span>Cross Team Planning</span>
                     <span>AI Powered Roadmap</span>
                     <span>Execution Visibility</span>

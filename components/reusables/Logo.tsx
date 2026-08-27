@@ -1,5 +1,3 @@
-import React from 'react';
-
 // ── Design Tokens (imported via Tailwind, but kept for JS calculations if needed)
 const C = {
   blue:      "#2563EB",

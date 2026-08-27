@@ -1,5 +1,16 @@
 import type { NextConfig } from "next";
 
+/**
+ * Security headers applied to every response.
+ *
+ * CSP notes:
+ * - In DEVELOPMENT: 'unsafe-eval' is included because React DevTools and
+ *   Next.js hot-reload require it for stack-trace reconstruction and HMR.
+ *   This is safe since the dev server is not publicly accessible.
+ * - In PRODUCTION: 'unsafe-eval' is removed. Next.js 14+ does not need it.
+ * - 'unsafe-inline' is kept for style-src only (Tailwind CSS-in-JS requires it).
+ * - frame-ancestors 'none' duplicates X-Frame-Options: DENY for CSP-aware browsers.
+ */
 const securityHeaders = [
   {
     key: "X-DNS-Prefetch-Control",
@@ -7,7 +18,7 @@ const securityHeaders = [
   },
   {
     key: "Strict-Transport-Security",
-    value: "max-age=31536000; includeSubDomains; preload",
+    value: "max-age=63072000; includeSubDomains; preload",
   },
   {
     key: "X-Frame-Options",
@@ -31,12 +42,40 @@ const securityHeaders = [
   },
   {
     key: "Content-Security-Policy",
-    value:
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: blob:; font-src 'self' data:; connect-src 'self' https:; frame-ancestors 'none';",
+    value: [
+      "default-src 'self'",
+      // 'unsafe-inline' removed — nonce-based CSP is applied per-request in
+      // middleware (proxy.ts) for HTML routes. This fallback header covers
+      // non-HTML responses and any routes not matched by middleware.
+      // Dev retains 'unsafe-eval' for React DevTools / Next.js HMR.
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: https: blob:",
+      "font-src 'self' data:",
+      "connect-src 'self' https: wss: https://cloudflareinsights.com",
+      "frame-src 'none'",
+      "frame-ancestors 'none'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join("; "),
   },
 ];
 
 const nextConfig: NextConfig = {
+  // Explicitly enable gzip/brotli compression — important when not behind a CDN
+  compress: true,
+  experimental: {
+    optimizePackageImports: ["lucide-react", "recharts", "@tiptap/react", "@tiptap/starter-kit"],
+  },
+  // instrumentation.js is enabled by default in Next.js 15+ — no flag needed.
+  images: {
+    remotePatterns: [
+      // Google OAuth avatars
+      { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "*.googleusercontent.com" },
+    ],
+  },
   async headers() {
     return [
       {

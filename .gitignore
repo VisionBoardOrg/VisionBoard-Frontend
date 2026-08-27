@@ -1,3 +1,12 @@
+# debug / local scripts — never commit these
+db-inspect.cjs
+*.inspect.cjs
+*.inspect.mjs
+
+# Windows CMD redirect artifacts — 'nul' is a reserved device name on Windows.
+# If a shell command accidentally creates a file named 'nul', exclude it.
+/nul
+
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
@@ -23,6 +32,9 @@
 # misc
 .DS_Store
 *.pem
+.kiro/
+.kito/
+
 
 # debug
 npm-debug.log*

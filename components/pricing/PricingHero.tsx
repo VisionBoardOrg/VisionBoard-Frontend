@@ -1,7 +1,5 @@
 "use client";
 
-import React from "react";
-
 interface PricingHeroProps {
   isAnnual: boolean;
   setIsAnnual: (isAnnual: boolean) => void;
@@ -11,7 +9,7 @@ export default function PricingHero({ isAnnual, setIsAnnual }: PricingHeroProps)
   return (
     <section className="pt-12 pb-8 px-4 text-center max-w-4xl mx-auto">
       <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.15]">
-        Price that grow as{" "}
+        Pricing that grows as{" "}
         <span className="bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 bg-clip-text text-transparent italic font-extrabold">
           your roadmap grows
         </span>

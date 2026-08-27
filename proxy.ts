@@ -1,26 +1,74 @@
+/**
+ * proxy.ts — Next.js 16 Edge Proxy (Next.js 16 uses the proxy convention).
+ *
+ * CRITICAL: Only import Edge-compatible modules here.
+ * - verifyAdminSession uses Web Crypto API (SubtleCrypto) — Edge safe ✓
+ * - NextAuth({ authConfig }) uses the lean config with no Prisma/bcrypt — Edge safe ✓
+ *
+ * Do NOT import lib/auth/index.ts here — it pulls in Prisma + bcryptjs which
+ * are Node.js-only and will crash in Edge Runtime.
+ */
+
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyAdminSession } from "@/lib/auth/admin-session";
+import { authConfig } from "@/auth.config";
+
+// Create a lightweight auth() helper that only decodes the JWT cookie.
+// No Prisma, no bcrypt — safe for Edge Runtime.
+const { auth } = NextAuth(authConfig);
+
+// Routes that require user authentication
+const PROTECTED_PREFIXES = ["/dashboard", "/workspace", "/onboarding"];
+// Routes that authenticated users should not see
+const AUTH_ROUTES = ["/auth/login", "/auth/register"];
+
+/**
+ * Build the Content-Security-Policy header value.
+ */
+function buildCsp(): string {
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' https: wss: https://cloudflareinsights.com https://api.stripe.com",
+    "frame-src 'none' https://js.stripe.com https://hooks.stripe.com",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; ");
+}
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Protect /admin paths (excluding the login page itself)
+  // ── 1. Admin Page Protection ───────────────────────────────────────────────
   if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
-    const session = request.cookies.get("admin_session")?.value;
-
-    if (!(await verifyAdminSession(session))) {
+    const cookie = request.cookies.get("admin_session")?.value;
+    if (!(await verifyAdminSession(cookie))) {
       const url = request.nextUrl.clone();
       url.pathname = "/admin/login";
       return NextResponse.redirect(url);
     }
   }
 
-  // Protect /api/admin paths (excluding the login API endpoint)
-  if (pathname.startsWith("/api/admin") && pathname !== "/api/admin/login") {
-    const session = request.cookies.get("admin_session")?.value;
+  // ── 1b. Stripe Webhook — bypass all auth, must receive raw body ──────────────
+  if (pathname === "/api/stripe/webhook") {
+    return NextResponse.next();
+  }
 
-    if (!(await verifyAdminSession(session))) {
+  // ── 2. Admin API Protection ────────────────────────────────────────────────
+  if (
+    pathname.startsWith("/api/admin") &&
+    pathname !== "/api/admin/login" &&
+    pathname !== "/api/admin/logout"
+  ) {
+    const cookie = request.cookies.get("admin_session")?.value;
+    if (!(await verifyAdminSession(cookie))) {
       return NextResponse.json(
         { success: false, message: "Unauthorized access" },
         { status: 401 }
@@ -28,13 +76,48 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // ── 3. User Authentication for Protected & Auth Routes ─────────────────────
+  const isProtected = PROTECTED_PREFIXES.some((p) => pathname.startsWith(p));
+  const isAuthRoute  = AUTH_ROUTES.some((p) => pathname.startsWith(p));
+
+  if (isProtected || isAuthRoute) {
+    const session = await auth();
+
+    if (isProtected && !session) {
+      const loginUrl = new URL("/auth/login", request.url);
+      loginUrl.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    if (isAuthRoute && session) {
+      const dest = session.user.workspaceId ? "/dashboard" : "/onboarding";
+      return NextResponse.redirect(new URL(dest, request.url));
+    }
+  }
+
+  // ── 4. Security headers + CSP ────────────────────────────────────────────
+  const isHtmlRoute = !pathname.startsWith("/api/") &&
+    !pathname.startsWith("/_next/") &&
+    !pathname.match(/\.(ico|png|jpg|jpeg|svg|webp|woff2?|ttf|css|js|map)$/);
+
   const response = NextResponse.next();
+
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+
+  if (isHtmlRoute) {
+    response.headers.set("Content-Security-Policy", buildCsp());
+  }
+
   return response;
 }
 
+export default proxy;
+
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpg|jpeg|gif|svg|webp|ico|woff2?|ttf|css|js|map)$).*)",
+  ],
 };
