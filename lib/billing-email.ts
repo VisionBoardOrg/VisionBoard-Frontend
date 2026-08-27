@@ -32,7 +32,7 @@ function emailShell(body: string): string {
     </div>
     <div style="background: #f8fafc; padding: 20px 32px; text-align: center; font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0;">
       &copy; 2026 VisionBoard Inc. All rights reserved.<br>
-      Questions? <a href="mailto:billing@visionboard.app" style="color: #2563eb; text-decoration: none;">billing@visionboard.app</a>
+      Questions? <a href="mailto:billing@vision-board.tech" style="color: #2563eb; text-decoration: none;">billing@vision-board.tech</a>
     </div>
   </div>
 </body>
@@ -63,10 +63,10 @@ async function dispatch(to: string, subject: string, html: string): Promise<void
 // ── Payment confirmation ──────────────────────────────────────────────────────
 
 interface PaymentConfirmationArgs {
-  to:          string;
-  planLabel:   string;       // e.g. "Startup"
-  amount:      string;       // e.g. "$29.00"
-  periodEnd:   string;       // e.g. "September 8, 2026"
+  to: string;
+  planLabel: string;       // e.g. "Startup"
+  amount: string;       // e.g. "$29.00"
+  periodEnd: string;       // e.g. "September 8, 2026"
   invoiceUrl?: string | null;
 }
 
@@ -107,7 +107,7 @@ export async function sendPaymentConfirmationEmail({
 
     <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">
       To manage your subscription or update your payment method, visit your
-      <a href="${process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://visionboard.app"}" style="color: #2563eb; text-decoration: none;">workspace billing settings</a>.
+      <a href="${process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://vision-board.tech"}" style="color: #2563eb; text-decoration: none;">workspace billing settings</a>.
     </p>
   `;
 
@@ -117,10 +117,10 @@ export async function sendPaymentConfirmationEmail({
 // ── Payment failure dunning ───────────────────────────────────────────────────
 
 interface PaymentFailureArgs {
-  to:             string;
-  planLabel:      string;
-  amount:         string;
-  invoiceUrl?:    string | null;
+  to: string;
+  planLabel: string;
+  amount: string;
+  invoiceUrl?: string | null;
   updateCardUrl?: string | null;  // Stripe Billing Portal URL (requires server-side generation)
 }
 
@@ -133,7 +133,7 @@ export async function sendPaymentFailureEmail({
 }: PaymentFailureArgs): Promise<void> {
   const subject = `Action required: payment failed for your VisionBoard subscription`;
 
-  const appUrl = process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://visionboard.app";
+  const appUrl = process.env.APP_URL ?? process.env.NEXTAUTH_URL ?? "https://vision-board.tech";
 
   const body = `
     <h2 style="margin-top: 0; color: #dc2626; font-size: 20px;">Payment failed ⚠</h2>
@@ -161,7 +161,7 @@ export async function sendPaymentFailureEmail({
 
     <p style="color: #94a3b8; font-size: 12px; margin-top: 24px;">
       If you continue to experience issues, reply to this email or contact us at
-      <a href="mailto:billing@visionboard.app" style="color: #2563eb; text-decoration: none;">billing@visionboard.app</a>.
+      <a href="mailto:billing@vision-board.tech" style="color: #2563eb; text-decoration: none;">billing@vision-board.tech</a>.
       Stripe may attempt to retry the charge automatically over the next few days.
     </p>
   `;

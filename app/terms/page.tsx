@@ -1,16 +1,47 @@
-import React from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import JsonLd from "@/components/seo/JsonLd";
 
-export const metadata = {
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
+
+export const metadata: Metadata = {
   title: "Terms of Service — VisionBoard",
-  description: "The terms that govern your use of the VisionBoard platform.",
+  description: "Review the terms and conditions governing your use of the VisionBoard product management platform.",
+  openGraph: {
+    title: "Terms of Service — VisionBoard",
+    description: "Review the terms and conditions governing your use of the VisionBoard product management platform.",
+    url: `${siteUrl}/terms`,
+  },
+  alternates: {
+    canonical: `${siteUrl}/terms`,
+  },
 };
 
 export default function TermsPage() {
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": siteUrl,
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Terms of Service",
+        "item": `${siteUrl}/terms`,
+      },
+    ],
+  };
+
   return (
     <div className="min-h-screen bg-offwhite flex flex-col">
+      <JsonLd data={breadcrumbJsonLd} />
       <Header />
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-14 space-y-6">
@@ -28,8 +59,8 @@ export default function TermsPage() {
         <p className="text-slate text-sm leading-relaxed">
           These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and use of VisionBoard
           (&ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;) at{" "}
-          <a href="https://visionboard.app" className="text-blue hover:underline">
-            visionboard.app
+          <a href="https://vision-board.tech" className="text-blue hover:underline">
+            vision-board.tech
           </a>{" "}
           (the &ldquo;Service&rdquo;). By creating an account or using the Service, you agree to be bound by
           these Terms. If you do not agree, do not use the Service.
@@ -59,8 +90,8 @@ export default function TermsPage() {
           <p className="mt-3">
             You are responsible for maintaining the confidentiality of your account credentials and
             for all activity that occurs under your account. Notify us immediately at{" "}
-            <a href="mailto:support@visionboard.app" className="text-blue hover:underline">
-              support@visionboard.app
+            <a href="mailto:support@vision-board.tech" className="text-blue hover:underline">
+              support@vision-board.tech
             </a>{" "}
             if you suspect unauthorized access.
           </p>
@@ -106,8 +137,8 @@ export default function TermsPage() {
             </li>
             <li>
               Refunds are handled on a case-by-case basis. To request a refund, contact{" "}
-              <a href="mailto:billing@visionboard.app" className="text-blue hover:underline">
-                billing@visionboard.app
+              <a href="mailto:billing@vision-board.tech" className="text-blue hover:underline">
+                billing@vision-board.tech
               </a>
               .
             </li>
@@ -201,8 +232,8 @@ export default function TermsPage() {
             <p>VisionBoard Inc.</p>
             <p>
               Email:{" "}
-              <a href="mailto:legal@visionboard.app" className="text-blue hover:underline">
-                legal@visionboard.app
+              <a href="mailto:legal@vision-board.tech" className="text-blue hover:underline">
+                legal@vision-board.tech
               </a>
             </p>
           </address>

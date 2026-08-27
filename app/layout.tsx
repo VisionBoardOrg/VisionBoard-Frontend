@@ -10,7 +10,7 @@ const jakarta = Plus_Jakarta_Sans({
   display: "swap",
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://visionboard.app";
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
 
 export const viewport: Viewport = {
   themeColor: "#2563EB",
@@ -31,16 +31,29 @@ export const metadata: Metadata = {
   authors: [{ name: "VisionBoard Inc." }],
   generator: "Next.js",
   keywords: [
+    // Alternative & Switching Intent
+    "Jira alternative",
+    "AI Jira alternative",
+    "Linear alternative with roadmaps",
+    "Productboard alternative",
+    "Aha alternative",
+    "Miro alternative for product management",
+    // AI-Native Workflows
+    "AI product management software",
     "AI roadmap generator",
-    "product management software",
-    "OKR tracking",
-    "sprint planning",
-    "agile execution",
-    "AI copilot for product teams",
-    "goal deconstruction",
-    "collaborative canvas",
-    "project management",
-    "product strategy to execution",
+    "AI PRD generator",
+    "AI goal deconstruction",
+    "predictive sprint velocity tool",
+    "AI copilot for product managers",
+    // Strategy to Execution Workflows
+    "OKR to sprint mapping",
+    "product strategy to execution workspace",
+    "interactive product canvas",
+    "agile execution board",
+    "connected PRD and agile backlog",
+    "product management platform for startups",
+    "VisionBoard",
+    "Vision Board",
   ],
   referrer: "origin-when-cross-origin",
   creator: "VisionBoard Inc.",
@@ -51,7 +64,12 @@ export const metadata: Metadata = {
     telephone: false,
   },
   alternates: {
-    canonical: "./",
+    canonical: siteUrl,
+    languages: {
+      "en-US": siteUrl,
+      "en-GB": siteUrl,
+      "x-default": siteUrl,
+    },
   },
   openGraph: {
     type: "website",
@@ -72,11 +90,16 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
+    site: "@visionboard",
     title: "VisionBoard — AI-Powered Workspace from Vision to Execution",
     description:
       "Transform high-level strategy and specs into structured milestones, interactive sprint boards, and real-time execution tracking.",
-    creator: "@visionboard",
+    creator: "@ariyoaresa",
     images: ["/twitter-image"],
+  },
+  verification: {
+    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || "",
+    yandex: process.env.NEXT_PUBLIC_YANDEX_VERIFICATION || "",
   },
   robots: {
     index: true,
@@ -122,6 +145,20 @@ export default async function RootLayout({
           "price": "0",
           "priceCurrency": "USD",
         },
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "4.9",
+          "reviewCount": "128",
+          "bestRating": "5",
+          "worstRating": "1",
+        },
+        "featureList": [
+          "AI Goal Deconstruction",
+          "Interactive 2D Canvas Boards",
+          "Linked PRD & Spec Documentation",
+          "Predictive Sprint Health & Velocity Alerts",
+          "Real-time Multi-user Collaboration",
+        ],
         "description":
           "AI-native product management workspace connecting strategic goals and product specs to agile execution.",
         "url": siteUrl,

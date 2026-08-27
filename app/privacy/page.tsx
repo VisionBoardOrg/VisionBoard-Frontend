@@ -1,16 +1,47 @@
-import React from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import JsonLd from "@/components/seo/JsonLd";
 
-export const metadata = {
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
+
+export const metadata: Metadata = {
   title: "Privacy Policy — VisionBoard",
-  description: "How VisionBoard collects, uses, and protects your personal data.",
+  description: "Learn how VisionBoard collects, uses, and safeguards your personal information and project data.",
+  openGraph: {
+    title: "Privacy Policy — VisionBoard",
+    description: "Learn how VisionBoard collects, uses, and safeguards your personal information and project data.",
+    url: `${siteUrl}/privacy`,
+  },
+  alternates: {
+    canonical: `${siteUrl}/privacy`,
+  },
 };
 
 export default function PrivacyPage() {
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      {
+        "@type": "ListItem",
+        "position": 1,
+        "name": "Home",
+        "item": siteUrl,
+      },
+      {
+        "@type": "ListItem",
+        "position": 2,
+        "name": "Privacy Policy",
+        "item": `${siteUrl}/privacy`,
+      },
+    ],
+  };
+
   return (
     <div className="min-h-screen bg-offwhite flex flex-col">
+      <JsonLd data={breadcrumbJsonLd} />
       <Header />
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-14 space-y-6">
@@ -29,8 +60,8 @@ export default function PrivacyPage() {
           VisionBoard (&ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;) is committed to protecting your personal
           information. This Privacy Policy explains what data we collect, how we use it, and your rights
           regarding that data when you use our platform at{" "}
-          <a href="https://visionboard.app" className="text-blue hover:underline">
-            visionboard.app
+          <a href="https://vision-board.tech" className="text-blue hover:underline">
+            vision-board.tech
           </a>{" "}
           (the &ldquo;Service&rdquo;).
         </p>
@@ -169,8 +200,8 @@ export default function PrivacyPage() {
           </ul>
           <p className="mt-3">
             To exercise any of these rights, email{" "}
-            <a href="mailto:privacy@visionboard.app" className="text-blue hover:underline">
-              privacy@visionboard.app
+            <a href="mailto:privacy@vision-board.tech" className="text-blue hover:underline">
+              privacy@vision-board.tech
             </a>
             . We will respond within 30 days.
           </p>
@@ -180,8 +211,8 @@ export default function PrivacyPage() {
           VisionBoard is intended for users aged 16 and older. We do not knowingly collect personal
           information from children under 16. If you believe a child has provided us with personal
           data, please contact{" "}
-          <a href="mailto:privacy@visionboard.app" className="text-blue hover:underline">
-            privacy@visionboard.app
+          <a href="mailto:privacy@vision-board.tech" className="text-blue hover:underline">
+            privacy@vision-board.tech
           </a>{" "}
           and we will promptly delete it.
         </Section>
@@ -208,8 +239,8 @@ export default function PrivacyPage() {
             <p>VisionBoard Inc.</p>
             <p>
               Email:{" "}
-              <a href="mailto:privacy@visionboard.app" className="text-blue hover:underline">
-                privacy@visionboard.app
+              <a href="mailto:privacy@vision-board.tech" className="text-blue hover:underline">
+                privacy@vision-board.tech
               </a>
             </p>
           </address>

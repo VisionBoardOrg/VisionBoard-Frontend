@@ -97,7 +97,7 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <a href="mailto:legal@visionboard.app" className="hover:text-white transition-colors">
+                <a href="mailto:legal@vision-board.tech" className="hover:text-white transition-colors">
                   Contact Legal
                 </a>
               </li>

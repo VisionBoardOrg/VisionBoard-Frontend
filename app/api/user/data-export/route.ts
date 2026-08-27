@@ -25,13 +25,13 @@ export async function GET() {
     prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id:            true,
-        email:         true,
-        name:          true,
-        image:         true,
-        plan:          true,
+        id: true,
+        email: true,
+        name: true,
+        image: true,
+        plan: true,
         aiCreditsUsed: true,
-        createdAt:     true,
+        createdAt: true,
         emailVerified: true,
         // Never include hashedPassword in exports
         accounts: {
@@ -42,7 +42,7 @@ export async function GET() {
     prisma.workspaceMember.findMany({
       where: { userId },
       select: {
-        role:     true,
+        role: true,
         joinedAt: true,
         workspace: {
           select: { id: true, name: true, slug: true, createdAt: true, owner: { select: { plan: true } } },
@@ -52,15 +52,15 @@ export async function GET() {
     prisma.comment.findMany({
       where: { authorId: userId },
       select: {
-        id:         true,
-        body:       true,
+        id: true,
+        body: true,
         entityType: true,
-        goalId:     true,
+        goalId: true,
         milestoneId: true,
-        taskId:     true,
+        taskId: true,
         documentId: true,
-        createdAt:  true,
-        updatedAt:  true,
+        createdAt: true,
+        updatedAt: true,
       },
       orderBy: { createdAt: "desc" },
     }),
@@ -68,20 +68,20 @@ export async function GET() {
     prisma.aIGenerationLog.findMany({
       where: { userId },
       select: {
-        id:          true,
-        feature:     true,
-        tokensUsed:  true,
-        accepted:    true,
-        createdAt:   true,
+        id: true,
+        feature: true,
+        tokensUsed: true,
+        accepted: true,
+        createdAt: true,
         workspaceId: true,
       },
       orderBy: { createdAt: "desc" },
     }),
     prisma.activityLog.findMany({
-      where:   { userId },
-      select:  { id: true, entityType: true, entityId: true, action: true, createdAt: true, workspaceId: true },
+      where: { userId },
+      select: { id: true, entityType: true, entityId: true, action: true, createdAt: true, workspaceId: true },
       orderBy: { createdAt: "desc" },
-      take:    500, // cap to last 500 entries to keep the file manageable
+      take: 500, // cap to last 500 entries to keep the file manageable
     }),
   ]);
 
@@ -91,12 +91,12 @@ export async function GET() {
 
   const exportPayload = {
     _meta: {
-      exportedAt:   new Date().toISOString(),
-      exportedBy:   userId,
+      exportedAt: new Date().toISOString(),
+      exportedBy: userId,
       notice:
         "This file contains all personal data VisionBoard holds about you. " +
         "Sensitive fields (password hashes, raw AI prompts) are excluded. " +
-        "Contact privacy@visionboard.app with questions.",
+        "Contact privacy@vision-board.tech with questions.",
     },
     profile: user,
     workspaceMemberships: memberships,
@@ -110,9 +110,9 @@ export async function GET() {
 
   return new NextResponse(json, {
     headers: {
-      "Content-Type":        "application/json",
+      "Content-Type": "application/json",
       "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control":       "no-store",
+      "Cache-Control": "no-store",
     },
   });
 }

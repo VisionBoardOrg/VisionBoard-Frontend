@@ -28,7 +28,7 @@ export default function PricingCTA() {
               </button>
             </Link>
             <a
-              href="mailto:sales@visionboard.app"
+              href="mailto:sales@vision-board.tech"
               className="text-sm font-semibold text-blue-200 hover:text-white transition-colors underline underline-offset-2"
             >
               Talk to sales →

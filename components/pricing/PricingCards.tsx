@@ -148,8 +148,8 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
           const displayPrice = "priceCustom" in plan && plan.priceCustom
             ? plan.priceCustom
             : isAnnual
-            ? (plan as { priceAnnual?: string }).priceAnnual
-            : (plan as { priceMonthly?: string }).priceMonthly;
+              ? (plan as { priceAnnual?: string }).priceAnnual
+              : (plan as { priceMonthly?: string }).priceMonthly;
 
           const isLoading = loadingTier === plan.tier;
 
@@ -160,11 +160,10 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
           return (
             <div
               key={plan.name}
-              className={`relative rounded-2xl bg-white p-6 flex flex-col justify-between transition-all duration-200 ${
-                isPopular
+              className={`relative rounded-2xl bg-white p-6 flex flex-col justify-between transition-all duration-200 ${isPopular
                   ? "border-2 border-blue-600 shadow-xl ring-4 ring-blue-500/10 z-10 scale-[1.02] md:scale-100 lg:scale-[1.02]"
                   : "border border-slate-200 shadow-sm hover:shadow-md"
-              }`}
+                }`}
             >
               {isPopular && (
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
@@ -206,7 +205,7 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
                 {/* CTA Button */}
                 {isEnterprise ? (
                   <a
-                    href="mailto:sales@visionboard.app"
+                    href="mailto:sales@vision-board.tech"
                     className="block w-full py-2.5 px-4 text-xs font-bold rounded-xl text-center border border-blue-600 text-blue-600 hover:bg-blue-50/80 active:scale-[0.99] transition-all duration-150"
                   >
                     {plan.ctaText}
@@ -216,11 +215,10 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
                     type="button"
                     onClick={() => handleCheckout(plan.tier as PaidTier)}
                     disabled={isLoading || Boolean(loadingTier)}
-                    className={`w-full py-2.5 px-4 text-xs font-bold rounded-xl cursor-pointer transition-all duration-150 flex items-center justify-center gap-1.5 disabled:opacity-60 ${
-                      plan.ctaVariant === "solid"
+                    className={`w-full py-2.5 px-4 text-xs font-bold rounded-xl cursor-pointer transition-all duration-150 flex items-center justify-center gap-1.5 disabled:opacity-60 ${plan.ctaVariant === "solid"
                         ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 active:scale-[0.99]"
                         : "border border-blue-600 text-blue-600 hover:bg-blue-50/80 active:scale-[0.99]"
-                    }`}
+                      }`}
                   >
                     {isLoading && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
                     {isLoading ? "Redirecting…" : plan.ctaText}
@@ -228,11 +226,10 @@ export default function PricingCards({ isAnnual, workspaceId }: PricingCardsProp
                 ) : (
                   <Link
                     href={isFree ? "/auth/register" : `/auth/register?plan=${plan.tier}&period=${isAnnual ? "annual" : "monthly"}`}
-                    className={`block w-full py-2.5 px-4 text-xs font-bold rounded-xl text-center cursor-pointer transition-all duration-150 ${
-                      plan.ctaVariant === "solid"
+                    className={`block w-full py-2.5 px-4 text-xs font-bold rounded-xl text-center cursor-pointer transition-all duration-150 ${plan.ctaVariant === "solid"
                         ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-600/20 active:scale-[0.99]"
                         : "border border-blue-600 text-blue-600 hover:bg-blue-50/80 active:scale-[0.99]"
-                    }`}
+                      }`}
                   >
                     {plan.ctaText}
                   </Link>
