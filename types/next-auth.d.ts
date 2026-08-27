@@ -12,6 +12,7 @@ declare module "next-auth" {
       workspaceId: string | null;
       workspacePlan?: string | null;
       plan: string | null;
+      emailVerified?: Date | null;
     };
   }
 }
@@ -23,6 +24,7 @@ declare module "next-auth/jwt" {
     workspaceId: string | null;
     workspacePlan?: string | null;
     plan: string | null;
+    emailVerified?: string | null;
     /** Unix timestamp (ms) of the last membership DB fetch — used for periodic re-validation */
     membershipFetchedAt?: number;
   }

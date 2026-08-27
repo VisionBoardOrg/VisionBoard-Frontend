@@ -81,7 +81,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user, account, trigger }) {
       if (user && user.id) {
         token.id = user.id;
         token.plan = ((user as unknown as { plan?: string }).plan) ?? "free";
@@ -90,6 +90,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.workspaceId         = null;
         token.role                = null;
         token.membershipFetchedAt = undefined;
+      }
+
+      // Auto-verify OAuth users (e.g. Google) on sign-in
+      if (account && account.provider !== "credentials" && token.id) {
+        try {
+          const verifiedDate = new Date();
+          await prisma.user.update({
+            where: { id: token.id as string },
+            data: { emailVerified: verifiedDate },
+          });
+          token.emailVerified = verifiedDate.toISOString();
+        } catch (error) {
+          console.error("[auth] Failed to auto-verify OAuth user email:", error);
+        }
       }
 
       // Re-fetch workspace membership & user plan from DB:
@@ -115,7 +129,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             getWorkspaceMembership(token.id as string),
             prisma.user.findUnique({
               where: { id: token.id as string },
-              select: { plan: true, scheduledDeletion: true },
+              select: {
+                plan: true,
+                scheduledDeletion: true,
+                emailVerified: true,
+                hashedPassword: true,
+                accounts: { select: { provider: true }, take: 1 },
+              },
             }),
           ]);
 
@@ -123,10 +143,21 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
+          // Auto-heal existing OAuth users created previously without emailVerified
+          let isVerified = dbUser.emailVerified;
+          if (!isVerified && (!dbUser.hashedPassword || dbUser.accounts.length > 0)) {
+            isVerified = new Date();
+            await prisma.user.update({
+              where: { id: token.id as string },
+              data: { emailVerified: isVerified },
+            }).catch(() => {});
+          }
+
           token.role                = membership?.role            ?? null;
           token.workspaceId         = membership?.workspaceId     ?? null;
           token.plan                = dbUser?.plan                ?? "free";
           token.workspacePlan       = token.plan;
+          token.emailVerified       = isVerified ? isVerified.toISOString() : null;
           token.membershipFetchedAt = now;
         } catch (error) {
           console.error("[auth] Failed to fetch workspace membership:", error);
@@ -140,7 +171,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       session.user.role          = token.role          as string | null;
       session.user.workspaceId   = token.workspaceId   as string | null;
       session.user.workspacePlan = token.workspacePlan as string | null;
+      session.user.emailVerified = token.emailVerified ? new Date(token.emailVerified) : null;
       return session;
+    },
+  },
+  events: {
+    async signIn({ user, account }) {
+      // Secondary safeguard: ensure emailVerified is set for OAuth users
+      if (account?.provider && account.provider !== "credentials" && user?.id) {
+        try {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { emailVerified: new Date() },
+          });
+        } catch (err) {
+          console.error("[auth] Event signIn OAuth auto-verify error:", err);
+        }
+      }
     },
   },
 });

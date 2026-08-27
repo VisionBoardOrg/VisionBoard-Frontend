@@ -15,6 +15,7 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { NotificationToast } from "@/components/notifications/NotificationToast";
 import { useNotifications, NotificationProvider } from "@/hooks/useNotifications";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { EmailVerificationBanner } from "@/components/reusables/EmailVerificationBanner";
 import { ToastProvider } from "@/context/ToastContext";
 import { ConfirmProvider } from "@/context/ConfirmContext";
 
@@ -334,6 +335,8 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <EmailVerificationBanner />
+
         {/* Top bar */}
         <header className="h-14 border-b border-border bg-white flex items-center px-4 gap-3 shrink-0">
           {/* Mobile hamburger */}

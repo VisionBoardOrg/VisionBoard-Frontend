@@ -36,6 +36,7 @@ export const authConfig: NextAuthConfig = {
       session.user.workspaceId   = token.workspaceId   as string | null;
       session.user.plan          = (token.plan as string | null) ?? "free";
       session.user.workspacePlan = (token.plan as string | null) ?? "free";
+      session.user.emailVerified = token.emailVerified ? new Date(token.emailVerified as string) : null;
       return session;
     },
   },

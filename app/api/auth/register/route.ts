@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
+import { sendVerificationEmail } from "@/lib/email-verification";
+
 const registerSchema = z.object({
   name: z.string().min(1).max(100),
   email: z.string().email(),
@@ -45,6 +47,15 @@ export async function POST(request: NextRequest) {
       data: { name, email, hashedPassword },
       select: { id: true, name: true, email: true },
     });
+
+    // Send verification email in background
+    const { origin } = new URL(request.url);
+    sendVerificationEmail({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+      origin,
+    }).catch((err) => console.error("[register] Failed to dispatch verification email:", err));
 
     return NextResponse.json({ user }, { status: 201 });
   } catch (err) {
