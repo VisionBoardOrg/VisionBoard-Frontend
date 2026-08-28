@@ -32,6 +32,7 @@ export default async function OpenGraphImage() {
             height: "500px",
             borderRadius: "50%",
             background: "radial-gradient(circle, rgba(37,99,235,0.35) 0%, rgba(37,99,235,0) 70%)",
+            display: "flex",
           }}
         />
 
@@ -71,7 +72,7 @@ export default async function OpenGraphImage() {
               />
             </svg>
           </div>
-          <div style={{ fontSize: "32px", fontWeight: "bold", letterSpacing: "-0.03em" }}>
+          <div style={{ display: "flex", fontSize: "32px", fontWeight: "bold", letterSpacing: "-0.03em" }}>
             Vision<span style={{ color: "#3B82F6" }}>Board</span>
           </div>
         </div>
@@ -80,6 +81,7 @@ export default async function OpenGraphImage() {
         <div style={{ display: "flex", flexDirection: "column", gap: "20px", maxWidth: "950px" }}>
           <div
             style={{
+              display: "flex",
               fontSize: "58px",
               fontWeight: 800,
               lineHeight: 1.1,
@@ -91,6 +93,7 @@ export default async function OpenGraphImage() {
           </div>
           <div
             style={{
+              display: "flex",
               fontSize: "26px",
               color: "#94A3B8",
               lineHeight: 1.4,
@@ -104,6 +107,8 @@ export default async function OpenGraphImage() {
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div
             style={{
+              display: "flex",
+              alignItems: "center",
               background: "rgba(37,99,235,0.2)",
               border: "1px solid rgba(59,130,246,0.4)",
               borderRadius: "100px",
@@ -113,10 +118,12 @@ export default async function OpenGraphImage() {
               color: "#60A5FA",
             }}
           >
-            ✦ AI Goal Deconstructor
+            AI Goal Deconstructor
           </div>
           <div
             style={{
+              display: "flex",
+              alignItems: "center",
               background: "rgba(255,255,255,0.06)",
               border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: "100px",
@@ -130,6 +137,8 @@ export default async function OpenGraphImage() {
           </div>
           <div
             style={{
+              display: "flex",
+              alignItems: "center",
               background: "rgba(255,255,255,0.06)",
               border: "1px solid rgba(255,255,255,0.12)",
               borderRadius: "100px",

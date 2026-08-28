@@ -6,7 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { UserSummaryCards } from "@/components/dashboard/UserSummaryCards";
 import { AppShell } from "@/components/layout/AppShell";
 
-export const metadata = { title: "Dashboard — VisionBoard" };
+export const metadata = {
+  title: "Dashboard — VisionBoard",
+  robots: { index: false, follow: false },
+};
 
 export default async function DashboardPage() {
   const session = await auth();

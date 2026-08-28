@@ -18,6 +18,26 @@ export const metadata: Metadata = {
     description:
       "Move from high-level vision to daily sprint execution with native AI copilots and collaborative boards.",
     url: `${siteUrl}/features`,
+    siteName: "VisionBoard",
+    locale: "en_US",
+    type: "website",
+    images: [
+      {
+        url: `${siteUrl}/opengraph-image`,
+        width: 1200,
+        height: 630,
+        alt: "VisionBoard Features — AI-Powered Roadmaps, Sprints & Canvas",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    site: "@ariyoaresa",
+    creator: "@ariyoaresa",
+    title: "VisionBoard Features — AI-Powered Roadmaps, Sprints & Canvas",
+    description:
+      "Move from high-level vision to daily sprint execution with native AI copilots and collaborative boards.",
+    images: [`${siteUrl}/twitter-image`],
   },
   alternates: {
     canonical: `${siteUrl}/features`,

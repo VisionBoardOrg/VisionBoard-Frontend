@@ -19,6 +19,26 @@ export const metadata: Metadata = {
     description:
       "Connect high-level strategy to agile sprint execution with role-tailored dashboards and AI workflow engines.",
     url: `${siteUrl}/solutions`,
+    siteName: "VisionBoard",
+    locale: "en_US",
+    type: "website",
+    images: [
+      {
+        url: `${siteUrl}/opengraph-image`,
+        width: 1200,
+        height: 630,
+        alt: "VisionBoard Solutions — Tailored for Product, Engineering & Executives",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    site: "@ariyoaresa",
+    creator: "@ariyoaresa",
+    title: "VisionBoard Solutions — Tailored for Product, Engineering & Executives",
+    description:
+      "Connect high-level strategy to agile sprint execution with role-tailored dashboards and AI workflow engines.",
+    images: [`${siteUrl}/twitter-image`],
   },
   alternates: {
     canonical: `${siteUrl}/solutions`,

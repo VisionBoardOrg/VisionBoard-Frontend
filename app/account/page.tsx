@@ -11,6 +11,7 @@ import { Suspense } from "react";
 export const metadata = {
   title: "Account Settings — VisionBoard",
   description: "Manage your personal profile, plan, and data.",
+  robots: { index: false, follow: false },
 };
 
 export default async function AccountPage() {
