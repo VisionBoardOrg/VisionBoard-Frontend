@@ -13,6 +13,25 @@ export const metadata: Metadata = {
     title: "Privacy Policy — VisionBoard",
     description: "Learn how VisionBoard collects, uses, and safeguards your personal information and project data.",
     url: `${siteUrl}/privacy`,
+    siteName: "VisionBoard",
+    locale: "en_US",
+    type: "website",
+    images: [
+      {
+        url: `${siteUrl}/opengraph-image`,
+        width: 1200,
+        height: 630,
+        alt: "Privacy Policy — VisionBoard",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    site: "@ariyoaresa",
+    creator: "@ariyoaresa",
+    title: "Privacy Policy — VisionBoard",
+    description: "Learn how VisionBoard collects, uses, and safeguards your personal information and project data.",
+    images: [`${siteUrl}/twitter-image`],
   },
   alternates: {
     canonical: `${siteUrl}/privacy`,

@@ -48,9 +48,10 @@ export const metadata: Metadata = {
     // Strategy to Execution Workflows
     "OKR to sprint mapping",
     "product strategy to execution workspace",
-    "interactive product canvas",
-    "agile execution board",
-    "connected PRD and agile backlog",
+    "simple friendly product management tool",
+    "interactive canvas",
+    "agile board",
+    "backlog organizer",
     "product management platform for startups",
     "VisionBoard",
     "Vision Board",
@@ -78,10 +79,10 @@ export const metadata: Metadata = {
     siteName: "VisionBoard",
     title: "VisionBoard — AI-Powered Workspace from Vision to Execution",
     description:
-      "Transform high-level strategy and messy specs into structured milestones, interactive sprint boards, and real-time execution tracking with native AI.",
+      "Transform high-level strategy and specs into structured milestones, interactive sprint boards, and real-time execution tracking with native AI.",
     images: [
       {
-        url: "/opengraph-image",
+        url: `${siteUrl}/opengraph-image`,
         width: 1200,
         height: 630,
         alt: "VisionBoard — AI-Powered Workspace from Vision to Execution",
@@ -90,16 +91,20 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    site: "@visionboard",
+    site: "@ariyoaresa",
     title: "VisionBoard — AI-Powered Workspace from Vision to Execution",
     description:
       "Transform high-level strategy and specs into structured milestones, interactive sprint boards, and real-time execution tracking.",
     creator: "@ariyoaresa",
-    images: ["/twitter-image"],
+    images: [`${siteUrl}/twitter-image`],
   },
   verification: {
-    google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || "",
-    yandex: process.env.NEXT_PUBLIC_YANDEX_VERIFICATION || "",
+    ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION
+      ? { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION }
+      : {}),
+    ...(process.env.NEXT_PUBLIC_YANDEX_VERIFICATION
+      ? { yandex: process.env.NEXT_PUBLIC_YANDEX_VERIFICATION }
+      : {}),
   },
   robots: {
     index: true,
@@ -168,17 +173,16 @@ export default async function RootLayout({
         "name": "VisionBoard Inc.",
         "url": siteUrl,
         "logo": `${siteUrl}/favicon.svg`,
-        "sameAs": ["https://twitter.com/visionboard"],
+        "sameAs": [
+          "https://github.com/VisionBoardOrg",
+          "https://x.com/ariyoaresa",
+          "https://instagram.com/ariyoaresa",
+        ],
       },
       {
         "@type": "WebSite",
         "url": siteUrl,
         "name": "VisionBoard",
-        "potentialAction": {
-          "@type": "SearchAction",
-          "target": `${siteUrl}/search?q={search_term_string}`,
-          "query-input": "required name=search_term_string",
-        },
       },
     ],
   };

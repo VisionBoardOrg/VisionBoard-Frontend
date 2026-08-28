@@ -5,7 +5,10 @@ import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { WorkspacesClient } from "@/components/workspace/WorkspacesClient";
 import { AppShell } from "@/components/layout/AppShell";
 
-export const metadata = { title: "Workspaces — VisionBoard" };
+export const metadata = {
+  title: "Workspaces — VisionBoard",
+  robots: { index: false, follow: false },
+};
 
 export default async function WorkspacesPage() {
   const session = await auth();

@@ -13,6 +13,25 @@ export const metadata: Metadata = {
     title: "Terms of Service — VisionBoard",
     description: "Review the terms and conditions governing your use of the VisionBoard product management platform.",
     url: `${siteUrl}/terms`,
+    siteName: "VisionBoard",
+    locale: "en_US",
+    type: "website",
+    images: [
+      {
+        url: `${siteUrl}/opengraph-image`,
+        width: 1200,
+        height: 630,
+        alt: "Terms of Service — VisionBoard",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    site: "@ariyoaresa",
+    creator: "@ariyoaresa",
+    title: "Terms of Service — VisionBoard",
+    description: "Review the terms and conditions governing your use of the VisionBoard product management platform.",
+    images: [`${siteUrl}/twitter-image`],
   },
   alternates: {
     canonical: `${siteUrl}/terms`,
