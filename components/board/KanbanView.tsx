@@ -134,22 +134,31 @@ export function KanbanView({
       let rawStatus = "todo";
 
       if (item.entityType === "milestone" && item.linkedMilestone) {
+        const stored = (item.linkedMilestone.status || "planned").toLowerCase();
         const tasks = item.linkedMilestone.tasks ?? [];
-        if (tasks.length > 0) {
-          const allDone = tasks.every((t) => t.status === "done");
-          const anyStarted = tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-          if (allDone) {
-            rawStatus = "completed";
-          } else if (anyStarted) {
-            rawStatus = "in_progress";
-          } else {
-            // No task started: ignore a stale stored "in_progress" (set manually
-            // or left behind by deleted tasks); keep an explicit "delayed" flag
-            const stored = (item.linkedMilestone.status || "planned").toLowerCase();
-            rawStatus = stored === "delayed" ? "delayed" : "planned";
-          }
+
+        // Respect explicit status set on the milestone
+        if (stored === "completed" || stored === "done" || stored === "complete") {
+          rawStatus = "completed";
+        } else if (stored === "in_progress" || stored === "active" || stored === "doing") {
+          rawStatus = "in_progress";
+        } else if (stored === "delayed" || stored === "blocked") {
+          rawStatus = "delayed";
         } else {
-          rawStatus = (item.linkedMilestone.status || "planned").toLowerCase();
+          // If status is default/planned, auto-promote if tasks have completed or started
+          if (tasks.length > 0) {
+            const allDone = tasks.every((t) => t.status === "done");
+            const anyStarted = tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
+            if (allDone) {
+              rawStatus = "completed";
+            } else if (anyStarted) {
+              rawStatus = "in_progress";
+            } else {
+              rawStatus = "planned";
+            }
+          } else {
+            rawStatus = "planned";
+          }
         }
       } else {
         const entity = item.linkedGoal ?? item.linkedMilestone;
@@ -574,26 +583,31 @@ function KanbanCardItem({
             className="flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-semibold animate-in fade-in duration-150"
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           >
             <span className="text-[10px]">Delete?</span>
             <button
               type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 setConfirmDelete(false);
                 onDelete();
               }}
-              className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition-colors"
+              className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition-colors cursor-pointer"
             >
               Yes
             </button>
             <button
               type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 setConfirmDelete(false);
               }}
-              className="text-slate-400 hover:text-slate-600 p-0.5 rounded"
+              className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
               title="Cancel"
             >
               <X size={10} />
@@ -601,6 +615,9 @@ function KanbanCardItem({
           </div>
         ) : (
           <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               setConfirmDelete(true);

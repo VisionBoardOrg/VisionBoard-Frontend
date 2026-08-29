@@ -10,7 +10,8 @@ interface ImportDocButtonProps {
   variant?: "button" | "toolbar";
 }
 
-const ACCEPTED = ".txt,.md,.docx";
+const ACCEPTED = ".pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.txt,.text,.md,.markdown,.json,.html,.htm,.rtf";
+const ALLOWED_EXTS = ["pdf", "docx", "doc", "xlsx", "xls", "csv", "tsv", "txt", "text", "md", "markdown", "json", "html", "htm", "rtf"];
 
 export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocButtonProps) {
   const router = useRouter();
@@ -31,12 +32,12 @@ export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocBu
     if (inputRef.current) inputRef.current.value = "";
 
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!["txt", "md", "docx"].includes(ext)) {
-      setError("Only .txt, .md, and .docx files are supported.");
+    if (!ALLOWED_EXTS.includes(ext)) {
+      setError("Unsupported file format. Please upload a .pdf, .docx, .xlsx, .csv, .txt, .md, .html, .json, or .rtf file.");
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      setError("File must be smaller than 10 MB.");
+    if (file.size > 15 * 1024 * 1024) {
+      setError("File must be smaller than 15 MB.");
       return;
     }
 
@@ -88,7 +89,7 @@ export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocBu
           type="button"
           onClick={openPicker}
           disabled={loading}
-          title="Import document from device (.txt, .md, .docx)"
+          title="Import document from device (.pdf, .docx, .xlsx, .csv, .txt, .md, .html, .json)"
           className="p-1.5 rounded-md text-slate hover:text-ink hover:bg-offwhite transition-colors cursor-pointer disabled:opacity-50"
         >
           {loading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}

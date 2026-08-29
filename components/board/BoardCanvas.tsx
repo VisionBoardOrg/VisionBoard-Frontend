@@ -12,7 +12,7 @@ import { BoardLayoutSidePanel, type BoardLayoutMode } from "./BoardLayoutSidePan
 import { KanbanView } from "./KanbanView";
 import { Kanban, RotateCcw, X } from "lucide-react";
 import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple } from "@/types/board";
-import { useBoard } from "@/store/board-store";
+import { useBoard, useBoardStore } from "@/store/board-store";
 import { useCursorStore } from "@/store/cursor-store";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useToast } from "@/context/ToastContext";
@@ -84,7 +84,7 @@ interface BoardCanvasProps {
 }
 
 export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, milestones: initialMilestones, members }: BoardCanvasProps) {
-  const { items, moveItem, setItems } = useBoard(workspaceId, initialItems);
+  const { items, moveItem, setItems, updateBoardItem, removeItem } = useBoard(workspaceId, initialItems);
   const { toast } = useToast();
 
   // Read current logged-in user session for presence broadcasting
@@ -328,8 +328,13 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       setUndoStack((prev) => [...prev, { item, deletedAt: Date.now() }]);
       setShowUndoToast(true);
 
-      // Optimistically remove card
-      setItems(items.filter((i) => i.id !== itemId));
+      // Optimistically remove card from board store and local states
+      removeItem(itemId);
+      if (item.entityType === "milestone" && item.linkedMilestoneId) {
+        setMilestones((prev) => prev.filter((m) => m.id !== item.linkedMilestoneId));
+      } else if (item.entityType === "goal" && item.linkedGoalId) {
+        setGoals((prev) => prev.filter((g) => g.id !== item.linkedGoalId));
+      }
       if (selectedId === itemId) setSelectedId(null);
 
       // Broadcast over WS
@@ -343,16 +348,24 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
 
       try {
         if (item.entityType === "goal" && item.linkedGoalId) {
-          await fetch(`/api/goals/${item.linkedGoalId}`, { method: "DELETE" });
+          const res = await fetch(`/api/goals/${item.linkedGoalId}`, { method: "DELETE" });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            toast({ type: "error", title: "Couldn't delete goal", description: data.error ?? "Failed to delete goal" });
+          }
         } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
-          await fetch(`/api/milestones/${item.linkedMilestoneId}`, { method: "DELETE" });
+          const res = await fetch(`/api/milestones/${item.linkedMilestoneId}`, { method: "DELETE" });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            toast({ type: "error", title: "Couldn't delete milestone", description: data.error ?? "Failed to delete milestone" });
+          }
         }
         await fetch(`/api/board-items/${itemId}`, { method: "DELETE" });
       } catch (err) {
         console.error("[BoardCanvas] Failed to delete board item:", err);
       }
     },
-    [items, selectedId, sendEvent, workspaceId, setItems]
+    [items, selectedId, sendEvent, workspaceId, removeItem, setMilestones, setGoals, toast]
   );
 
   const handleSelectCard = useCallback((id: string) => {
@@ -527,11 +540,17 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           setGoals((prev) =>
             prev.map((g) => (g.id === item.linkedGoalId ? { ...g, status: oldStatus ?? g.status } : g))
           );
+          if (item.linkedGoal && oldStatus) {
+            updateBoardItem(item.id, { linkedGoal: { ...item.linkedGoal, status: oldStatus } });
+          }
         } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
           const oldStatus = milestones.find((m) => m.id === item.linkedMilestoneId)?.status;
           setMilestones((prev) =>
             prev.map((m) => (m.id === item.linkedMilestoneId ? { ...m, status: oldStatus ?? m.status } : m))
           );
+          if (item.linkedMilestone && oldStatus) {
+            updateBoardItem(item.id, { linkedMilestone: { ...item.linkedMilestone, status: oldStatus } });
+          }
         }
         toast({
           type: "error",
@@ -545,6 +564,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           setGoals((prev) =>
             prev.map((g) => (g.id === item.linkedGoalId ? { ...g, status: newStatus } : g))
           );
+          if (item.linkedGoal) {
+            updateBoardItem(item.id, { linkedGoal: { ...item.linkedGoal, status: newStatus } });
+          }
           const res = await fetch(`/api/goals/${item.linkedGoalId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -552,9 +574,40 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           });
           if (!res.ok) reportFailure();
         } else if (item.entityType === "milestone" && item.linkedMilestoneId) {
+          const targetTaskStatus =
+            newStatus === "completed" || newStatus === "done" || newStatus === "complete"
+              ? "done"
+              : newStatus === "planned" || newStatus === "todo"
+              ? "todo"
+              : newStatus === "in_progress" || newStatus === "active"
+              ? "in_progress"
+              : newStatus === "delayed" || newStatus === "blocked"
+              ? "blocked"
+              : null;
+
           setMilestones((prev) =>
-            prev.map((m) => (m.id === item.linkedMilestoneId ? { ...m, status: newStatus } : m))
+            prev.map((m) => {
+              if (m.id === item.linkedMilestoneId) {
+                const updatedTasks = targetTaskStatus
+                  ? (m.tasks ?? []).map((t) => ({ ...t, status: targetTaskStatus }))
+                  : m.tasks;
+                return { ...m, status: newStatus, tasks: updatedTasks };
+              }
+              return m;
+            })
           );
+          if (item.linkedMilestone) {
+            const updatedTasks = targetTaskStatus
+              ? (item.linkedMilestone.tasks ?? []).map((t) => ({ ...t, status: targetTaskStatus }))
+              : item.linkedMilestone.tasks;
+            updateBoardItem(item.id, {
+              linkedMilestone: {
+                ...item.linkedMilestone,
+                status: newStatus,
+                tasks: updatedTasks,
+              },
+            });
+          }
           const res = await fetch(`/api/milestones/${item.linkedMilestoneId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -562,6 +615,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           });
           if (!res.ok) reportFailure();
         } else if (item.entityType === "task" && item.linkedTaskId) {
+          updateBoardItem(item.id, { label: newStatus });
           const res = await fetch(`/api/tasks/${item.linkedTaskId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
