@@ -2,27 +2,109 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import mammoth from "mammoth";
+import pdfParse from "pdf-parse";
 import sanitizeHtml from "sanitize-html";
+import * as XLSX from "xlsx";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
 import { parse as parseHtml } from "node-html-parser";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Sanitize HTML from mammoth using an allowlist of safe tags and attributes.
+ * Convert Excel / CSV spreadsheet buffer into a structured Tiptap ProseMirror document.
+ */
+/**
+ * Convert Excel / CSV spreadsheet buffer into a structured Tiptap ProseMirror document.
+ */
+export function excelToTiptap(buffer: Buffer): object {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
+  const content: object[] = [];
+
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+
+    if (workbook.SheetNames.length > 1) {
+      content.push({
+        type: "heading",
+        attrs: { level: 2 },
+        content: [{ type: "text", text: `Sheet: ${sheetName}` }],
+      });
+    }
+
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
+    if (!rows || rows.length === 0) continue;
+
+    const validRows = rows.filter(
+      (r) => Array.isArray(r) && r.some((val) => val !== undefined && val !== null && String(val).trim() !== "")
+    );
+    if (validRows.length === 0) continue;
+
+    const headerRow = validRows[0];
+    const dataRows = validRows.slice(1);
+
+    if (dataRows.length > 0) {
+      const headerText = headerRow.map((cell) => String(cell ?? "").trim()).join(" | ");
+      content.push({
+        type: "paragraph",
+        content: [{ type: "text", text: `Columns: ${headerText}`, marks: [{ type: "bold" }] }],
+      });
+
+      const listItems: object[] = [];
+      for (const row of dataRows.slice(0, 500)) {
+        const rowText = row
+          .map((cell, idx) => {
+            const colName = headerRow[idx] ? String(headerRow[idx]).trim() : `Col ${idx + 1}`;
+            const val = cell !== undefined && cell !== null ? String(cell).trim() : "";
+            return val ? `${colName}: ${val}` : null;
+          })
+          .filter(Boolean)
+          .join(" • ");
+
+        if (rowText) {
+          listItems.push({
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: rowText }] }],
+          });
+        }
+      }
+
+      if (listItems.length > 0) {
+        content.push({ type: "bulletList", content: listItems });
+      }
+    } else {
+      const text = headerRow.map((cell) => String(cell ?? "").trim()).join(" | ");
+      content.push({ type: "paragraph", content: [{ type: "text", text }] });
+    }
+  }
+
+  if (content.length === 0) {
+    content.push({ type: "paragraph", content: [{ type: "text", text: "Empty spreadsheet." }] });
+  }
+
+  return { type: "doc", content };
+}
+
+/**
+ * Sanitize HTML from mammoth or imported HTML using an allowlist of safe tags.
  */
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
-  allowedTags: ["h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li", "pre", "code", "blockquote", "strong", "em", "b", "i", "br"],
-  allowedAttributes: {},
+  allowedTags: [
+    "h1", "h2", "h3", "h4", "h5", "h6", "p", "ul", "ol", "li",
+    "pre", "code", "blockquote", "strong", "em", "b", "i", "br", "a"
+  ],
+  allowedAttributes: {
+    a: ["href", "title"],
+  },
   disallowedTagsMode: "discard",
 };
 
-function sanitize(html: string): string {
+export function sanitize(html: string): string {
   return sanitizeHtml(html, SANITIZE_OPTIONS);
 }
 
 /** Decode common HTML entities in a plain-text string. */
-function decodeEntities(text: string): string {
+export function decodeEntities(text: string): string {
   return text
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
@@ -31,28 +113,271 @@ function decodeEntities(text: string): string {
     .replace(/&quot;/g, '"');
 }
 
+/** Strip RTF markup to extract readable text. */
+export function stripRtf(rtf: string): string {
+  return rtf
+    .replace(/\\fonttbl.*?;/g, "")
+    .replace(/\\colortbl.*?;/g, "")
+    .replace(/\\stylesheet.*?;/g, "")
+    .replace(/\\{\\*\\.*?\}/g, "")
+    .replace(/\\[a-z0-9]+\s?/gi, "")
+    .replace(/[\{\}]/g, "")
+    .trim();
+}
+
+/** Parse inline markdown marks with recursive mark inheritance (bold, italic, code). */
+export function parseInlineContent(text: string, inheritedMarks: Array<{ type: string }> = []): object[] {
+  if (!text) return [];
+  if (!/[*`_]/.test(text)) {
+    return [
+      inheritedMarks.length > 0
+        ? { type: "text", text, marks: [...inheritedMarks] }
+        : { type: "text", text },
+    ];
+  }
+
+  const nodes: object[] = [];
+  let i = 0;
+  let textBuffer = "";
+
+  function flushBuffer() {
+    if (textBuffer.length > 0) {
+      nodes.push(
+        inheritedMarks.length > 0
+          ? { type: "text", text: textBuffer, marks: [...inheritedMarks] }
+          : { type: "text", text: textBuffer }
+      );
+      textBuffer = "";
+    }
+  }
+
+  while (i < text.length) {
+    // 1. Inline code: `...` (verbatim text, highest precedence)
+    if (text[i] === "`") {
+      const closeIdx = text.indexOf("`", i + 1);
+      if (closeIdx > i + 1) {
+        flushBuffer();
+        const codeText = text.slice(i + 1, closeIdx);
+        nodes.push({
+          type: "text",
+          text: codeText,
+          marks: [...inheritedMarks, { type: "code" }],
+        });
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    // 2. Triple Delimiter: ***...*** or ___...___ (Bold + Italic)
+    if (
+      (text.startsWith("***", i) || text.startsWith("___", i)) &&
+      text.length > i + 6
+    ) {
+      const delim = text.slice(i, i + 3);
+      const closeIdx = text.indexOf(delim, i + 3);
+      if (closeIdx > i + 3) {
+        flushBuffer();
+        const innerText = text.slice(i + 3, closeIdx);
+        const childNodes = parseInlineContent(innerText, [
+          ...inheritedMarks,
+          { type: "bold" },
+          { type: "italic" },
+        ]);
+        nodes.push(...childNodes);
+        i = closeIdx + 3;
+        continue;
+      }
+    }
+
+    // 3. Double Delimiter: **...** or __...__ (Bold)
+    if (
+      (text.startsWith("**", i) || text.startsWith("__", i)) &&
+      text.length > i + 4
+    ) {
+      const delim = text.slice(i, i + 2);
+      const closeIdx = text.indexOf(delim, i + 2);
+      if (closeIdx > i + 2) {
+        flushBuffer();
+        const innerText = text.slice(i + 2, closeIdx);
+        const childNodes = parseInlineContent(innerText, [
+          ...inheritedMarks,
+          { type: "bold" },
+        ]);
+        nodes.push(...childNodes);
+        i = closeIdx + 2;
+        continue;
+      }
+    }
+
+    // 4. Single Delimiter: *...* or _..._ (Italic)
+    if (
+      (text[i] === "*" || text[i] === "_") &&
+      !text.startsWith("**", i) &&
+      !text.startsWith("__", i)
+    ) {
+      const delim = text[i];
+      const closeIdx = text.indexOf(delim, i + 1);
+      if (closeIdx > i + 1 && text[i + 1] !== " ") {
+        flushBuffer();
+        const innerText = text.slice(i + 1, closeIdx);
+        const childNodes = parseInlineContent(innerText, [
+          ...inheritedMarks,
+          { type: "italic" },
+        ]);
+        nodes.push(...childNodes);
+        i = closeIdx + 1;
+        continue;
+      }
+    }
+
+    textBuffer += text[i];
+    i++;
+  }
+
+  flushBuffer();
+  return nodes.length > 0
+    ? nodes
+    : [{ type: "text", text, ...(inheritedMarks.length ? { marks: inheritedMarks } : {}) }];
+}
+
 /** Convert a markdown / plain-text string into a Tiptap ProseMirror JSON doc. */
-function textToTiptap(raw: string): object {
+export function textToTiptap(raw: string): object {
   const lines = raw.split(/\r?\n/);
   const content: object[] = [];
 
-  for (const line of lines) {
-    const trimmed = line.trimEnd();
+  let inCodeBlock = false;
+  let codeBuffer: string[] = [];
+
+  let currentListType: "bulletList" | "orderedList" | null = null;
+  let currentListItems: object[] = [];
+
+  function flushCurrentList() {
+    if (currentListType && currentListItems.length > 0) {
+      content.push({
+        type: currentListType,
+        content: [...currentListItems],
+      });
+      currentListItems = [];
+      currentListType = null;
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedRight = line.trimEnd();
+    const trimmed = trimmedRight.trimStart();
+
+    // Code blocks (```lang ... ```)
+    if (trimmed.startsWith("```")) {
+      flushCurrentList();
+      if (inCodeBlock) {
+        content.push({
+          type: "codeBlock",
+          content: [{ type: "text", text: codeBuffer.join("\n") }],
+        });
+        codeBuffer = [];
+        inCodeBlock = false;
+      } else {
+        inCodeBlock = true;
+      }
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeBuffer.push(line);
+      continue;
+    }
+
+    // Horizontal Rule (---, ***, ___)
+    if (/^(---|[*]{3,}|___)$/.test(trimmed)) {
+      flushCurrentList();
+      content.push({ type: "horizontalRule" });
+      continue;
+    }
+
+    // Headings
+    const h6 = trimmed.match(/^######\s+(.+)/);
+    const h5 = trimmed.match(/^#####\s+(.+)/);
+    const h4 = trimmed.match(/^####\s+(.+)/);
     const h3 = trimmed.match(/^###\s+(.+)/);
     const h2 = trimmed.match(/^##\s+(.+)/);
     const h1 = trimmed.match(/^#\s+(.+)/);
 
-    if (h3) {
-      content.push({ type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: h3[1] }] });
-    } else if (h2) {
-      content.push({ type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: h2[1] }] });
-    } else if (h1) {
-      content.push({ type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: h1[1] }] });
-    } else if (trimmed === "") {
-      content.push({ type: "paragraph" });
-    } else {
-      content.push({ type: "paragraph", content: [{ type: "text", text: trimmed }] });
+    if (h1 || h2 || h3 || h4 || h5 || h6) {
+      flushCurrentList();
+      const match = h1 || h2 || h3 || h4 || h5 || h6;
+      const level = h1 ? 1 : h2 ? 2 : h3 ? 3 : h4 ? 4 : h5 ? 5 : 6;
+      content.push({
+        type: "heading",
+        attrs: { level },
+        content: parseInlineContent(match![1]),
+      });
+      continue;
     }
+
+    // Unordered lists (- , * , + ) - includes indented sub-items
+    const ulMatch = trimmed.match(/^[\-\*\+]\s+(.+)/);
+    if (ulMatch) {
+      if (currentListType && currentListType !== "bulletList") {
+        flushCurrentList();
+      }
+      currentListType = "bulletList";
+      currentListItems.push({
+        type: "listItem",
+        content: [{ type: "paragraph", content: parseInlineContent(ulMatch[1]) }],
+      });
+      continue;
+    }
+
+    // Ordered lists (1. , 2. ) - includes indented sub-items
+    const olMatch = trimmed.match(/^\d+\.\s+(.+)/);
+    if (olMatch) {
+      if (currentListType && currentListType !== "orderedList") {
+        flushCurrentList();
+      }
+      currentListType = "orderedList";
+      currentListItems.push({
+        type: "listItem",
+        content: [{ type: "paragraph", content: parseInlineContent(olMatch[1]) }],
+      });
+      continue;
+    }
+
+    // Non-list line encountered -> flush active list
+    flushCurrentList();
+
+    // Blockquotes (> )
+    const bqMatch = trimmed.match(/^>\s*(.+)/);
+    if (bqMatch) {
+      content.push({
+        type: "blockquote",
+        content: [{ type: "paragraph", content: parseInlineContent(bqMatch[1]) }],
+      });
+      continue;
+    }
+
+    // Empty lines
+    if (trimmed === "") {
+      content.push({ type: "paragraph" });
+      continue;
+    }
+
+    // Standard paragraph
+    content.push({
+      type: "paragraph",
+      content: parseInlineContent(trimmed),
+    });
+  }
+
+  // Flush remaining list at EOF
+  flushCurrentList();
+
+  // Gracefully auto-close unclosed code blocks at EOF
+  if (inCodeBlock && codeBuffer.length > 0) {
+    content.push({
+      type: "codeBlock",
+      content: [{ type: "text", text: codeBuffer.join("\n") }],
+    });
   }
 
   if (content.length === 0) content.push({ type: "paragraph" });
@@ -60,12 +385,9 @@ function textToTiptap(raw: string): object {
 }
 
 /**
- * Convert HTML produced by mammoth into a Tiptap ProseMirror JSON doc.
- * Uses node-html-parser for proper DOM traversal instead of regex, avoiding
- * potential infinite loops on nested / malformed HTML.
+ * Convert HTML into a Tiptap ProseMirror JSON doc.
  */
 function htmlToTiptap(rawHtml: string): object {
-  // Sanitize first — eliminate any non-allowlisted tags/attributes
   const html = sanitize(rawHtml);
   if (!html.trim()) return textToTiptap("");
 
@@ -119,30 +441,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "file and workspaceId are required" }, { status: 400 });
   }
 
-  // 10 MB limit — check early before any DB work
-  if (file.size > 10 * 1024 * 1024) {
-    return NextResponse.json({ error: "File must be smaller than 10 MB." }, { status: 413 });
+  // 15 MB limit
+  if (file.size > 15 * 1024 * 1024) {
+    return NextResponse.json({ error: "File must be smaller than 15 MB." }, { status: 413 });
   }
 
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-  const allowed = ["txt", "md", "docx"];
+  const allowed = [
+    "pdf", "docx", "doc", "xlsx", "xls", "csv", "tsv",
+    "txt", "text", "md", "markdown", "json", "html", "htm", "rtf"
+  ];
   if (!allowed.includes(ext)) {
     return NextResponse.json(
-      { error: "Unsupported file type. Please upload a .txt, .md, or .docx file." },
+      { error: "Unsupported file type. Supported formats: PDF, DOCX, DOC, XLSX, XLS, CSV, TSV, TXT, MD, JSON, HTML, RTF." },
       { status: 415 }
     );
   }
 
-  // Verify file magic bytes for DOCX — extension alone can be spoofed
-  if (ext === "docx") {
-    const magicBuffer = await file.slice(0, 4).arrayBuffer();
-    const magic = new Uint8Array(magicBuffer);
+  // Verify file magic bytes
+  const magicBuffer = await file.slice(0, 8).arrayBuffer();
+  const magic = new Uint8Array(magicBuffer);
+
+  if (ext === "pdf") {
+    // PDF magic bytes: %PDF (0x25 0x50 0x44 0x46)
+    const isPdf = magic[0] === 0x25 && magic[1] === 0x50 && magic[2] === 0x44 && magic[3] === 0x46;
+    if (!isPdf) {
+      return NextResponse.json({ error: "File does not appear to be a valid PDF document." }, { status: 415 });
+    }
+  } else if (ext === "docx" || ext === "xlsx") {
+    // DOCX / XLSX / ZIP magic bytes: PK\x03\x04 (0x50 0x4B 0x03 0x04)
     const isZip = magic[0] === 0x50 && magic[1] === 0x4b && magic[2] === 0x03 && magic[3] === 0x04;
     if (!isZip) {
-      return NextResponse.json(
-        { error: "File does not appear to be a valid .docx file." },
-        { status: 415 }
-      );
+      return NextResponse.json({ error: `File does not appear to be a valid .${ext} document.` }, { status: 415 });
     }
   }
 
@@ -175,9 +505,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Storage check using pre-computed byte counter + raw file size as proxy.
-  // Uses $queryRaw so it works before and after `prisma generate` picks up
-  // the storageUsedBytes column.
   const storageLimitMb = PLAN_LIMITS[plan].storageMb;
   if (storageLimitMb !== -1) {
     const incomingMb = file.size / (1024 * 1024);
@@ -201,18 +528,51 @@ export async function POST(request: NextRequest) {
   let tiptapContent: object;
 
   try {
-    if (ext === "docx") {
+    if (ext === "pdf") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      const result = await mammoth.convertToHtml({ buffer });
-      tiptapContent = htmlToTiptap(result.value);
+      const pdfData = await pdfParse(buffer);
+      tiptapContent = textToTiptap(pdfData.text || "");
+    } else if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv") {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      tiptapContent = excelToTiptap(buffer);
+    } else if (ext === "docx" || ext === "doc") {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      try {
+        const result = await mammoth.convertToHtml({ buffer });
+        tiptapContent = htmlToTiptap(result.value);
+      } catch (docErr) {
+        // Fallback for legacy binary .doc or malformed Word docs: extract ASCII printable text
+        const rawString = buffer.toString("utf8").replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, " ");
+        tiptapContent = textToTiptap(rawString.replace(/\s+/g, " "));
+      }
+    } else if (ext === "html" || ext === "htm") {
+      const raw = await file.text();
+      tiptapContent = htmlToTiptap(raw);
+    } else if (ext === "json") {
+      const raw = await file.text();
+      const json = JSON.parse(raw);
+      if (json && typeof json === "object" && json.type === "doc" && Array.isArray(json.content)) {
+        tiptapContent = json;
+      } else if (json && typeof json === "object" && json.content?.type === "doc") {
+        tiptapContent = json.content;
+      } else {
+        tiptapContent = textToTiptap(JSON.stringify(json, null, 2));
+      }
+    } else if (ext === "rtf") {
+      const raw = await file.text();
+      const plain = stripRtf(raw);
+      tiptapContent = textToTiptap(plain);
     } else {
+      // txt, text, md, markdown
       const raw = await file.text();
       tiptapContent = textToTiptap(raw);
     }
   } catch (err) {
     console.error("[import-doc] parse error", err);
-    return NextResponse.json({ error: "Failed to parse the document." }, { status: 422 });
+    return NextResponse.json({ error: "Failed to parse the document content." }, { status: 422 });
   }
 
   const contentBytes = Buffer.byteLength(JSON.stringify(tiptapContent), "utf8");
@@ -239,8 +599,6 @@ export async function POST(request: NextRequest) {
     }),
   ]);
 
-  // Increment storage counter via raw SQL — avoids Prisma client type mismatch
-  // before `prisma generate` has been re-run after adding storageUsedBytes.
   await prisma.$executeRaw`
     UPDATE "Workspace"
     SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
@@ -249,3 +607,4 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ document }, { status: 201 });
 }
+
