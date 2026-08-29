@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import mammoth from "mammoth";
-import pdfParse from "pdf-parse";
+// Import directly from lib/pdf-parse.js to avoid pdf-parse root index.js test file debug checks in Next.js builds
+// @ts-ignore
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import sanitizeHtml from "sanitize-html";
 import * as XLSX from "xlsx";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
