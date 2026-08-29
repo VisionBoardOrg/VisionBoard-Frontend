@@ -17,5 +17,9 @@ export const isoDateString = z
     { message: "Invalid date — expected ISO 8601 format (e.g. 2025-06-30)" }
   );
 
-/** Nullable variant — accepts a valid ISO string or null */
-export const nullableIsoDateString = isoDateString.nullable().optional();
+/** Nullable variant — accepts a valid ISO string, null, empty string (""), or undefined */
+export const nullableIsoDateString = z.preprocess(
+  (val) => (val === "" ? null : val),
+  isoDateString.nullable().optional()
+);
+

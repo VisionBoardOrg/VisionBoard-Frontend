@@ -217,22 +217,26 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
                   <span className="text-[10px]">Delete?</span>
                   <button
                     type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       setConfirmDelete(false);
                       onDelete(item.id);
                     }}
-                    className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition-colors"
+                    className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition-colors cursor-pointer"
                   >
                     Yes
                   </button>
                   <button
                     type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       setConfirmDelete(false);
                     }}
-                    className="text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                    className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
                     title="Cancel"
                   >
                     <X size={10} />
@@ -241,11 +245,13 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
               ) : (
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     setConfirmDelete(true);
                   }}
-                  className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-all pointer-events-auto"
+                  className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-all pointer-events-auto cursor-pointer"
                   title="Delete card"
                 >
                   <Trash2 size={12} />

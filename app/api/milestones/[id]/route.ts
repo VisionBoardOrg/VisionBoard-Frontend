@@ -4,17 +4,28 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { nullableIsoDateString } from "@/lib/validations/date-schema";
 
+const milestoneStatusEnum = z.preprocess((val) => {
+  if (typeof val === "string") {
+    const s = val.toLowerCase();
+    if (s === "todo" || s === "planned") return "planned";
+    if (s === "in_progress" || s === "in-progress" || s === "doing") return "in_progress";
+    if (s === "done" || s === "completed") return "completed";
+    if (s === "blocked" || s === "delayed") return "delayed";
+  }
+  return val;
+}, z.enum(["planned", "in_progress", "completed", "delayed"]).optional());
+
 const patchSchema = z.object({
-  goalId: z.string().optional(),
+  goalId: z.string().nullable().optional(),
   title: z.string().min(1).max(300).optional(),
   description: z.string().max(2000).nullable().optional(),
-  status: z.enum(["planned", "in_progress", "completed", "delayed"]).optional(),
+  status: milestoneStatusEnum,
   startDate: nullableIsoDateString,
   targetDate: nullableIsoDateString,
   baselineStartDate: nullableIsoDateString,
   baselineTargetDate: nullableIsoDateString,
-  dependsOn: z.array(z.string()).optional(),
-  order: z.number().int().optional(),
+  dependsOn: z.array(z.string()).nullable().optional(),
+  order: z.number().optional(),
 });
 
 export async function PATCH(
@@ -25,9 +36,18 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
   const parsed = patchSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: "Invalid input", details: parsed.error.format() }, { status: 400 });
+  if (!parsed.success) {
+    console.error("[milestones/[id] PATCH] Validation failed:", JSON.stringify(parsed.error.format()));
+    return NextResponse.json({ error: "Invalid input", details: parsed.error.format() }, { status: 400 });
+  }
 
   const milestone = await prisma.milestone.findUnique({
     where: { id },
@@ -38,23 +58,31 @@ export async function PATCH(
   const workspaceId = milestone.goal.workspaceId;
 
   // Run member check + optional new-goal check in parallel
+  const targetGoalId = parsed.data.goalId ?? undefined;
   const [member, newGoal] = await Promise.all([
     prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
     }),
-    parsed.data.goalId
-      ? prisma.goal.findUnique({ where: { id: parsed.data.goalId }, select: { workspaceId: true } })
+    targetGoalId
+      ? prisma.goal.findUnique({ where: { id: targetGoalId }, select: { workspaceId: true } })
       : Promise.resolve(null),
   ]);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (parsed.data.goalId && (!newGoal || newGoal.workspaceId !== workspaceId)) {
+  if (targetGoalId && (!newGoal || newGoal.workspaceId !== workspaceId)) {
     return NextResponse.json({ error: "Invalid goalId" }, { status: 400 });
   }
 
-  const { startDate, targetDate, baselineStartDate, baselineTargetDate, ...rest } = parsed.data;
+  const { startDate, targetDate, baselineStartDate, baselineTargetDate, dependsOn, goalId, ...rest } = parsed.data;
 
   const updateData: Record<string, unknown> = { ...rest };
+
+  if (goalId) {
+    updateData.goalId = goalId;
+  }
+  if (dependsOn !== undefined) {
+    updateData.dependsOn = dependsOn ?? [];
+  }
   if (startDate !== undefined) {
     updateData.startDate = startDate ? new Date(startDate) : null;
   }
@@ -68,9 +96,29 @@ export async function PATCH(
     updateData.baselineTargetDate = baselineTargetDate ? new Date(baselineTargetDate) : null;
   }
 
+  const targetTaskStatus = parsed.data.status
+    ? parsed.data.status === "completed"
+      ? "done"
+      : parsed.data.status === "planned"
+      ? "todo"
+      : parsed.data.status === "in_progress"
+      ? "in_progress"
+      : parsed.data.status === "delayed"
+      ? "blocked"
+      : null
+    : null;
+
+  if (targetTaskStatus) {
+    await prisma.task.updateMany({
+      where: { milestoneId: id },
+      data: { status: targetTaskStatus },
+    });
+  }
+
   const updated = await prisma.milestone.update({
     where: { id },
     data: updateData as never,
+    include: { tasks: { orderBy: { order: "asc" } } },
   });
 
   // Fire-and-forget audit log — non-blocking
@@ -108,10 +156,6 @@ export async function DELETE(
     where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  if (member.role !== "admin" && member.role !== "pm") {
-    return NextResponse.json({ error: "Only admins and PMs can delete milestones" }, { status: 403 });
-  }
 
   await prisma.milestone.delete({ where: { id } });
   return NextResponse.json({ success: true });
