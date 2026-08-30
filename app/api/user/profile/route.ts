@@ -12,7 +12,7 @@ import { z } from "zod";
 
 const patchSchema = z.object({
   name:  z.string().min(1).max(100).trim().optional(),
-  email: z.string().email().max(255).trim().optional(),
+  email: z.string().trim().toLowerCase().pipe(z.string().email().max(255)).optional(),
   image: z.string().url().max(500).nullable().optional(),
 });
 

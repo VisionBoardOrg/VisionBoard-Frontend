@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  email: z.string().email().optional(),
+  email: z.string().trim().toLowerCase().pipe(z.string().email()).optional(),
 });
 
 export async function POST(request: NextRequest) {

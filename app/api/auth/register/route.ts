@@ -7,7 +7,7 @@ import { sendVerificationEmail } from "@/lib/email-verification";
 
 const registerSchema = z.object({
   name: z.string().min(1).max(100),
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().pipe(z.string().email()),
   // Minimum 12 characters with at least one non-alphabetic character
   password: z
     .string()

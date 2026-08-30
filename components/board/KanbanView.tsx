@@ -77,6 +77,7 @@ interface KanbanViewProps {
 export function KanbanView({
   workspaceId,
   items,
+  goals,
   milestones,
   selectedId,
   onSelectCard,
@@ -111,8 +112,8 @@ export function KanbanView({
   });
   const [addingGroup, setAddingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const [addingTaskColumn, setAddingTaskColumn] = useState<string | null>(null);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [addingMilestoneColumn, setAddingMilestoneColumn] = useState<string | null>(null);
+  const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
 
   // Pointer/touch sensors only — Enter/Space on a focused card opens its
   // details instead of starting a keyboard drag
@@ -206,65 +207,80 @@ export function KanbanView({
     onItemStatusChange(itemId, targetStatus);
   }
 
-  // Create quick task inside a column
-  async function handleQuickAddTask(groupId: string) {
-    if (!newTaskTitle.trim()) return;
+  // Create quick milestone inside a column
+  async function handleQuickAddMilestone(groupId: string) {
+    if (!newMilestoneTitle.trim()) return;
 
-    const title = newTaskTitle.trim();
-    setNewTaskTitle("");
-    setAddingTaskColumn(null);
+    const title = newMilestoneTitle.trim();
+    setNewMilestoneTitle("");
+    setAddingMilestoneColumn(null);
 
     const status =
       groupId === "todo"
-        ? "todo"
+        ? "planned"
         : groupId === "in_progress"
         ? "in_progress"
         : groupId === "complete"
-        ? "done"
-        : groupId;
+        ? "completed"
+        : "planned";
 
     try {
-      const defaultMilestone = milestones[0];
-      if (defaultMilestone) {
-        const dueDate = defaultMilestone.targetDate
-          ? new Date(defaultMilestone.targetDate).toISOString()
-          : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      let targetGoalId = goals[0]?.id;
 
-        const res = await fetch(`/api/tasks`, {
+      if (!targetGoalId) {
+        const goalRes = await fetch("/api/goals", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            title,
-            milestoneId: defaultMilestone.id,
-            status,
-            priority: "medium",
-            dueDate,
+            workspaceId,
+            title: "General Objectives",
+            objective: "Default workspace goal for milestones",
+            status: "active",
           }),
         });
-        if (res.ok) {
-          const taskData = await res.json();
-          const boardRes = await fetch(`/api/board-items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              workspaceId,
-              entityType: "task",
-              x: 100,
-              y: 100,
-              width: 220,
-              height: 120,
-              linkedTaskId: taskData.task.id,
-              linkedMilestoneId: defaultMilestone.id,
-            }),
-          });
-          if (boardRes.ok) {
-            const data = await boardRes.json();
-            onItemAdded(data.boardItem);
-          }
+        if (goalRes.ok) {
+          const goalData = await goalRes.json();
+          targetGoalId = goalData.goal.id;
+        }
+      }
+
+      if (!targetGoalId) return;
+
+      const res = await fetch(`/api/milestones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId,
+          goalId: targetGoalId,
+          title,
+          status,
+        }),
+      });
+      if (res.ok) {
+        const milestoneData = await res.json();
+        const createdMilestone = milestoneData.milestone;
+
+        const boardRes = await fetch(`/api/board-items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            workspaceId,
+            entityType: "milestone",
+            x: 100,
+            y: 100,
+            width: 220,
+            height: 120,
+            linkedMilestoneId: createdMilestone.id,
+            linkedGoalId: targetGoalId,
+          }),
+        });
+        if (boardRes.ok) {
+          const data = await boardRes.json();
+          onItemAdded(data.boardItem);
         }
       }
     } catch (err) {
-      console.error("Failed to add task:", err);
+      console.error("Failed to add milestone:", err);
     }
   }
 
@@ -313,11 +329,11 @@ export function KanbanView({
               selectedId={selectedId}
               onSelectCard={onSelectCard}
               onDeleteCard={onDeleteCard}
-              addingTaskColumn={addingTaskColumn}
-              setAddingTaskColumn={setAddingTaskColumn}
-              newTaskTitle={newTaskTitle}
-              setNewTaskTitle={setNewTaskTitle}
-              onQuickAddTask={handleQuickAddTask}
+              addingMilestoneColumn={addingMilestoneColumn}
+              setAddingMilestoneColumn={setAddingMilestoneColumn}
+              newMilestoneTitle={newMilestoneTitle}
+              setNewMilestoneTitle={setNewMilestoneTitle}
+              onQuickAddMilestone={handleQuickAddMilestone}
               onTaskToggle={onTaskToggle}
               onAddTaskToMilestone={onAddTaskToMilestone}
             />
@@ -373,11 +389,11 @@ interface KanbanColumnProps {
   selectedId: string | null;
   onSelectCard: (id: string) => void;
   onDeleteCard: (id: string) => void;
-  addingTaskColumn: string | null;
-  setAddingTaskColumn: (id: string | null) => void;
-  newTaskTitle: string;
-  setNewTaskTitle: (val: string) => void;
-  onQuickAddTask: (groupId: string) => void;
+  addingMilestoneColumn: string | null;
+  setAddingMilestoneColumn: (id: string | null) => void;
+  newMilestoneTitle: string;
+  setNewMilestoneTitle: (val: string) => void;
+  onQuickAddMilestone: (groupId: string) => void;
   onTaskToggle?: (taskId: string, newStatus: string, milestoneId?: string) => void;
   onAddTaskToMilestone?: (milestoneId: string, title: string) => void;
 }
@@ -388,11 +404,11 @@ function KanbanColumn({
   selectedId,
   onSelectCard,
   onDeleteCard,
-  addingTaskColumn,
-  setAddingTaskColumn,
-  newTaskTitle,
-  setNewTaskTitle,
-  onQuickAddTask,
+  addingMilestoneColumn,
+  setAddingMilestoneColumn,
+  newMilestoneTitle,
+  setNewMilestoneTitle,
+  onQuickAddMilestone,
   onTaskToggle,
   onAddTaskToMilestone,
 }: KanbanColumnProps) {
@@ -421,10 +437,10 @@ function KanbanColumn({
         {group.headerIcons && (
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setAddingTaskColumn(group.id)}
+              onClick={() => setAddingMilestoneColumn(group.id)}
               className="p-1 text-purple-600 hover:text-purple-800 hover:bg-purple-100/60 rounded-md transition-colors cursor-pointer"
-              title="Add task"
-              aria-label={`Add task to ${group.name}`}
+              title="Add milestone"
+              aria-label={`Add milestone to ${group.name}`}
             >
               <Plus size={16} />
             </button>
@@ -446,42 +462,42 @@ function KanbanColumn({
           />
         ))}
 
-        {items.length === 0 && !addingTaskColumn && (
+        {items.length === 0 && !addingMilestoneColumn && (
           <div className="flex-1 flex items-center justify-center p-6 border-2 border-dashed border-slate-200/80 rounded-xl text-xs text-slate-400 font-medium">
             Drop cards here
           </div>
         )}
       </div>
 
-      {/* Inline Add Task Input Form */}
-      {addingTaskColumn === group.id ? (
+      {/* Inline Add Milestone Input Form */}
+      {addingMilestoneColumn === group.id ? (
         <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-sm mt-1">
           <input
             type="text"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-            placeholder="Enter task title..."
+            value={newMilestoneTitle}
+            onChange={(e) => setNewMilestoneTitle(e.target.value)}
+            placeholder="Enter milestone title..."
             autoFocus
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                onQuickAddTask(group.id);
+                onQuickAddMilestone(group.id);
               }
-              if (e.key === "Escape") setAddingTaskColumn(null);
+              if (e.key === "Escape") setAddingMilestoneColumn(null);
             }}
             className="w-full text-xs font-medium px-2 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 mb-2"
           />
           <div className="flex items-center gap-2 justify-end">
             <button
               type="button"
-              onClick={() => setAddingTaskColumn(null)}
+              onClick={() => setAddingMilestoneColumn(null)}
               className="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700 font-medium"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={() => onQuickAddTask(group.id)}
+              onClick={() => onQuickAddMilestone(group.id)}
               className="px-3 py-1 bg-purple-600 text-white text-xs font-semibold rounded-md hover:bg-purple-700"
             >
               Add
@@ -489,12 +505,12 @@ function KanbanColumn({
           </div>
         </div>
       ) : (
-        /* Bottom + Add Task Button matching image design per column */
+        /* Bottom + Add Milestone Button matching image design per column */
         <button
-          onClick={() => setAddingTaskColumn(group.id)}
+          onClick={() => setAddingMilestoneColumn(group.id)}
           className={`flex items-center gap-1.5 font-medium text-xs py-2 px-2.5 rounded-lg hover:bg-slate-200/50 transition-colors w-full text-left mt-1 ${group.addTaskColor}`}
         >
-          <Plus size={15} /> Add Task
+          <Plus size={15} /> Add Milestone
         </button>
       )}
     </div>

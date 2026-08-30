@@ -38,7 +38,7 @@ const getWorkspaceMembership = cache((userId: string) =>
 );
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().pipe(z.string().email()),
   // Match the registration minimum — shorter values can never be valid credentials
   password: z.string().min(12),
 });

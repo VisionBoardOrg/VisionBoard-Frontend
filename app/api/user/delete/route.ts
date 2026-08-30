@@ -18,7 +18,7 @@ import { sendAccountDeletionNoticeEmail } from "@/lib/account-deletion-email";
 
 const bodySchema = z.object({
   /** Users must type their email address to confirm deletion */
-  confirmEmail: z.string().email(),
+  confirmEmail: z.string().trim().toLowerCase().pipe(z.string().email()),
 });
 
 export async function POST(request: NextRequest) {

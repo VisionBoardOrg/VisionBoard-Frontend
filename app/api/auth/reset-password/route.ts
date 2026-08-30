@@ -7,7 +7,7 @@ import { Resend } from "resend";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const requestSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().pipe(z.string().email()),
 });
 
 const resetSchema = z.object({
