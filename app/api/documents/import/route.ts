@@ -26,7 +26,7 @@ export async function excelToTiptap(buffer: Buffer): Promise<object> {
   await workbook.xlsx.load(buffer);
   const content: object[] = [];
 
-  workbook.eachSheet((sheet) => {
+  workbook.eachSheet((sheet: ExcelJS.Worksheet) => {
     if (workbook.worksheets.length > 1) {
       content.push({
         type: "heading",
@@ -36,7 +36,7 @@ export async function excelToTiptap(buffer: Buffer): Promise<object> {
     }
 
     const rows: string[][] = [];
-    sheet.eachRow((row) => {
+    sheet.eachRow((row: ExcelJS.Row) => {
       const cells = (row.values as ExcelJS.CellValue[]).slice(1); // index 0 is empty
       rows.push(cells.map((c) => (c !== null && c !== undefined ? String(c).trim() : "")));
     });
@@ -70,10 +70,6 @@ export async function excelToTiptap(buffer: Buffer): Promise<object> {
       content.push({ type: "paragraph", content: [{ type: "text", text: headerRow.join(" | ") }] });
     }
   });
-
-  return { type: "doc", content };
-}    }
-  }
 
   if (content.length === 0) {
     content.push({ type: "paragraph", content: [{ type: "text", text: "Empty spreadsheet." }] });
@@ -530,7 +526,7 @@ export async function POST(request: NextRequest) {
       for (let i = 1; i <= pdfDoc.numPages; i++) {
         const page = await pdfDoc.getPage(i);
         const tc = await page.getTextContent();
-        textParts.push(tc.items.map((item) => ("str" in item ? item.str : "")).join(" "));
+        textParts.push(tc.items.map((item: any) => ("str" in item ? (item as { str: string }).str : "")).join(" "));
       }
       tiptapContent = textToTiptap(textParts.join("\n\n"));
     } else if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv") {
