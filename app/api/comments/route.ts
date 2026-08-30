@@ -15,7 +15,14 @@ const createSchema = z.object({
   milestoneId: z.string().optional(),
   taskId: z.string().optional(),
   documentId: z.string().optional(),
-});
+}).refine(
+  (data) => data.goalId || data.milestoneId || data.taskId || data.documentId,
+  {
+    message: "At least one entity reference is required (goalId, milestoneId, taskId, or documentId)",
+    // Point at the first entity field so the error is easy to surface in client validation
+    path: ["goalId"],
+  }
+);
 
 /**
  * Resolve the workspaceId for the entity being commented on.
@@ -85,7 +92,10 @@ export async function POST(request: NextRequest) {
   // Resolve any @mentions present in the comment body
   const mentions = await resolveMentions(parsed.data.body, workspaceId);
   const mentionedUserIds = mentions.map((m) => m.user.id);
-  const entityId = goalId ?? milestoneId ?? taskId ?? documentId ?? "unknown";
+  const entityId = goalId ?? milestoneId ?? taskId ?? documentId;
+  // The .refine() on createSchema guarantees at least one of these is set,
+  // so entityId will never be undefined here.  The non-null assertion is safe.
+  const resolvedEntityId = entityId!;
 
   // Create comment + activity log in a single transaction
   const [comment] = await prisma.$transaction([
@@ -106,7 +116,7 @@ export async function POST(request: NextRequest) {
         workspaceId,
         userId: session.user.id,
         entityType,
-        entityId,
+        entityId: resolvedEntityId,
         action: "commented",
         diff: {
           mentionedUserIds,
@@ -128,7 +138,7 @@ export async function POST(request: NextRequest) {
       authorName,
       workspaceId,
       entityType: parsed.data.entityType,
-      entityId,
+      entityId: resolvedEntityId,
       commentBody: parsed.data.body,
     }).catch((err) => console.error("[comments/route] Mention notification failed:", err));
   }
@@ -169,7 +179,7 @@ export async function POST(request: NextRequest) {
           authorName,
           workspaceId,
           entityType: parsed.data.entityType,
-          entityId,
+          entityId: resolvedEntityId,
           entityTitle,
           commentBody: parsed.data.body,
         });

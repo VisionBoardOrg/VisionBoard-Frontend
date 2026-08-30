@@ -18,6 +18,8 @@ import { CommandPalette } from "@/components/layout/CommandPalette";
 import { EmailVerificationBanner } from "@/components/reusables/EmailVerificationBanner";
 import { ToastProvider } from "@/context/ToastContext";
 import { ConfirmProvider } from "@/context/ConfirmContext";
+import { PLAN_LIMITS } from "@/lib/plan-limits";
+import type { PlanTier } from "@prisma/client";
 
 // The copilot drawer is a ~950-line chunk with markdown rendering — load it
 // on demand instead of shipping it with every workspace page
@@ -144,7 +146,7 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
 
   // Determine AI credits display
   const creditsUsed = aiCreditsUsed ?? 0;
-  const creditsMax  = aiCreditsMax  ?? (plan === "free" ? 10 : plan === "startup" ? 100 : -1);
+  const creditsMax  = aiCreditsMax  ?? (plan ? (PLAN_LIMITS[plan as PlanTier]?.aiCreditsPerMonth ?? -1) : -1);
   const creditsText = creditsMax < 0
     ? "Unlimited credits"
     : `${creditsUsed} / ${creditsMax} credits used`;

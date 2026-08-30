@@ -26,6 +26,7 @@ const patchSchema = z.object({
   baselineTargetDate: nullableIsoDateString,
   dependsOn: z.array(z.string()).nullable().optional(),
   order: z.number().optional(),
+  cascadeTasks: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -73,7 +74,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid goalId" }, { status: 400 });
   }
 
-  const { startDate, targetDate, baselineStartDate, baselineTargetDate, dependsOn, goalId, ...rest } = parsed.data;
+  const { startDate, targetDate, baselineStartDate, baselineTargetDate, dependsOn, goalId, cascadeTasks, ...rest } = parsed.data;
 
   const updateData: Record<string, unknown> = { ...rest };
 
@@ -99,12 +100,14 @@ export async function PATCH(
   const targetTaskStatus = parsed.data.status
     ? parsed.data.status === "completed"
       ? "done"
-      : parsed.data.status === "planned"
-      ? "todo"
-      : parsed.data.status === "in_progress"
-      ? "in_progress"
-      : parsed.data.status === "delayed"
-      ? "blocked"
+      : cascadeTasks === true
+      ? parsed.data.status === "planned"
+        ? "todo"
+        : parsed.data.status === "in_progress"
+        ? "in_progress"
+        : parsed.data.status === "delayed"
+        ? "blocked"
+        : null
       : null
     : null;
 

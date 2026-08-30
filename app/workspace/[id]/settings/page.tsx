@@ -107,7 +107,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
           <span className="ml-auto text-xs text-muted">
             {workspace.members.length + pendingInvites.length}
             {" / "}
-            {(limits.members as number) < 0 || limits.members === "unlimited" ? "∞" : limits.members}
+            {(limits.members as number) < 0 || limits.members === null ? "∞" : limits.members}
           </span>
         </div>
 

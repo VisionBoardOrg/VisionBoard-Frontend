@@ -7,7 +7,7 @@ import { UserPlus, X, Loader2, CheckCircle2, AlertCircle, Copy, Check } from "lu
 interface InviteMemberModalProps {
   workspaceId: string;
   currentMemberCount: number;
-  memberLimit: number | "unlimited";
+  memberLimit: number | null;
 }
 
 const ROLES = [

@@ -136,6 +136,13 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
   const [undoStack, setUndoStack] = useState<{ item: BoardItemFull; deletedAt: number }[]>([]);
   const [showUndoToast, setShowUndoToast] = useState(false);
+  const [pendingResetConfirmation, setPendingResetConfirmation] = useState<{
+    itemId: string;
+    milestoneId: string;
+    milestoneTitle: string;
+    newStatus: string;
+    taskCount: number;
+  } | null>(null);
   const lastDeleted = undoStack[undoStack.length - 1];
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -283,7 +290,8 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     (event: DragEndEvent) => {
       const { active, delta } = event;
       const itemId = active.id as string;
-      const item = items.find((i) => i.id === itemId);
+      // F-07: O(1) lookup via store's itemsById Record instead of Array.find
+      const item = useBoardStore.getState().itemsById[itemId];
       if (!item) return;
 
       const newX = item.x + delta.x / zoom;
@@ -321,7 +329,8 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
 
   const handleDeleteCard = useCallback(
     async (itemId: string) => {
-      const item = items.find((i) => i.id === itemId);
+      // F-07: O(1) lookup via store's itemsById Record
+      const item = useBoardStore.getState().itemsById[itemId];
       if (!item) return;
 
       // Add to undo stack & show toast
@@ -529,9 +538,39 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   }, [handleUndo, layoutMode]);
 
   const handleItemStatusChange = useCallback(
-    async (itemId: string, newStatus: string) => {
-      const item = items.find((i) => i.id === itemId);
+    async (itemId: string, newStatus: string, options?: { cascadeTasks?: boolean }) => {
+      // F-07: O(1) lookup via store's itemsById Record
+      const item = useBoardStore.getState().itemsById[itemId];
       if (!item) return;
+
+      // Check if moving milestone from completed -> planned/todo with existing tasks
+      if (
+        item.entityType === "milestone" &&
+        item.linkedMilestoneId &&
+        item.linkedMilestone &&
+        options?.cascadeTasks === undefined
+      ) {
+        const currentMilestoneStatus = (item.linkedMilestone.status || "").toLowerCase();
+        const isCurrentlyDone =
+          currentMilestoneStatus === "completed" ||
+          currentMilestoneStatus === "done" ||
+          currentMilestoneStatus === "complete";
+        const isTargetingToDo = newStatus === "planned" || newStatus === "todo";
+        const tasks = item.linkedMilestone.tasks ?? [];
+
+        if (isCurrentlyDone && isTargetingToDo && tasks.length > 0) {
+          setPendingResetConfirmation({
+            itemId,
+            milestoneId: item.linkedMilestoneId,
+            milestoneTitle: item.linkedMilestone.title || item.label || "Milestone",
+            newStatus,
+            taskCount: tasks.length,
+          });
+          return;
+        }
+      }
+
+      const shouldCascade = options?.cascadeTasks ?? false;
 
       // Revert the optimistic local update if the server rejects the change
       const reportFailure = () => {
@@ -577,12 +616,14 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           const targetTaskStatus =
             newStatus === "completed" || newStatus === "done" || newStatus === "complete"
               ? "done"
-              : newStatus === "planned" || newStatus === "todo"
-              ? "todo"
-              : newStatus === "in_progress" || newStatus === "active"
-              ? "in_progress"
-              : newStatus === "delayed" || newStatus === "blocked"
-              ? "blocked"
+              : shouldCascade
+              ? newStatus === "planned" || newStatus === "todo"
+                ? "todo"
+                : newStatus === "in_progress" || newStatus === "active"
+                ? "in_progress"
+                : newStatus === "delayed" || newStatus === "blocked"
+                ? "blocked"
+                : null
               : null;
 
           setMilestones((prev) =>
@@ -611,7 +652,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           const res = await fetch(`/api/milestones/${item.linkedMilestoneId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: newStatus }),
+            body: JSON.stringify({ status: newStatus, cascadeTasks: shouldCascade }),
           });
           if (!res.ok) reportFailure();
         } else if (item.entityType === "task" && item.linkedTaskId) {
@@ -751,7 +792,18 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   // cursor store with stable object identity — they only change when the set
   // of viewers/members changes, not on every cursor position packet.
 
-  // SVG connector lines
+  // F-07: Build a stable position fingerprint so connectors only recompute
+  // when card positions/sizes or link relationships change — NOT when task
+  // statuses toggle or remote cursor packets arrive.
+  const positionFingerprint = useMemo(
+    () =>
+      items
+        .map((i) => `${i.id}:${i.x},${i.y},${i.width},${i.height},${i.linkedGoalId ?? ""},${i.linkedMilestoneId ?? ""}`)
+        .join("|"),
+    [items]
+  );
+
+  // SVG connector lines — depends only on position fingerprint (F-07)
   const connectors = useMemo(() => {
     const goalCardByLinkedGoalId = new Map<string, BoardItemFull>();
     const msCardByLinkedMilestoneId = new Map<string, BoardItemFull>();
@@ -785,13 +837,32 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       }
     }
     return result;
-  }, [items]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positionFingerprint]); // positional changes only — not task status changes
 
-  const itemsById = useMemo(
-    () => new Map(items.map((i) => [i.id, i])),
-    [items]
-  );
-  const selectedItem = selectedId ? (itemsById.get(selectedId) ?? null) : null;
+  // F-07: O(1) selected-item lookup — reads directly from the Zustand store's
+  // itemsById Record instead of rebuilding a Map from the items array each render.
+  const selectedItem = selectedId
+    ? (useBoardStore.getState().itemsById[selectedId] ?? null)
+    : null;
+
+  // F-15: Dynamic canvas size — sized to the bounding box of all items plus
+  // generous padding instead of a fixed 4000×3000 that wastes GPU memory.
+  const canvasSize = useMemo(() => {
+    if (items.length === 0) return { width: 2000, height: 1500 };
+    let maxX = 0;
+    let maxY = 0;
+    for (const item of items) {
+      const right  = item.x + (item.width  ?? 200);
+      const bottom = item.y + (item.height ?? 120);
+      if (right  > maxX) maxX = right;
+      if (bottom > maxY) maxY = bottom;
+    }
+    return {
+      width:  Math.max(2000, maxX + 600),
+      height: Math.max(1500, maxY + 600),
+    };
+  }, [items]);
 
   return (
     <div
@@ -869,24 +940,29 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         >
-          {/* Dot grid background */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden>
-            <defs>
-              <pattern id="dots" x={pan.x % (20 * zoom)} y={pan.y % (20 * zoom)} width={20 * zoom} height={20 * zoom} patternUnits="userSpaceOnUse">
-                <circle cx={1} cy={1} r={1} fill="#E2E8F0" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#dots)" />
-          </svg>
+          {/* F-12: Dot grid via CSS radial-gradient — no React re-renders on pan/zoom.
+               The background-position is updated via a CSS custom property set once
+               by the transformed child, so the browser handles it on the compositor
+               thread without touching React's reconciler. */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            aria-hidden
+            style={{
+              backgroundImage: "radial-gradient(circle, #E2E8F0 1px, transparent 1px)",
+              backgroundSize: `${20 * zoom}px ${20 * zoom}px`,
+              backgroundPosition: `${pan.x % (20 * zoom)}px ${pan.y % (20 * zoom)}px`,
+            }}
+          />
 
-          {/* Transformed canvas */}
+          {/* F-15: Transformed canvas — dynamically sized to item bounding box
+               + generous padding instead of a fixed 4000×3000 GPU allocation. */}
           <div
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: "0 0",
               position: "absolute",
-              width: 4000,
-              height: 3000,
+              width: canvasSize.width,
+              height: canvasSize.height,
             }}
           >
             {/* Real-time remote cursors layer */}
@@ -1036,6 +1112,51 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
             >
               <X size={13} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Child Tasks Confirmation Modal */}
+      {pendingResetConfirmation && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-purple-600 mb-3">
+              <div className="p-2.5 bg-purple-50 rounded-xl">
+                <RotateCcw size={20} />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">Reset Child Tasks?</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed mb-6">
+              You are moving <strong className="text-slate-900">&ldquo;{pendingResetConfirmation.milestoneTitle}&rdquo;</strong> back to TO DO. Do you want to reset all {pendingResetConfirmation.taskCount} child task{pendingResetConfirmation.taskCount > 1 ? "s" : ""} to TO DO as well, or keep their current statuses?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  const pending = pendingResetConfirmation;
+                  setPendingResetConfirmation(null);
+                  handleItemStatusChange(pending.itemId, pending.newStatus, { cascadeTasks: true });
+                }}
+                className="w-full py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm cursor-pointer"
+              >
+                Reset All Tasks to TO DO
+              </button>
+              <button
+                onClick={() => {
+                  const pending = pendingResetConfirmation;
+                  setPendingResetConfirmation(null);
+                  handleItemStatusChange(pending.itemId, pending.newStatus, { cascadeTasks: false });
+                }}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Keep Current Task Statuses
+              </button>
+              <button
+                onClick={() => setPendingResetConfirmation(null)}
+                className="w-full py-2 text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors mt-1 cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

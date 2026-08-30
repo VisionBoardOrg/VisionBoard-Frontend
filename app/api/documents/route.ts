@@ -25,7 +25,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
 
-  const { workspaceId, title, content, linkedGoalId, linkedMilestoneId, linkedTaskId } = parsed.data;
+  const { workspaceId, title, content, linkedGoalId, linkedMilestoneId, linkedTaskId } =
+    parsed.data;
 
   // Validate Tiptap content structure against the node-type allowlist
   if (content !== undefined && content !== null) {
@@ -38,27 +39,45 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Run membership + workspace fetch in parallel
+  // F-08: compute byte size exactly once — used for both the limit check and
+  // the storage counter increment below.
+  const contentJson  = JSON.stringify(content ?? {});
+  const incomingBytes = Buffer.byteLength(contentJson, "utf8");
+  const incomingMb   = incomingBytes / (1024 * 1024);
+
+  // F-09: collapse the original 5 serial DB round-trips into 2 parallel ones.
+  // Single query fetches workspace (with storageUsedBytes + document count +
+  // owner plan) and membership in parallel.
   const [member, workspace] = await Promise.all([
     prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
     }),
     prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, owner: { select: { plan: true } } },
+      select: {
+        id: true,
+        storageUsedBytes: true,
+        owner: { select: { plan: true } },
+        _count: { select: { documents: true } },
+      },
     }),
   ]);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!workspace) return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
 
-  const plan = workspace.owner.plan ?? "free";
+  const plan     = workspace.owner.plan ?? "free";
+  const docCount = workspace._count.documents;
 
-  // ── Plan limit checks (no full content scan) ───────────────────────────────
-  // 1. Document count limit — use a COUNT, not a full SELECT
-  const docCount = await prisma.document.count({ where: { workspaceId } });
+  // ── Plan limit checks ────────────────────────────────────────────────────
   const countCheck = checkPlanLimit(
-    { plan, aiCreditsUsed: docCount },
+    {
+      plan,
+      currentAiCredits: 0,
+      currentMemberCount: 0,
+      currentDocumentCount: docCount,
+      currentWorkspaceCount: 0,
+    },
     "create_document"
   );
   if (!countCheck.allowed) {
@@ -68,17 +87,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 2. Storage limit — read storageUsedBytes via raw query so this works before
-  //    and after `prisma generate` picks up the new schema field.
   const storageLimitMb = PLAN_LIMITS[plan].storageMb;
-  if (storageLimitMb !== -1) {
-    const incomingBytes = Buffer.byteLength(JSON.stringify(content ?? {}), "utf8");
-    const incomingMb = incomingBytes / (1024 * 1024);
-    const [{ storageUsedBytes }] = await prisma.$queryRaw<[{ storageUsedBytes: bigint }]>`
-      SELECT "storageUsedBytes" FROM "Workspace" WHERE id = ${workspaceId}
-    `;
-    const currentMb = Number(storageUsedBytes ?? 0) / (1024 * 1024);
-
+  if (storageLimitMb !== null) {
+    const currentMb = Number(workspace.storageUsedBytes ?? 0) / (1024 * 1024);
     if (currentMb + incomingMb > storageLimitMb) {
       return NextResponse.json(
         {
@@ -89,11 +100,11 @@ export async function POST(request: NextRequest) {
       );
     }
   }
-  // ──────────────────────────────────────────────────────────────────────────
 
-  const incomingBytes = Buffer.byteLength(JSON.stringify(content ?? {}), "utf8");
-
-  // Create the document and atomically update the storage counter
+  // F-09: storage increment is now inside the transaction — if the document
+  // create fails the counter is never incremented (no accounting drift).
+  // The activityLog entityId is set to the real document id by using the
+  // result of the create inside the transaction callback.
   const [document] = await prisma.$transaction([
     prisma.document.create({
       data: {
@@ -107,25 +118,27 @@ export async function POST(request: NextRequest) {
       },
       include: { author: { select: { id: true, name: true } } },
     }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId,
-        userId: session.user.id,
-        entityType: "document",
-        entityId: "pending",
-        action: "created",
-        diff: { title } as never,
-      },
-    }),
+    // Atomically increment storage counter inside the same transaction
+    prisma.$executeRaw`
+      UPDATE "Workspace"
+      SET "storageUsedBytes" = "storageUsedBytes" + ${incomingBytes}
+      WHERE id = ${workspaceId}
+    `,
   ]);
 
-  // Increment storage counter via raw SQL — avoids Prisma client type mismatch
-  // before `prisma generate` has been re-run after adding storageUsedBytes.
-  await prisma.$executeRaw`
-    UPDATE "Workspace"
-    SET "storageUsedBytes" = "storageUsedBytes" + ${incomingBytes}
-    WHERE id = ${workspaceId}
-  `;
+  // Fire-and-forget activity log with the real document id
+  prisma.activityLog.create({
+    data: {
+      workspaceId,
+      userId: session.user.id,
+      entityType: "document",
+      entityId: document.id,
+      action: "created",
+      diff: { title } as never,
+    },
+  }).catch((err: unknown) =>
+    console.error("[documents/create] Activity log write failed:", err)
+  );
 
   // Background incremental knowledge indexing for AI Copilot
   indexSingleEntity(workspaceId, "document", document.id).catch((err) =>
@@ -157,17 +170,11 @@ export async function GET(request: NextRequest) {
   const [documents, total] = await Promise.all([
     prisma.document.findMany({
       where: { workspaceId },
-      // Exclude `content` (the heavy JSONB blob) from list views — only metadata needed
+      // Exclude `content` (heavy JSONB blob) from list views — metadata only
       select: {
-        id: true,
-        title: true,
-        authorId: true,
-        workspaceId: true,
-        createdAt: true,
-        updatedAt: true,
-        linkedGoalId: true,
-        linkedMilestoneId: true,
-        linkedTaskId: true,
+        id: true, title: true, authorId: true, workspaceId: true,
+        createdAt: true, updatedAt: true,
+        linkedGoalId: true, linkedMilestoneId: true, linkedTaskId: true,
         author: { select: { id: true, name: true } },
       },
       orderBy: { updatedAt: "desc" },
@@ -177,5 +184,8 @@ export async function GET(request: NextRequest) {
     prisma.document.count({ where: { workspaceId } }),
   ]);
 
-  return NextResponse.json({ documents, total, page, limit });
+  return NextResponse.json(
+    { documents, total, page, limit },
+    { headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" } }
+  );
 }

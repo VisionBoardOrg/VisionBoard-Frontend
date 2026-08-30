@@ -55,7 +55,10 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
 
   const plan = currentUser.plan;
   // Check plan gate for timeline/Gantt based on user plan
-  const limit = checkPlanLimit({ plan, aiCreditsUsed: 0 }, "timeline_gantt");
+  const limit = checkPlanLimit(
+    { plan, currentAiCredits: 0, currentMemberCount: 0, currentDocumentCount: 0, currentWorkspaceCount: 0 },
+    "timeline_gantt"
+  );
   const isGated = !limit.allowed;
 
   return (

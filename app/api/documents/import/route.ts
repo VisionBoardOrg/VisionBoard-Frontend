@@ -1,3 +1,4 @@
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -497,7 +498,13 @@ export async function POST(request: NextRequest) {
   // ── Plan limit checks ──────────────────────────────────────────────────────
   const docCount = await prisma.document.count({ where: { workspaceId } });
   const countCheck = checkPlanLimit(
-    { plan, aiCreditsUsed: docCount },
+    {
+      plan,
+      currentAiCredits: 0,
+      currentMemberCount: 0,
+      currentDocumentCount: docCount,
+      currentWorkspaceCount: 0,
+    },
     "create_document"
   );
   if (!countCheck.allowed) {
@@ -508,22 +515,6 @@ export async function POST(request: NextRequest) {
   }
 
   const storageLimitMb = PLAN_LIMITS[plan].storageMb;
-  if (storageLimitMb !== -1) {
-    const incomingMb = file.size / (1024 * 1024);
-    const [{ storageUsedBytes }] = await prisma.$queryRaw<[{ storageUsedBytes: bigint }]>`
-      SELECT "storageUsedBytes" FROM "Workspace" WHERE id = ${workspaceId}
-    `;
-    const currentMb = Number(storageUsedBytes ?? 0) / (1024 * 1024);
-    if (currentMb + incomingMb > storageLimitMb) {
-      return NextResponse.json(
-        {
-          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${plan} plan.`,
-          upgradePrompt: "Upgrade for more storage.",
-        },
-        { status: 403 }
-      );
-    }
-  }
   // ──────────────────────────────────────────────────────────────────────────
 
   const title = file.name.replace(/\.[^/.]+$/, "").trim() || "Imported document";
@@ -577,10 +568,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to parse the document content." }, { status: 422 });
   }
 
+  // Use the actual serialised Tiptap JSON size for storage accounting, not the
+  // raw file size. Conversion can produce output significantly larger than the
+  // input (e.g. a 1 MB PDF may expand to 5 MB of Tiptap JSON nodes).
   const contentBytes = Buffer.byteLength(JSON.stringify(tiptapContent), "utf8");
 
-  const [document] = await prisma.$transaction([
-    prisma.document.create({
+  // ── Atomic storage quota enforcement ──────────────────────────────────────
+  // A single UPDATE atomically checks and increments the counter so concurrent
+  // uploads cannot both pass the quota check and then both commit (TOCTOU race).
+  //
+  // Pattern: UPDATE ... WHERE current + incoming <= limit RETURNING id
+  //   • 1 row updated → quota was not exceeded, increment applied.
+  //   • 0 rows updated → quota would be exceeded; reject without any write.
+  //
+  // For unlimited plans (storageMb === null) we skip the guarded UPDATE and
+  // always increment unconditionally.
+  const storageLimitBytes =
+    storageLimitMb !== null ? BigInt(Math.round(storageLimitMb * 1024 * 1024)) : null;
+
+  if (storageLimitBytes !== null) {
+    const updated = await prisma.$executeRaw`
+      UPDATE "Workspace"
+      SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
+      WHERE id = ${workspaceId}
+        AND "storageUsedBytes" + ${contentBytes} <= ${storageLimitBytes}
+    `;
+    if (updated === 0) {
+      return NextResponse.json(
+        {
+          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${plan} plan.`,
+          upgradePrompt: "Upgrade for more storage.",
+        },
+        { status: 403 }
+      );
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Create the document. Storage is already incremented above (under limit).
+  // If document creation fails we roll back the storage counter best-effort.
+  let document: Awaited<ReturnType<typeof prisma.document.findUniqueOrThrow>> & {
+    author: { id: string; name: string | null } | null;
+  };
+  try {
+    document = await prisma.document.create({
       data: {
         workspaceId,
         title,
@@ -588,24 +619,45 @@ export async function POST(request: NextRequest) {
         authorId: session.user.id,
       },
       include: { author: { select: { id: true, name: true } } },
-    }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId,
-        userId: session.user.id,
-        entityType: "document",
-        entityId: "pending",
-        action: "created",
-        diff: { title, importedFrom: file.name } as never,
-      },
-    }),
-  ]);
+    });
+  } catch (createErr) {
+    // Roll back the storage increment so we don't leak quota.
+    if (storageLimitBytes !== null) {
+      await prisma.$executeRaw`
+        UPDATE "Workspace"
+        SET "storageUsedBytes" = GREATEST("storageUsedBytes" - ${contentBytes}, 0)
+        WHERE id = ${workspaceId}
+      `.catch((rollbackErr: unknown) =>
+        console.error("[import-doc] Storage rollback failed:", rollbackErr)
+      );
+    }
+    throw createErr;
+  }
 
-  await prisma.$executeRaw`
-    UPDATE "Workspace"
-    SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
-    WHERE id = ${workspaceId}
-  `;
+  // For unlimited plans, increment storage outside the guarded UPDATE.
+  if (storageLimitBytes === null) {
+    await prisma.$executeRaw`
+      UPDATE "Workspace"
+      SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
+      WHERE id = ${workspaceId}
+    `.catch((err: unknown) =>
+      console.error("[import-doc] Storage increment failed (unlimited plan):", err)
+    );
+  }
+
+  // Fire-and-forget audit log with the real document ID now that it exists.
+  prisma.activityLog.create({
+    data: {
+      workspaceId,
+      userId: session.user.id,
+      entityType: "document",
+      entityId: document.id,
+      action: "created",
+      diff: { title, importedFrom: file.name } as never,
+    },
+  }).catch((err: unknown) =>
+    console.error("[import-doc] Activity log failed:", err)
+  );
 
   return NextResponse.json({ document }, { status: 201 });
 }

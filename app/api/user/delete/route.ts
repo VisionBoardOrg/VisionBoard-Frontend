@@ -15,6 +15,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { sendAccountDeletionNoticeEmail } from "@/lib/account-deletion-email";
+import { signCancelDeletionToken } from "@/lib/deletion-token";
 
 const bodySchema = z.object({
   /** Users must type their email address to confirm deletion */
@@ -65,9 +66,12 @@ export async function POST(request: NextRequest) {
     data: { scheduledDeletion },
   });
 
-  // Send deletion notice email with cancellation CTA link
+  // Send deletion notice email with cancellation CTA link.
+  // The token is HMAC-signed and expires in 7 days — prevents anyone who
+  // knows the user's email from cancelling their deletion request on their behalf.
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const cancelUrl = `${baseUrl}/auth/cancel-deletion?email=${encodeURIComponent(user.email)}`;
+  const cancelToken = await signCancelDeletionToken(user.id);
+  const cancelUrl = `${baseUrl}/auth/cancel-deletion?token=${encodeURIComponent(cancelToken)}`;
 
   sendAccountDeletionNoticeEmail({
     email: user.email,

@@ -73,7 +73,13 @@ export async function POST(
 
     // Check plan member limit (counting current members + pending invites)
     const limitCheck = checkPlanLimit(
-      { plan: workspace.owner.plan ?? "free", aiCreditsUsed: totalCurrentAndPending },
+      {
+        plan: workspace.owner.plan ?? "free",
+        currentAiCredits: 0,
+        currentMemberCount: totalCurrentAndPending,
+        currentDocumentCount: 0,
+        currentWorkspaceCount: 0,
+      },
       "invite_member"
     );
 

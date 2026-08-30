@@ -26,7 +26,7 @@ const resetSchema = z.object({
 // POST /api/auth/reset-password?action=reset — consume token & set new password
 export async function POST(request: NextRequest) {
   // Rate limit both actions — 5 attempts per 15 minutes per IP
-  const rateLimit = checkRateLimit(request, "password-reset", {
+  const rateLimit = await checkRateLimit(request, "password-reset", {
     windowMs: 15 * 60 * 1000,
     max: 5,
   });

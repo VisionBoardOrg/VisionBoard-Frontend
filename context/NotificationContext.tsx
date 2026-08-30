@@ -52,8 +52,9 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
           setUnreadCount(data.unreadCount || 0);
         }
       } catch (err: unknown) {
-        if ((err as Error)?.name !== "AbortError") {
-          console.error("[NotificationContext] Failed to load notifications:", err);
+        const error = err as Error;
+        if (error?.name !== "AbortError" && error?.message !== "Failed to fetch") {
+          console.warn("[NotificationContext] Transient error loading notifications:", error?.message || error);
         }
       } finally {
         setIsLoading(false);

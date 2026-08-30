@@ -30,8 +30,8 @@ export async function POST(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const [sprint] = await prisma.$transaction([
-    prisma.sprint.create({
+  const sprint = await prisma.$transaction(async (tx) => {
+    const s = await tx.sprint.create({
       data: {
         workspaceId,
         name,
@@ -41,18 +41,21 @@ export async function POST(request: NextRequest) {
         velocity: velocity ?? null,
         status: "planned",
       },
-    }),
-    prisma.activityLog.create({
+    });
+
+    await tx.activityLog.create({
       data: {
         workspaceId,
         userId: session.user.id,
         entityType: "sprint",
-        entityId: "pending",
+        entityId: s.id,
         action: "created",
         diff: { name } as never,
       },
-    }),
-  ]);
+    });
+
+    return s;
+  });
 
   return NextResponse.json({ sprint }, { status: 201 });
 }
@@ -92,5 +95,8 @@ export async function GET(request: NextRequest) {
     prisma.sprint.count({ where: { workspaceId } }),
   ]);
 
-  return NextResponse.json({ sprints, total, page, limit });
+  return NextResponse.json(
+    { sprints, total, page, limit },
+    { headers: { "Cache-Control": "private, max-age=10, stale-while-revalidate=30" } }
+  );
 }

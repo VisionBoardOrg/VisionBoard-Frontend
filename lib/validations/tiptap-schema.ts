@@ -102,7 +102,11 @@ const tiptapNode: z.ZodType<unknown> = z.lazy(() =>
         .optional(),
       text: z.string().optional(),
     })
-    .passthrough() // allow unknown keys gracefully but the type check above already enforces what matters
+    // .strip() is Zod's default — unknown keys are silently discarded.
+    // .passthrough() was removed: it preserved unknown keys (e.g. onmouseover,
+    // data-* attributes) in the output, which could later be rendered by the
+    // Tiptap editor with unexpected behaviour.  Only the fields declared above
+    // are allowed to reach storage.
 );
 
 /**

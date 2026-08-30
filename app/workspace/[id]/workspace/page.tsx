@@ -228,7 +228,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
               <Users size={18} className="text-blue" />
               <h2 className="font-semibold text-ink">Team — Manage Roles</h2>
               <span className="ml-auto text-xs text-muted">
-                {workspace.members.length} / {limits.members === "unlimited" || (limits.members as number) < 0 ? "∞" : limits.members}
+                {workspace.members.length} / {limits.members === null || (limits.members as number) < 0 ? "∞" : limits.members}
               </span>
             </div>
             <div className="space-y-3">

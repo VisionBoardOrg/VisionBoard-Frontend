@@ -43,7 +43,6 @@ function createFallbackEmbedding(text: string, dimensions = EMBEDDING_DIM): numb
 
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
-    // Hash word into dimension slots
     let hash = 0;
     for (let j = 0; j < word.length; j++) {
       hash = ((hash << 5) - hash) + word.charCodeAt(j);
@@ -52,7 +51,6 @@ function createFallbackEmbedding(text: string, dimensions = EMBEDDING_DIM): numb
     const idx = Math.abs(hash) % dimensions;
     vector[idx] += 1;
 
-    // Bigram hash for phrase context
     if (i < words.length - 1) {
       const bigram = `${word}_${words[i + 1]}`;
       let biHash = 0;
@@ -65,16 +63,11 @@ function createFallbackEmbedding(text: string, dimensions = EMBEDDING_DIM): numb
     }
   }
 
-  // Normalize vector to unit length
   let norm = 0;
-  for (let i = 0; i < dimensions; i++) {
-    norm += vector[i] * vector[i];
-  }
+  for (let i = 0; i < dimensions; i++) norm += vector[i] * vector[i];
   norm = Math.sqrt(norm);
   if (norm > 0) {
-    for (let i = 0; i < dimensions; i++) {
-      vector[i] /= norm;
-    }
+    for (let i = 0; i < dimensions; i++) vector[i] /= norm;
   }
 
   return vector;
@@ -88,7 +81,6 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   if (!clean) return new Array(EMBEDDING_DIM).fill(0);
 
   const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
-
   if (!apiKey || apiKey.includes("sk-or-...") || apiKey.includes("replace_")) {
     return createFallbackEmbedding(clean);
   }
@@ -98,10 +90,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       model: EMBEDDING_MODEL,
       input: clean.slice(0, 8000),
     });
-
-    if (res.data?.[0]?.embedding) {
-      return res.data[0].embedding;
-    }
+    if (res.data?.[0]?.embedding) return res.data[0].embedding;
     return createFallbackEmbedding(clean);
   } catch (err) {
     console.warn("[embeddings] API call failed, falling back to local vector representation:", err);
@@ -111,43 +100,62 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 
 /**
  * Generates embeddings in batch for an array of strings.
+ *
+ * F-13 fix: processes batches with controlled parallelism (4 concurrent
+ * requests) instead of sequential awaits. 1000 chunks / 20 per batch = 50
+ * batches; at concurrency 4 that is ~13 round trips instead of 50 serial ones.
  */
 export async function generateBatchEmbeddings(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
 
   const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
-
   if (!apiKey || apiKey.includes("sk-or-...") || apiKey.includes("replace_")) {
     return texts.map((t) => createFallbackEmbedding(t));
   }
 
-  try {
-    // Process in batches of 20 to avoid payload limits
-    const BATCH_SIZE = 20;
-    const results: number[][] = [];
+  const BATCH_SIZE = 20;
+  const CONCURRENCY = 4;
 
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-      const batch = texts.slice(i, i + BATCH_SIZE).map((t) => t.trim().slice(0, 8000) || "empty");
-      const res = await openrouter.embeddings.create({
-        model: EMBEDDING_MODEL,
-        input: batch,
-      });
+  // Build batch groups
+  const batches: string[][] = [];
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    batches.push(
+      texts.slice(i, i + BATCH_SIZE).map((t) => t.trim().slice(0, 8000) || "empty")
+    );
+  }
 
-      if (res.data && res.data.length === batch.length) {
-        for (const item of res.data) {
-          results.push(item.embedding);
+  const results: number[][] = new Array(texts.length);
+
+  // Process in parallel windows of CONCURRENCY
+  for (let i = 0; i < batches.length; i += CONCURRENCY) {
+    const window = batches.slice(i, i + CONCURRENCY);
+
+    const settled = await Promise.allSettled(
+      window.map((batch) =>
+        openrouter.embeddings.create({ model: EMBEDDING_MODEL, input: batch })
+      )
+    );
+
+    for (let j = 0; j < settled.length; j++) {
+      const batchIndex = i + j;
+      const startIdx = batchIndex * BATCH_SIZE;
+      const batchTexts = batches[batchIndex];
+      const outcome = settled[j];
+
+      if (outcome.status === "fulfilled" && outcome.value.data.length === batchTexts.length) {
+        for (let k = 0; k < batchTexts.length; k++) {
+          results[startIdx + k] = outcome.value.data[k].embedding;
         }
       } else {
-        // Fallback for this batch
-        for (const text of batch) {
-          results.push(createFallbackEmbedding(text));
+        if (outcome.status === "rejected") {
+          console.warn(`[embeddings] Batch ${batchIndex} failed:`, outcome.reason);
+        }
+        for (let k = 0; k < batchTexts.length; k++) {
+          results[startIdx + k] = createFallbackEmbedding(batchTexts[k]);
         }
       }
     }
-
-    return results;
-  } catch (err) {
-    console.warn("[embeddings] Batch API call failed, falling back to local representation:", err);
-    return texts.map((t) => createFallbackEmbedding(t));
   }
+
+  return results;
 }

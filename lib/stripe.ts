@@ -11,7 +11,17 @@
 
 import Stripe from "stripe";
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_dummy_key_for_build", {
+// Validate the key at module initialisation time.  validate-env.ts checks this
+// at startup; this guard is a second line of defence for any import path that
+// bypasses instrumentation (e.g. direct route invocations in test environments).
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeKey && process.env.NODE_ENV === "production") {
+  throw new Error(
+    "[stripe] STRIPE_SECRET_KEY is not set. Add it to your environment before deploying."
+  );
+}
+
+export const stripe = new Stripe(stripeKey ?? "sk_test_dummy_key_for_build", {
   apiVersion: "2025-02-24.acacia",
   typescript: true,
 });

@@ -33,7 +33,7 @@ const VALID_ENTITIES = new Set(["milestone", "task", "goal"]);
 
 export async function POST(request: NextRequest) {
   // Rate limit: AI generation route (LLM call per request)
-  const rateLimit = checkRateLimit(request, "ai-nl-board-edit", {
+  const rateLimit = await checkRateLimit(request, "ai-nl-board-edit", {
     windowMs: 15 * 60 * 1000,
     max: 10,
   });
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
 
   // ── Atomic credit debit (TOCTOU-safe) ──────────────────────────────────────
   const creditLimit = PLAN_LIMITS[user.plan].aiCreditsPerMonth;
-  const isUnlimited = creditLimit === -1 || creditLimit === "unlimited";
+  const isUnlimited = creditLimit === null || creditLimit === -1;
 
   if (!isUnlimited) {
     const debited = await prisma.user.updateMany({
@@ -204,7 +204,7 @@ Context: ${ctx}`;
         userId: session.user.id,
         feature: "nl_board_edit",
         promptInput: hashPrompt(command),
-        modelOutput: JSON.stringify(action),
+        modelOutput: hashPrompt(JSON.stringify(action)),
         accepted: null,
         tokensUsed:
           (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),

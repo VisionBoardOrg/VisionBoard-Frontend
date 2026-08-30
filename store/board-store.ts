@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { BoardItemFull, TaskSimple } from "@/types/board";
 
 interface BoardState {
@@ -177,23 +177,32 @@ export function useBoardItem(id: string | null): BoardItemFull | undefined {
 /**
  * Hook that initialises the store with server-side data on first mount or when
  * the workspace changes.
+ *
+ * F-22: initialItems is seeded into the store on first mount via a ref so
+ * subsequent re-renders of the parent server component (which produce a new
+ * array reference) do not reset the store and discard optimistic drag updates.
+ * After mount, all state is owned by the Zustand store and updated only via
+ * addItem / removeItem / updateBoardItem.
  */
 export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
-  // Subscribe only to the data slices this hook returns. Zustand actions are
-  // stable store references, so they are read imperatively via getState()
-  // without subscribing — a moveItem no longer re-renders every useBoard
-  // consumer (previously useBoardStore() with no selector subscribed to the
-  // entire store).
+  // Seed ref — only used to initialise the store once per workspace mount.
+  // We intentionally ignore later changes to `initialItems` because the store
+  // is the source of truth after the first hydration.
+  const seedRef = useRef<BoardItemFull[]>(initialItems);
+
   const storeWorkspaceId = useBoardStore((s) => s.workspaceId);
-  const itemsById = useBoardStore((s) => s.itemsById);
-  const itemOrder = useBoardStore((s) => s.itemOrder);
+  const itemsById        = useBoardStore((s) => s.itemsById);
+  const itemOrder        = useBoardStore((s) => s.itemOrder);
 
   useEffect(() => {
+    // Only (re-)hydrate when the workspace actually changes — never on
+    // parent re-renders that produce a new initialItems array reference.
     if (useBoardStore.getState().workspaceId !== workspaceId) {
-      const { itemsById, itemOrder } = itemsToRecord(initialItems);
-      useBoardStore.setState({ workspaceId, itemsById, itemOrder });
+      const { itemsById: ibi, itemOrder: io } = itemsToRecord(seedRef.current);
+      useBoardStore.setState({ workspaceId, itemsById: ibi, itemOrder: io });
     }
-  }, [workspaceId, initialItems]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId]); // intentionally excludes initialItems
 
   const items = useMemo(() => {
     const out: BoardItemFull[] = new Array(itemOrder.length);

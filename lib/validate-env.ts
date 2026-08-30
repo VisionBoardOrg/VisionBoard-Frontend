@@ -51,6 +51,14 @@ const REQUIRED_SECRETS: EnvCheck[] = [
     minLength: 10,
     description: "PostgreSQL connection string",
   },
+  {
+    key: "STRIPE_SECRET_KEY",
+    minLength: 20,
+    disallowedValues: ["sk_test_dummy_key_for_build"],
+    description:
+      "Stripe secret key (sk_live_... in production, sk_test_... in staging). " +
+      "Without this, all billing actions fail silently at runtime.",
+  },
 ];
 
 function fail(message: string): never {

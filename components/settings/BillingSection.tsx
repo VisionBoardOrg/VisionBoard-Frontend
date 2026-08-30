@@ -163,8 +163,8 @@ export function BillingSection({
   }
 
   // ── Limit display helpers ────────────────────────────────────────────────
-  const fmt = (v: number | "unlimited") =>
-    v === "unlimited" || v === -1 ? "Unlimited" : v.toString();
+  const fmt = (v: number | null) =>
+    v === null || v === -1 ? "Unlimited" : v.toString();
 
   return (
     <section className="bg-white rounded-2xl border border-border p-6">
@@ -216,8 +216,8 @@ export function BillingSection({
         {[
           { label: "Workspaces", value: fmt(limits.workspaces) },
           { label: "Members", value: fmt(limits.members) },
-          { label: "AI Credits", value: fmt(limits.aiCreditsPerMonth) + (limits.aiCreditsPerMonth !== "unlimited" && limits.aiCreditsPerMonth !== -1 ? "/mo" : "") },
-          { label: "Storage", value: limits.storageMb === -1 ? "Unlimited" : `${limits.storageMb} MB` },
+          { label: "AI Credits", value: fmt(limits.aiCreditsPerMonth) + (limits.aiCreditsPerMonth !== null && limits.aiCreditsPerMonth !== -1 ? "/mo" : "") },
+          { label: "Storage", value: limits.storageMb === null || limits.storageMb === -1 ? "Unlimited" : `${limits.storageMb} MB` },
         ].map(({ label, value }) => (
           <div key={label} className="bg-offwhite rounded-xl p-3 text-center">
             <div className="text-[11px] text-muted font-medium uppercase tracking-wide">{label}</div>

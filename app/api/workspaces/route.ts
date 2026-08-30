@@ -34,7 +34,13 @@ export async function POST(request: NextRequest) {
     const userPlan = dbUser?.plan ?? ("free" as PlanTier);
 
     const limitCheck = checkPlanLimit(
-      { plan: userPlan, aiCreditsUsed: existingCount },
+      {
+        plan: userPlan,
+        currentAiCredits: 0,
+        currentMemberCount: 0,
+        currentDocumentCount: 0,
+        currentWorkspaceCount: existingCount,
+      },
       "create_workspace"
     );
     if (!limitCheck.allowed) {
@@ -49,12 +55,10 @@ export async function POST(request: NextRequest) {
     });
 
     // Warn user when they have exactly 1 remaining workspace slot
-    const workspaceLimitNum = typeof PLAN_LIMITS[userPlan].workspaces === "number"
-      ? PLAN_LIMITS[userPlan].workspaces as number
-      : -1;
+    const workspaceLimitNum = PLAN_LIMITS[userPlan].workspaces;
     const newCount = existingCount + 1;
     const upgradePrompt =
-      workspaceLimitNum > 0 && workspaceLimitNum - newCount === 1
+      workspaceLimitNum !== null && workspaceLimitNum - newCount === 1
         ? `You have 1 workspace slot remaining on the ${userPlan} plan. Upgrade to create more.`
         : undefined;
 

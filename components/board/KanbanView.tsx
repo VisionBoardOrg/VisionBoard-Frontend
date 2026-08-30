@@ -114,6 +114,10 @@ export function KanbanView({
   const [newGroupName, setNewGroupName] = useState("");
   const [addingMilestoneColumn, setAddingMilestoneColumn] = useState<string | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState("");
+  const [selectedQuickAddGoalId, setSelectedQuickAddGoalId] = useState<string>("");
+
+  // Update selected goal default when goals prop changes
+  const effectiveGoalId = selectedQuickAddGoalId || goals[0]?.id;
 
   // Pointer/touch sensors only — Enter/Space on a focused card opens its
   // details instead of starting a keyboard drag
@@ -146,20 +150,7 @@ export function KanbanView({
         } else if (stored === "delayed" || stored === "blocked") {
           rawStatus = "delayed";
         } else {
-          // If status is default/planned, auto-promote if tasks have completed or started
-          if (tasks.length > 0) {
-            const allDone = tasks.every((t) => t.status === "done");
-            const anyStarted = tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-            if (allDone) {
-              rawStatus = "completed";
-            } else if (anyStarted) {
-              rawStatus = "in_progress";
-            } else {
-              rawStatus = "planned";
-            }
-          } else {
-            rawStatus = "planned";
-          }
+          rawStatus = "planned";
         }
       } else {
         const entity = item.linkedGoal ?? item.linkedMilestone;
@@ -225,7 +216,7 @@ export function KanbanView({
         : "planned";
 
     try {
-      let targetGoalId = goals[0]?.id;
+      let targetGoalId = effectiveGoalId;
 
       if (!targetGoalId) {
         const goalRes = await fetch("/api/goals", {
@@ -326,6 +317,9 @@ export function KanbanView({
               key={group.id}
               group={group}
               items={columnItems}
+              goals={goals}
+              selectedGoalId={effectiveGoalId}
+              onSelectGoal={setSelectedQuickAddGoalId}
               selectedId={selectedId}
               onSelectCard={onSelectCard}
               onDeleteCard={onDeleteCard}
@@ -386,6 +380,9 @@ export function KanbanView({
 interface KanbanColumnProps {
   group: StatusGroup;
   items: BoardItemFull[];
+  goals: GoalSimple[];
+  selectedGoalId?: string;
+  onSelectGoal: (goalId: string) => void;
   selectedId: string | null;
   onSelectCard: (id: string) => void;
   onDeleteCard: (id: string) => void;
@@ -401,6 +398,9 @@ interface KanbanColumnProps {
 function KanbanColumn({
   group,
   items,
+  goals,
+  selectedGoalId,
+  onSelectGoal,
   selectedId,
   onSelectCard,
   onDeleteCard,
@@ -472,6 +472,24 @@ function KanbanColumn({
       {/* Inline Add Milestone Input Form */}
       {addingMilestoneColumn === group.id ? (
         <div className="bg-white p-3 rounded-xl border border-purple-200 shadow-sm mt-1">
+          {goals.length > 1 && (
+            <div className="mb-2">
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                Parent Goal
+              </label>
+              <select
+                value={selectedGoalId || goals[0]?.id || ""}
+                onChange={(e) => onSelectGoal(e.target.value)}
+                className="w-full text-xs font-medium px-2 py-1.5 border border-slate-200 rounded-lg bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              >
+                {goals.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <input
             type="text"
             value={newMilestoneTitle}

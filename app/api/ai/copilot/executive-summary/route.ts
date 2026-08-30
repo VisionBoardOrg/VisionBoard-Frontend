@@ -25,7 +25,7 @@ function hashPrompt(input: string): string {
 
 export async function POST(request: NextRequest) {
   // Rate limit: AI generation route (LLM call per request)
-  const rateLimit = checkRateLimit(request, "ai-executive-summary", {
+  const rateLimit = await checkRateLimit(request, "ai-executive-summary", {
     windowMs: 15 * 60 * 1000,
     max: 10,
   });
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
 
   // ── Atomic credit debit ────────────────────────────────────────────────────
   const creditLimit = PLAN_LIMITS[user.plan].aiCreditsPerMonth;
-  const isUnlimited = creditLimit === -1 || creditLimit === "unlimited";
+  const isUnlimited = creditLimit === null || creditLimit === -1;
 
   if (!isUnlimited) {
     const debited = await prisma.user.updateMany({
@@ -227,7 +227,7 @@ CITATIONS: When mentioning specific goals, milestones, or tasks, cite them using
         userId: session.user.id,
         feature: "executive_summary",
         promptInput: hashPrompt(rawStateSummary),
-        modelOutput: summaryText.slice(0, 1000),
+        modelOutput: hashPrompt(summaryText),
         tokensUsed,
         accepted: true,
       },

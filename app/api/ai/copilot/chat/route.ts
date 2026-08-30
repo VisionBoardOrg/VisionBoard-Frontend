@@ -27,7 +27,7 @@ function hashPrompt(input: string): string {
 
 export async function POST(request: NextRequest) {
   // Rate limit: AI generation routes are expensive (embedding search + LLM call)
-  const rateLimit = checkRateLimit(request, "ai-copilot-chat", {
+  const rateLimit = await checkRateLimit(request, "ai-copilot-chat", {
     windowMs: 15 * 60 * 1000,
     max: 10,
   });
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
   // ── Atomic credit debit ────────────────────────────────────────────────────
   const creditLimit = PLAN_LIMITS[user.plan].aiCreditsPerMonth;
-  const isUnlimited = creditLimit === -1 || creditLimit === "unlimited";
+  const isUnlimited = creditLimit === null || creditLimit === -1;
 
   if (!isUnlimited) {
     const debited = await prisma.user.updateMany({
@@ -109,29 +109,23 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Save User message and fetch recent conversation history (last 6 messages)
-  // in parallel. We fetch take: 7 and exclude the inserted row by id so the
-  // result is identical to the old sequential create-then-read regardless of
-  // which query lands first (the read can no longer rely on seeing the insert).
-  const [savedUserMessage, recentMessages] = await Promise.all([
-    prisma.copilotMessage.create({
-      data: {
-        conversationId: conversation.id,
-        role: "user",
-        content: message,
-      },
-      select: { id: true },
-    }),
-    prisma.copilotMessage.findMany({
-      where: { conversationId: conversation.id },
-      orderBy: { createdAt: "desc" },
-      take: 7,
-    }),
-  ]);
-  const history = recentMessages
-    .filter((m) => m.id !== savedUserMessage.id) // exclude current user message
-    .reverse()
-    .slice(-5);
+  // F-23: Save user message first, then fetch history — guarantees the
+  // findMany sees the committed row and the temporal filter is unambiguous.
+  const savedUserMessage = await prisma.copilotMessage.create({
+    data: { conversationId: conversation.id, role: "user", content: message },
+    select: { id: true, createdAt: true },
+  });
+
+  // Fetch the 5 messages that came BEFORE the one we just inserted.
+  const recentMessages = await prisma.copilotMessage.findMany({
+    where: {
+      conversationId: conversation.id,
+      createdAt: { lt: savedUserMessage.createdAt },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+  const history = recentMessages.reverse();
 
   // 1. Semantic RAG Search across workspace knowledge base
   const retrievedChunks: RetrievedChunk[] = await searchWorkspaceKnowledge(workspaceId, message, {
@@ -234,7 +228,13 @@ Guidelines:
           messages: promptMessages,
           stream: true,
           max_tokens: 3000,
+          // F-24: request usage stats in the final stream chunk so we record
+          // real token counts rather than a character-count approximation.
+          stream_options: { include_usage: true },
         });
+
+        let promptTokens     = 0;
+        let completionTokens = 0;
 
         for await (const chunk of aiStream) {
           const delta = chunk.choices[0]?.delta?.content || "";
@@ -243,10 +243,17 @@ Guidelines:
             const chunkPayload = JSON.stringify({ type: "chunk", text: delta });
             controller.enqueue(encoder.encode(`data: ${chunkPayload}\n\n`));
           }
+          // Capture usage from the final [DONE] chunk
+          if (chunk.usage) {
+            promptTokens     = chunk.usage.prompt_tokens     ?? 0;
+            completionTokens = chunk.usage.completion_tokens ?? 0;
+          }
         }
 
-        // Approximate token count (4 chars ~ 1 token)
-        totalTokens = Math.ceil((message.length + fullResponseText.length) / 4);
+        // Use real token counts when available; fall back to char-count estimate
+        totalTokens = (promptTokens + completionTokens) > 0
+          ? promptTokens + completionTokens
+          : Math.ceil((message.length + fullResponseText.length) / 4);
 
         // Save Assistant message in database
         const assistantMsg = await prisma.copilotMessage.create({
@@ -259,14 +266,19 @@ Guidelines:
           },
         });
 
-        // Audit Log
+        // Audit Log — store only a hash of the output, never raw content.
+        // Raw model responses can contain sensitive workspace data (budget
+        // figures, PII from PRDs, internal roadmap details) that would be
+        // exported verbatim via the data-export endpoint and amplify any
+        // AIGenerationLog breach.  The hash preserves auditability without
+        // storing the content itself.
         prisma.aIGenerationLog.create({
           data: {
             workspaceId,
             userId: session.user.id,
             feature: "workspace_copilot",
             promptInput: hashPrompt(message),
-            modelOutput: fullResponseText.slice(0, 1000),
+            modelOutput: hashPrompt(fullResponseText),
             tokensUsed: totalTokens,
             accepted: true,
           },
@@ -282,8 +294,13 @@ Guidelines:
         controller.close();
       } catch (err) {
         console.error("[copilot/chat] Stream error:", err);
-        // Refund credit on total failure
-        if (!fullResponseText) {
+        // Refund credit if the response was empty or too short to be useful.
+        // The original guard only refunded on zero-length responses, which
+        // meant a 3-word partial response before a connection drop still billed
+        // a full credit.  We now treat anything under 20 characters or with
+        // zero recorded tokens as a failed generation.
+        const isUsefulResponse = fullResponseText.length >= 20 && totalTokens > 0;
+        if (!isUsefulResponse) {
           await prisma.user.update({
             where: { id: session.user.id },
             data: { aiCreditsUsed: { decrement: 1 } },

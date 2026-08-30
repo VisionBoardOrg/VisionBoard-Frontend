@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Building2, ArrowRight } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { UserSummaryCards } from "@/components/dashboard/UserSummaryCards";
 import { AppShell } from "@/components/layout/AppShell";
 
@@ -72,7 +73,7 @@ export default async function DashboardPage() {
       role={session.user.role}
       plan={plan}
       aiCreditsUsed={user?.aiCreditsUsed ?? 0}
-      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
+      aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
       userId={session.user.id}
       isOwner={primaryWorkspace.ownerId === session.user.id}
     >

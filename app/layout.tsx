@@ -8,6 +8,11 @@ const jakarta = Plus_Jakarta_Sans({
   variable: "--font-jakarta",
   subsets: ["latin"],
   display: "swap",
+  // F-30: adjustFontFallback generates a metric-matched system-font fallback so
+  // the layout shift (FOUT) on first load is minimised — no visible reflow
+  // when the web font swaps in.
+  adjustFontFallback: true,
+  fallback: ["system-ui", "ui-sans-serif", "sans-serif"],
 });
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
@@ -200,7 +205,7 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       </head>
-      <body className="h-full bg-offwhite text-ink" suppressHydrationWarning>
+      <body className="h-full bg-offwhite text-ink">
         <SessionProvider session={session} refetchOnWindowFocus={false}>
           {children}
         </SessionProvider>

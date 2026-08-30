@@ -24,7 +24,7 @@ function hashPrompt(input: string): string {
 
 export async function POST(request: NextRequest) {
   // Rate limit: AI generation route (LLM call per request)
-  const rateLimit = checkRateLimit(request, "ai-copilot-standup", {
+  const rateLimit = await checkRateLimit(request, "ai-copilot-standup", {
     windowMs: 15 * 60 * 1000,
     max: 10,
   });
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
   // ── Atomic credit debit ────────────────────────────────────────────────────
   const creditLimit = PLAN_LIMITS[user.plan].aiCreditsPerMonth;
-  const isUnlimited = creditLimit === -1 || creditLimit === "unlimited";
+  const isUnlimited = creditLimit === null || creditLimit === -1;
 
   if (!isUnlimited) {
     const debited = await prisma.user.updateMany({
@@ -151,7 +151,7 @@ Use bullet points, mention assignees, and format task citations as [[cite:task:i
         userId: session.user.id,
         feature: "workspace_copilot",
         promptInput: hashPrompt(promptInput),
-        modelOutput: standupText.slice(0, 500),
+        modelOutput: hashPrompt(standupText),
         tokensUsed: (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
         accepted: true,
       },

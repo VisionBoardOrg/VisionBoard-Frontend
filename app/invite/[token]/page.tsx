@@ -52,7 +52,13 @@ export default async function InvitePage({ params }: InvitePageProps) {
         where: { workspaceId: invite.workspaceId },
       });
       const limitCheck = checkPlanLimit(
-        { plan: invite.workspace.owner.plan ?? "free", aiCreditsUsed: memberCount },
+        {
+          plan: invite.workspace.owner.plan ?? "free",
+          currentAiCredits: 0,
+          currentMemberCount: memberCount,
+          currentDocumentCount: 0,
+          currentWorkspaceCount: 0,
+        },
         "invite_member"
       );
       if (!limitCheck.allowed) {
@@ -100,7 +106,13 @@ export default async function InvitePage({ params }: InvitePageProps) {
       where: { workspaceId: invite.workspaceId },
     });
     const limitCheck = checkPlanLimit(
-      { plan: invite.workspace.owner.plan ?? "free", aiCreditsUsed: memberCount },
+      {
+        plan: invite.workspace.owner.plan ?? "free",
+        currentAiCredits: 0,
+        currentMemberCount: memberCount,
+        currentDocumentCount: 0,
+        currentWorkspaceCount: 0,
+      },
       "invite_member"
     );
     if (!limitCheck.allowed) {
