@@ -3,82 +3,76 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import mammoth from "mammoth";
-// Import directly from lib/pdf-parse.js to avoid pdf-parse root index.js test file debug checks in Next.js builds
-// @ts-ignore
-import pdfParse from "pdf-parse/lib/pdf-parse.js";
+// SECURITY (HIGH-9): Replaced pdf-parse (unmaintained, ReDoS vulnerabilities) with pdfjs-dist.
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import sanitizeHtml from "sanitize-html";
-import * as XLSX from "xlsx";
+// SECURITY (HIGH-8): Replaced xlsx/SheetJS CE (unmaintained, multiple CVEs) with exceljs.
+import ExcelJS from "exceljs";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
 import { parse as parseHtml } from "node-html-parser";
+
+// SECURITY (LOW-5): Hard cap on imported file size to prevent memory exhaustion
+// via oversized files passed to pdf/spreadsheet parsers.
+export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /**
  * Convert Excel / CSV spreadsheet buffer into a structured Tiptap ProseMirror document.
+ * Uses ExcelJS instead of the unmaintained SheetJS CE.
  */
-/**
- * Convert Excel / CSV spreadsheet buffer into a structured Tiptap ProseMirror document.
- */
-export function excelToTiptap(buffer: Buffer): object {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
+export async function excelToTiptap(buffer: Buffer): Promise<object> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
   const content: object[] = [];
 
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) continue;
-
-    if (workbook.SheetNames.length > 1) {
+  workbook.eachSheet((sheet) => {
+    if (workbook.worksheets.length > 1) {
       content.push({
         type: "heading",
         attrs: { level: 2 },
-        content: [{ type: "text", text: `Sheet: ${sheetName}` }],
+        content: [{ type: "text", text: `Sheet: ${sheet.name}` }],
       });
     }
 
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
-    if (!rows || rows.length === 0) continue;
+    const rows: string[][] = [];
+    sheet.eachRow((row) => {
+      const cells = (row.values as ExcelJS.CellValue[]).slice(1); // index 0 is empty
+      rows.push(cells.map((c) => (c !== null && c !== undefined ? String(c).trim() : "")));
+    });
 
-    const validRows = rows.filter(
-      (r) => Array.isArray(r) && r.some((val) => val !== undefined && val !== null && String(val).trim() !== "")
-    );
-    if (validRows.length === 0) continue;
+    if (rows.length === 0) return;
 
-    const headerRow = validRows[0];
-    const dataRows = validRows.slice(1);
+    const headerRow = rows[0];
+    const dataRows = rows.slice(1).filter((r) => r.some((v) => v !== ""));
 
     if (dataRows.length > 0) {
-      const headerText = headerRow.map((cell) => String(cell ?? "").trim()).join(" | ");
       content.push({
         type: "paragraph",
-        content: [{ type: "text", text: `Columns: ${headerText}`, marks: [{ type: "bold" }] }],
+        content: [{ type: "text", text: `Columns: ${headerRow.join(" | ")}`, marks: [{ type: "bold" }] }],
       });
 
-      const listItems: object[] = [];
-      for (const row of dataRows.slice(0, 500)) {
+      const listItems: object[] = dataRows.slice(0, 500).map((row) => {
         const rowText = row
-          .map((cell, idx) => {
-            const colName = headerRow[idx] ? String(headerRow[idx]).trim() : `Col ${idx + 1}`;
-            const val = cell !== undefined && cell !== null ? String(cell).trim() : "";
-            return val ? `${colName}: ${val}` : null;
-          })
+          .map((val, idx) => (val ? `${headerRow[idx] || `Col ${idx + 1}`}: ${val}` : null))
           .filter(Boolean)
           .join(" • ");
-
-        if (rowText) {
-          listItems.push({
-            type: "listItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: rowText }] }],
-          });
-        }
-      }
+        return {
+          type: "listItem",
+          content: [{ type: "paragraph", content: [{ type: "text", text: rowText }] }],
+        };
+      });
 
       if (listItems.length > 0) {
         content.push({ type: "bulletList", content: listItems });
       }
     } else {
-      const text = headerRow.map((cell) => String(cell ?? "").trim()).join(" | ");
-      content.push({ type: "paragraph", content: [{ type: "text", text }] });
+      content.push({ type: "paragraph", content: [{ type: "text", text: headerRow.join(" | ") }] });
     }
+  });
+
+  return { type: "doc", content };
+}    }
   }
 
   if (content.length === 0) {
@@ -444,9 +438,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "file and workspaceId are required" }, { status: 400 });
   }
 
-  // 15 MB limit
-  if (file.size > 15 * 1024 * 1024) {
-    return NextResponse.json({ error: "File must be smaller than 15 MB." }, { status: 413 });
+  // SECURITY (LOW-5): Enforce the import file size limit before passing to
+  // any parser. pdf-parse/pdfjs-dist and ExcelJS can consume large amounts of
+  // memory on crafted files; rejecting early prevents DoS via resource exhaustion.
+  if (file.size > MAX_IMPORT_FILE_BYTES) {
+    return NextResponse.json(
+      { error: `File must be smaller than ${MAX_IMPORT_FILE_BYTES / (1024 * 1024)} MB.` },
+      { status: 413 }
+    );
   }
 
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -524,12 +523,21 @@ export async function POST(request: NextRequest) {
     if (ext === "pdf") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      const pdfData = await pdfParse(buffer);
-      tiptapContent = textToTiptap(pdfData.text || "");
+      // SECURITY (HIGH-9): pdfjs-dist replaces pdf-parse (unmaintained).
+      const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+      const pdfDoc = await loadingTask.promise;
+      const textParts: string[] = [];
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const tc = await page.getTextContent();
+        textParts.push(tc.items.map((item) => ("str" in item ? item.str : "")).join(" "));
+      }
+      tiptapContent = textToTiptap(textParts.join("\n\n"));
     } else if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      tiptapContent = excelToTiptap(buffer);
+      // SECURITY (HIGH-8): exceljs replaces xlsx/SheetJS CE (unmaintained).
+      tiptapContent = await excelToTiptap(buffer);
     } else if (ext === "docx" || ext === "doc") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);

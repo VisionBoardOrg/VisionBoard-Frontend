@@ -189,7 +189,6 @@ async function fetchAllTasks(workspaceId: string) {
       include: {
         assignee: { select: { name: true } },
         milestone: { select: { title: true } },
-        sprint: { select: { name: true } },
         comments: {
           include: { author: { select: { name: true } } },
           orderBy: { createdAt: "asc" },
@@ -261,7 +260,7 @@ function chunksForTask(t: FetchedTask, workspaceId: string): RawChunk[] {
     id: t.id, title: t.title, description: t.description, status: t.status,
     priority: t.priority, storyPoints: t.storyPoints, dueDate: t.dueDate,
     assigneeName: t.assignee?.name, milestoneTitle: t.milestone?.title,
-    sprintName: t.sprint?.name, blockedReason: t.blockedReason,
+    blockedReason: t.blockedReason,
     comments: t.comments.map((c) => ({ authorName: c.author?.name || undefined, body: c.body })),
   });
   return chunkText(formatted, { headerPrefix: `Task: ${t.title}` }).map((c) => ({
@@ -403,7 +402,6 @@ export async function indexSingleEntity(
       include: {
         assignee: { select: { name: true } },
         milestone: { select: { title: true } },
-        sprint: { select: { name: true } },
         comments: {
           include: { author: { select: { name: true } } },
           orderBy: { createdAt: "asc" },

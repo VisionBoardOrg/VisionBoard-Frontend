@@ -12,18 +12,76 @@ import { runUserCleanup, UserCleanupResult } from "@/lib/user-cleanup";
 import { safeCompare } from "@/lib/auth/safe-compare";
 import { acquireCronLock } from "@/lib/cron-lock";
 
+/**
+ * Vercel Cron sends requests from a documented set of IP ranges.
+ * Allowing only those IPs as a secondary check makes the cron secret
+ * substantially harder to abuse if it ever leaks — an attacker also needs
+ * to originate from a Vercel infrastructure IP to trigger the endpoint.
+ *
+ * Source: https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs
+ * The list is intentionally conservative. Add new ranges here as Vercel publishes them.
+ *
+ * Set CRON_DISABLE_IP_CHECK=true to bypass in local development where
+ * requests arrive from 127.0.0.1 or ::1.
+ */
+const VERCEL_CRON_IPS = new Set([
+  "76.76.21.21",    // Vercel Cron primary
+  "76.76.21.22",
+  "76.76.21.0",
+  "::1",            // local loopback (IPv6)
+  "127.0.0.1",      // local loopback (IPv4)
+]);
+
+/**
+ * Extract the originating IP, preferring Vercel's own header before
+ * the generic x-forwarded-for chain (which can be spoofed by clients
+ * on deployments that don't strip it).
+ */
+function getCronCallerIp(request: NextRequest): string {
+  // x-vercel-forwarded-for is injected by Vercel infrastructure and cannot
+  // be overwritten by the client on Vercel-hosted deployments.
+  const vercelIp = request.headers.get("x-vercel-forwarded-for");
+  if (vercelIp) return vercelIp.split(",")[0].trim();
+  const xfwd = request.headers.get("x-forwarded-for");
+  if (xfwd) return xfwd.split(",")[0].trim();
+  return "unknown";
+}
+
 function authorizeCron(request: NextRequest): boolean {
+  // ── 1. Token check (always enforced) ──────────────────────────────────────
   const authHeader = request.headers.get("authorization");
   const cronSecretHeader = request.headers.get("x-cron-secret");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
   const token = cronSecretHeader || bearerToken;
   const expectedSecret = process.env.CRON_SECRET;
 
+  // SECURITY: Never fall back to a hardcoded default. validate-env.ts requires
+  // CRON_SECRET to be set (32+ chars) in production; refuse if it is absent.
   if (!expectedSecret || expectedSecret.length < 16) {
-    if (process.env.NODE_ENV === "production") return false;
-    return !!(token && safeCompare(token, "dev-cron-secret"));
+    if (process.env.NODE_ENV === "production") {
+      console.error("[cron/sweeps] CRON_SECRET not configured — refusing request.");
+      return false;
+    }
+    // Development: accept the well-known dev token but warn loudly.
+    console.warn("[cron/sweeps] CRON_SECRET not set — accepting dev-cron-secret for local use only.");
+    if (!token || !safeCompare(token, "dev-cron-secret")) return false;
+  } else {
+    if (!token || !safeCompare(token, expectedSecret)) return false;
   }
-  return !!(token && safeCompare(token, expectedSecret));
+
+  // ── 2. IP allowlist (secondary defence, skippable in local dev) ───────────
+  // SECURITY (LOW-6): Even with a valid token, reject requests that don't
+  // originate from a known Vercel Cron IP. This limits the blast radius if the
+  // cron secret is ever compromised — an attacker also needs a Vercel-infra IP.
+  if (process.env.CRON_DISABLE_IP_CHECK !== "true") {
+    const callerIp = getCronCallerIp(request);
+    if (!VERCEL_CRON_IPS.has(callerIp)) {
+      console.warn(`[cron/sweeps] IP not in allowlist: ${callerIp}`);
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // ── Per-run caps — prevents a single cron invocation from holding the DB
@@ -420,7 +478,16 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("[cron/sweeps] Phase 6 (user cleanup) failed:", err);
   }
-  results.userCleanupSweep = userCleanup;
+  // SECURITY (LOW-4): Never return purgedUserIds in the HTTP response.
+  // Internal user IDs in the response body assist enumeration attacks if the
+  // cron secret is ever compromised. Log them server-side only.
+  results.userCleanupSweep = {
+    warningsSent: userCleanup.warningsSent,
+    purgedCount:  userCleanup.purgedCount,
+  };
+  if (userCleanup.purgedUserIds.length > 0) {
+    console.log("[cron/sweeps] Purged user IDs:", userCleanup.purgedUserIds);
+  }
 
   return NextResponse.json(results);
   } finally {

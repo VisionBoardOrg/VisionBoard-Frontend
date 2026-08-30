@@ -11,7 +11,7 @@ import { MetricBar } from "./MetricBar";
 import { AlertBanner } from "./AlertBanner";
 import type { DashboardWorkspace } from "@/types/dashboard";
 import Link from "next/link";
-import { ArrowRight, Zap, Target, HeartPulse, Users, FileText } from "lucide-react";
+import { ArrowRight, Target, HeartPulse, Users, FileText } from "lucide-react";
 
 interface PMDashboardProps {
   workspace: DashboardWorkspace;
@@ -27,10 +27,6 @@ export function PMDashboard({ workspace, userName }: PMDashboardProps) {
       ? Math.round(goals.reduce((sum, g) => sum + (g.healthScore ?? 0), 0) / goals.length)
       : 0;
 
-  const activeSprint = workspace.sprints[0];
-  const sprintTasks = activeSprint?.tasks ?? [];
-  const blockers = sprintTasks.filter((t) => t.status === "blocked").length;
-
   const roadmapHealth = goals.map((g) => ({
     label: g.title.length > 28 ? g.title.slice(0, 28) + "…" : g.title,
     value: g.healthScore ?? 0,
@@ -43,14 +39,6 @@ export function PMDashboard({ workspace, userName }: PMDashboardProps) {
         <h2 className="text-2xl font-bold text-ink">Good day, {userName}</h2>
         <p className="text-slate text-sm mt-1">Here&apos;s your product workspace overview.</p>
       </div>
-
-      {/* AI Risk alert */}
-      {blockers > 0 && (
-        <AlertBanner
-          message={`${blockers} task${blockers > 1 ? "s are" : " is"} currently blocked in the active sprint. Check the board for details.`}
-          variant="warning"
-        />
-      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -76,36 +64,31 @@ export function PMDashboard({ workspace, userName }: PMDashboardProps) {
           </Link>
         </div>
 
-        {/* Active Sprint */}
+        {/* Milestone progress */}
         <div className="bg-white rounded-2xl border border-border p-6">
-          <h2 className="font-semibold text-ink mb-1">
-            {activeSprint ? activeSprint.name : "No active sprint"}
-          </h2>
-          {activeSprint && (
-            <>
-              <p className="text-xs text-muted mb-4">
-                {new Date(activeSprint.startDate).toLocaleDateString()} –{" "}
-                {new Date(activeSprint.endDate).toLocaleDateString()}
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {(["todo", "in_progress", "blocked", "done"] as const).map((s) => {
-                  const count = sprintTasks.filter((t) => t.status === s).length;
-                  return (
-                    <div key={s} className="bg-offwhite rounded-xl p-3 text-center">
-                      <div className="text-xl font-bold text-ink">{count}</div>
-                      <div className="text-xs text-muted capitalize">{s.replace("_", " ")}</div>
+          <h2 className="font-semibold text-ink mb-4">Milestone Progress</h2>
+          {goals.length === 0 ? (
+            <p className="text-sm text-muted">No goals yet — create one to start tracking.</p>
+          ) : (
+            <div className="space-y-3">
+              {goals.slice(0, 4).map((g) => {
+                const total = g.milestones.length;
+                const done = g.milestones.filter((m) => m.status === "completed").length;
+                const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                return (
+                  <div key={g.id}>
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-slate truncate max-w-[200px]">{g.title}</span>
+                      <span className="text-muted shrink-0">{done}/{total} milestones</span>
                     </div>
-                  );
-                })}
-              </div>
-            </>
+                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                      <div className="h-full bg-blue rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
-
-          {/* AI Insights CTA */}
-          <button className="mt-4 w-full flex items-center justify-center gap-2 border border-blue/30 text-blue rounded-xl py-2.5 text-sm font-medium hover:bg-blue-faint transition-colors">
-            <Zap size={14} />
-            Generate AI insights
-          </button>
         </div>
       </div>
     </div>

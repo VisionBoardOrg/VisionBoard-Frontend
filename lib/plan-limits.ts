@@ -30,7 +30,6 @@ interface LimitCheck {
 type Feature =
   | "ai_credit"
   | "timeline_gantt"
-  | "sprint_tracking"
   | "integrations"
   | "sso"
   | "invite_member"
@@ -43,7 +42,6 @@ interface PlanLimitDef {
   aiCreditsPerMonth: number | null;
   activityLogDays: number; // -1 = unlimited
   timelineGantt: boolean;
-  sprintTracking: boolean;
   integrations: boolean;
   sso: boolean;
   /** Max documents per workspace. null = unlimited */
@@ -62,22 +60,22 @@ interface PlanLimitDef {
 export const PLAN_LIMITS: Record<PlanTier, PlanLimitDef> = {
   free: {
     workspaces: 1, members: 5, aiCreditsPerMonth: 10, activityLogDays: 7,
-    timelineGantt: false, sprintTracking: false, integrations: false, sso: false,
+    timelineGantt: false, integrations: false, sso: false,
     documents: 10, storageMb: 5,
   },
   startup: {
     workspaces: 5, members: 25, aiCreditsPerMonth: 100, activityLogDays: 30,
-    timelineGantt: true, sprintTracking: true, integrations: false, sso: false,
+    timelineGantt: true, integrations: false, sso: false,
     documents: 100, storageMb: 100,
   },
   growth: {
     workspaces: null, members: 100, aiCreditsPerMonth: null, activityLogDays: 90,
-    timelineGantt: true, sprintTracking: true, integrations: true, sso: false,
+    timelineGantt: true, integrations: true, sso: false,
     documents: null, storageMb: 1000,
   },
   enterprise: {
     workspaces: null, members: null, aiCreditsPerMonth: null, activityLogDays: -1,
-    timelineGantt: true, sprintTracking: true, integrations: true, sso: true,
+    timelineGantt: true, integrations: true, sso: true,
     documents: null, storageMb: null,
   },
 } as const;
@@ -111,11 +109,6 @@ export function checkPlanLimit(ctx: PlanLimitContext, feature: Feature): LimitCh
       return limits.timelineGantt
         ? { allowed: true }
         : { allowed: false, reason: "Timeline/Gantt view requires Startup plan or higher.", upgradePrompt: upgrade };
-
-    case "sprint_tracking":
-      return limits.sprintTracking
-        ? { allowed: true }
-        : { allowed: false, reason: "Sprint tracking requires Startup plan or higher.", upgradePrompt: upgrade };
 
     case "integrations":
       return limits.integrations

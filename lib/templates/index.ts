@@ -2,7 +2,6 @@ import { MilestoneStatus, TaskStatus, Priority, GoalStatus } from "@prisma/clien
 
 export interface TemplateData {
   goals: TemplateGoal[];
-  sprints: TemplateSprint[];
 }
 
 interface TemplateGoal {
@@ -39,13 +38,6 @@ interface TemplateTask {
   order: number;
 }
 
-interface TemplateSprint {
-  name: string;
-  startDate: Date;
-  endDate: Date;
-  velocity: number;
-}
-
 const now = new Date();
 const weeks = (n: number) => new Date(now.getTime() + n * 7 * 24 * 60 * 60 * 1000);
 
@@ -53,7 +45,6 @@ const weeks = (n: number) => new Date(now.getTime() + n * 7 * 24 * 60 * 60 * 100
 // OKR BOARD
 // ──────────────────────────────────────────────────────────
 export const okrBoardTemplate: TemplateData = {
-  sprints: [],
   goals: [
     {
       title: "Q3 Growth OKR",
@@ -111,12 +102,6 @@ export const okrBoardTemplate: TemplateData = {
 // PRODUCT ROADMAP
 // ──────────────────────────────────────────────────────────
 export const productRoadmapTemplate: TemplateData = {
-  sprints: [
-    { name: "Sprint 1 — Discovery", startDate: weeks(-4), endDate: weeks(-2), velocity: 24 },
-    { name: "Sprint 2 — Core Build", startDate: weeks(-2), endDate: weeks(0), velocity: 30 },
-    { name: "Sprint 3 — Alpha", startDate: weeks(0), endDate: weeks(2), velocity: 28 },
-    { name: "Sprint 4 — Beta", startDate: weeks(2), endDate: weeks(4), velocity: 32 },
-  ],
   goals: [
     {
       title: "Product Roadmap H2",
@@ -187,7 +172,6 @@ export const productRoadmapTemplate: TemplateData = {
 // QUARTERLY PLAN
 // ──────────────────────────────────────────────────────────
 export const quarterlyPlanTemplate: TemplateData = {
-  sprints: [],
   goals: [
     {
       title: "Q3 Engineering Goals",
@@ -254,72 +238,19 @@ export const quarterlyPlanTemplate: TemplateData = {
   ],
 };
 
-// ──────────────────────────────────────────────────────────
-// SPRINT BOARD
-// ──────────────────────────────────────────────────────────
-export const sprintBoardTemplate: TemplateData = {
-  sprints: [
-    { name: "Sprint 12 — Auth & Onboarding", startDate: weeks(-1), endDate: weeks(1), velocity: 34 },
-    { name: "Sprint 13 — Dashboard & Reports", startDate: weeks(1), endDate: weeks(3), velocity: 30 },
-    { name: "Sprint 14 — Board Canvas", startDate: weeks(3), endDate: weeks(5), velocity: 28 },
-  ],
-  goals: [
-    {
-      title: "Sprint 12 Goal",
-      objective: "Ship a polished auth and onboarding experience for beta users",
-      status: "active",
-      targetDate: weeks(1),
-      keyResults: [
-        { id: "kr1", title: "Story points completed", target: 34, current: 21, unit: "pts" },
-        { id: "kr2", title: "0 P0 bugs in auth flow", target: 0, current: 0, unit: "bugs" },
-      ],
-      milestones: [
-        {
-          title: "Authentication",
-          description: "Email + Google OAuth, session management, protected routes",
-          status: "in_progress",
-          targetDate: weeks(0),
-          order: 0,
-          tasks: [
-            { title: "NextAuth credentials provider", status: "done", priority: "urgent", storyPoints: 5, order: 0 },
-            { title: "Google OAuth integration", status: "done", priority: "high", storyPoints: 3, order: 1 },
-            { title: "Protected route middleware", status: "in_progress", priority: "high", storyPoints: 3, order: 2 },
-            { title: "Session refresh logic", status: "todo", priority: "medium", storyPoints: 2, order: 3 },
-          ],
-        },
-        {
-          title: "Onboarding Flow",
-          description: "Role picker + template selector + workspace creation",
-          status: "planned",
-          targetDate: weeks(1),
-          order: 1,
-          tasks: [
-            { title: "Role picker UI", status: "in_progress", priority: "high", storyPoints: 3, order: 0 },
-            { title: "Template preview cards", status: "todo", priority: "high", storyPoints: 5, order: 1 },
-            { title: "Workspace creation API", status: "todo", priority: "high", storyPoints: 5, order: 2 },
-            { title: "Sample data seeding", status: "todo", priority: "medium", storyPoints: 5, order: 3 },
-            { title: "Onboarding completion redirect", status: "todo", priority: "low", storyPoints: 1, order: 4 },
-          ],
-        },
-      ],
-    },
-  ],
-};
-
-export type TemplateName = "okr_board" | "product_roadmap" | "quarterly_plan" | "sprint_board" | "blank";
+export type TemplateName = "okr_board" | "product_roadmap" | "quarterly_plan" | "blank";
 
 // ──────────────────────────────────────────────────────────
 // BLANK TEMPLATE — completely empty workspace, no seeded data
 // ──────────────────────────────────────────────────────────
 export const blankTemplate: TemplateData = {
   goals: [],
-  sprints: [],
 };
 
 export const TEMPLATES: Record<TemplateName, { name: string; description: string; icon: string; data: TemplateData }> = {
   blank: {
     name: "Blank",
-    description: "Start with a completely empty workspace — no pre-added goals, tasks, or sprints",
+    description: "Start with a completely empty workspace — no pre-added goals or tasks",
     icon: "LayoutTemplate",
     data: blankTemplate,
   },
@@ -340,11 +271,5 @@ export const TEMPLATES: Record<TemplateName, { name: string; description: string
     description: "Map team goals to resource allocation and bandwidth across the quarter",
     icon: "ClipboardList",
     data: quarterlyPlanTemplate,
-  },
-  sprint_board: {
-    name: "Sprint Board",
-    description: "Agile execution board with velocity tracking and standup summaries",
-    icon: "Zap",
-    data: sprintBoardTemplate,
   },
 };

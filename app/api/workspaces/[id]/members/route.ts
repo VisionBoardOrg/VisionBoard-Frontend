@@ -171,7 +171,10 @@ export async function POST(
         entityType: "workspace",
         entityId: workspace.id,
         link: inviteUrl,
-        metadata: { role, inviteToken: invite.token },
+        // SECURITY (MEDIUM-5): Never store the raw invite token in notification
+        // metadata. It would be returned to any client that fetches notifications,
+        // creating an unnecessary additional exfiltration surface for the token.
+        metadata: { role },
       }).catch((err) => console.error("[members POST] In-app invite notification failed:", err));
     }
 

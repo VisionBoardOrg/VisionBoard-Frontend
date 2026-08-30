@@ -5,7 +5,7 @@ import { TEMPLATES, TemplateName } from "@/lib/templates";
 import { z } from "zod";
 
 const schema = z.object({
-  template: z.enum(["okr_board", "product_roadmap", "quarterly_plan", "sprint_board"] as const),
+  template: z.enum(["okr_board", "product_roadmap", "quarterly_plan"] as const),
 });
 
 export async function POST(
@@ -47,20 +47,6 @@ export async function POST(
 
   // Apply template in a transaction
   await prisma.$transaction(async (tx) => {
-    // Create sprints if defined
-    for (const sprint of tmpl.sprints) {
-      await tx.sprint.create({
-        data: {
-          workspaceId,
-          name: sprint.name,
-          startDate: sprint.startDate,
-          endDate: sprint.endDate,
-          velocity: sprint.velocity,
-          status: "planned",
-        },
-      });
-    }
-
     // Create goals with milestones and tasks
     for (const goal of tmpl.goals) {
       await tx.goal.create({

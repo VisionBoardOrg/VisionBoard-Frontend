@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { RadialBarChart, RadialBar, ResponsiveContainer } from "recharts";
 
 interface GoalHealthScoreProps {
@@ -14,9 +15,26 @@ function getColor(score: number) {
   return "#EF4444"; // danger
 }
 
+function getStatus(score: number): { label: string; description: string } {
+  if (score >= 80) return {
+    label: "On track",
+    description: "This goal is progressing well. Most tasks and milestones are on schedule.",
+  };
+  if (score >= 50) return {
+    label: "Needs attention",
+    description: "Some tasks or milestones are delayed, blocked, or overdue. Review progress soon.",
+  };
+  return {
+    label: "At risk",
+    description: "Significant blockers, overdue work, or a missed deadline are dragging this goal down.",
+  };
+}
+
 export function GoalHealthScore({ score, label = "Goal Health", size = "md" }: GoalHealthScoreProps) {
+  const [hovered, setHovered] = useState(false);
   const color = getColor(score);
   const dim = size === "sm" ? 80 : size === "lg" ? 140 : 110;
+  const status = getStatus(score);
 
   const data = [
     { name: "score", value: score, fill: color },
@@ -24,7 +42,11 @@ export function GoalHealthScore({ score, label = "Goal Health", size = "md" }: G
   ];
 
   return (
-    <div className="flex flex-col items-center gap-1">
+    <div
+      className="relative flex flex-col items-center gap-1"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div style={{ width: dim, height: dim }} className="relative">
         <ResponsiveContainer width="100%" height="100%">
           <RadialBarChart
@@ -46,6 +68,23 @@ export function GoalHealthScore({ score, label = "Goal Health", size = "md" }: G
         </div>
       </div>
       <span className="text-xs text-slate">{label}</span>
+
+      {/* Tooltip */}
+      {hovered && (
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 w-52 bg-ink text-white text-xs rounded-xl px-3 py-2.5 shadow-lg z-50 pointer-events-none">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span
+              className="inline-block w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: color }}
+            />
+            <span className="font-semibold">{status.label}</span>
+            <span className="ml-auto font-bold">{score}/100</span>
+          </div>
+          <p className="text-white/70 leading-snug">{status.description}</p>
+          {/* Arrow */}
+          <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-ink" />
+        </div>
+      )}
     </div>
   );
 }

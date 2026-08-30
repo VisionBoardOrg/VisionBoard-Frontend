@@ -2,7 +2,7 @@
  * GET /api/workspaces/[id]/export
  *
  * Returns a full portable JSON export of the workspace's content:
- * goals, milestones, tasks, sprints, documents, board items, and members.
+ * goals, milestones, tasks, documents, board items, and members.
  *
  * Only workspace members can export. The response is a downloadable JSON file.
  */
@@ -22,18 +22,31 @@ export async function GET(
 
   const { id: workspaceId } = await params;
 
-  // Verify membership
+  // Verify membership and enforce role restriction.
+  // SECURITY (HIGH-6): Export dumps all document content and every member's
+  // email address. Restrict to admin/owner to prevent any low-privileged member
+  // (e.g. someone who joined via an open invite link) from bulk-exporting PII
+  // and intellectual property.
   const member = await prisma.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
-    include: { workspace: { select: { name: true, slug: true, createdAt: true, owner: { select: { plan: true } } } } },
+    include: { workspace: { select: { name: true, slug: true, createdAt: true, owner: { select: { id: true, plan: true } } } } },
   });
 
   if (!member) {
     return NextResponse.json({ error: "Workspace not found or access denied." }, { status: 403 });
   }
 
+  const isOwner = member.workspace.owner.id === session.user.id;
+  const isAdmin = member.role === "admin";
+  if (!isOwner && !isAdmin) {
+    return NextResponse.json(
+      { error: "Only workspace admins and owners can export workspace data." },
+      { status: 403 }
+    );
+  }
+
   // Fetch all workspace content in parallel
-  const [goals, sprints, documents, boardItems, members] = await Promise.all([
+  const [goals, documents, boardItems, members] = await Promise.all([
     prisma.goal.findMany({
       where: { workspaceId },
       include: {
@@ -48,7 +61,6 @@ export async function GET(
                 priority:    true,
                 storyPoints: true,
                 dueDate:     true,
-                sprintId:    true,
                 order:       true,
                 createdAt:   true,
                 updatedAt:   true,
@@ -61,10 +73,6 @@ export async function GET(
         },
       },
       orderBy: { createdAt: "asc" },
-    }),
-    prisma.sprint.findMany({
-      where:   { workspaceId },
-      orderBy: { startDate: "asc" },
     }),
     prisma.document.findMany({
       where:   { workspaceId },
@@ -114,7 +122,6 @@ export async function GET(
     },
     members,
     goals,
-    sprints,
     documents,
     boardItems,
   };

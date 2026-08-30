@@ -100,10 +100,10 @@ export async function POST(request: NextRequest) {
   }
   // ───────────────────────────────────────────────────────────────────────────
 
-  const systemPrompt = `You are an OKR and sprint planning expert. Given a high-level objective, break it down into actionable sub-tasks, sprint milestones, and owner recommendations.
+  const systemPrompt = `You are an OKR and project planning expert. Given a high-level objective, break it down into actionable milestones, sub-tasks, and owner recommendations.
 Return ONLY valid JSON (no markdown fences):
 {
-  "sprints": [
+  "milestones": [
     {
       "name": "string",
       "goal": "string",
@@ -154,7 +154,7 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
       console.warn("[api/ai/goal-deconstructor] Model returned empty response. finish_reason:",
         response.choices[0]?.finish_reason);
       await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -177,7 +177,7 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     } catch {
       console.warn("[api/ai/goal-deconstructor] JSON parse failed. Raw response:", raw);
       await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -208,7 +208,7 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
 
     // Refund the credit — the AI call failed so no value was delivered
     await prisma.user.update({
-      where: { id: session.user.id },
+      where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
       data: { aiCreditsUsed: { decrement: 1 } },
     }).catch(() => { /* best-effort refund */ });
 

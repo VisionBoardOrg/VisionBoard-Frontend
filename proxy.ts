@@ -26,6 +26,7 @@ import type { NextRequest } from "next/server";
 import { verifyAdminSession } from "@/lib/auth/admin-session";
 import { authConfig } from "@/auth.config";
 import { buildCsp } from "@/lib/csp";
+import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 
 // Create a lightweight auth() helper that only decodes the JWT cookie.
 // No Prisma, no bcrypt — safe for Edge Runtime.
@@ -78,13 +79,29 @@ export async function proxy(request: NextRequest) {
 
     if (isProtected && !session) {
       const loginUrl = new URL("/auth/login", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
+      // SECURITY (MEDIUM-2): Validate callbackUrl before embedding in the redirect.
+      // getSafeCallbackUrl rejects absolute URLs, protocol-relative URLs, and
+      // backslash-based paths that could be used for open-redirect phishing.
+      const safeCallback = getSafeCallbackUrl(pathname, "/dashboard");
+      loginUrl.searchParams.set("callbackUrl", safeCallback);
       return NextResponse.redirect(loginUrl);
     }
 
     if (isAuthRoute && session) {
       const dest = session.user.workspaceId ? "/dashboard" : "/onboarding";
       return NextResponse.redirect(new URL(dest, request.url));
+    }
+
+    // SECURITY (MEDIUM-7): Require email verification before accessing workspace
+    // or dashboard routes. Unverified users are redirected to a page that prompts
+    // them to check their inbox and resend the verification email.
+    // /onboarding is excluded so new users can complete workspace setup first.
+    if (session && !session.user.emailVerified) {
+      const needsVerification =
+        pathname.startsWith("/workspace") || pathname.startsWith("/dashboard");
+      if (needsVerification) {
+        return NextResponse.redirect(new URL("/auth/verify-email-required", request.url));
+      }
     }
   }
 

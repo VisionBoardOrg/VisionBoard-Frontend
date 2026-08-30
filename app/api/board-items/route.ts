@@ -57,6 +57,29 @@ export async function POST(request: NextRequest) {
   });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  // SECURITY (HIGH-3): Validate that any linked entity belongs to the same workspace
+  // before creating the board item. Without this check an attacker who is a member
+  // of Workspace A can supply a linkedGoalId from Workspace B and receive that goal's
+  // data in the response via the BOARD_ITEM_INCLUDE eager-load.
+  const { workspaceId, linkedGoalId, linkedMilestoneId, linkedTaskId } = parsed.data;
+
+  if (linkedGoalId) {
+    const goal = await prisma.goal.findFirst({ where: { id: linkedGoalId, workspaceId } });
+    if (!goal) return NextResponse.json({ error: "Linked goal not found in this workspace." }, { status: 403 });
+  }
+
+  if (linkedMilestoneId) {
+    const milestone = await prisma.milestone.findFirst({
+      where: { id: linkedMilestoneId, goal: { workspaceId } },
+    });
+    if (!milestone) return NextResponse.json({ error: "Linked milestone not found in this workspace." }, { status: 403 });
+  }
+
+  if (linkedTaskId) {
+    const task = await prisma.task.findFirst({ where: { id: linkedTaskId, workspaceId } });
+    if (!task) return NextResponse.json({ error: "Linked task not found in this workspace." }, { status: 403 });
+  }
+
   const boardItem = await prisma.boardItem.create({
     data: parsed.data,
     include: BOARD_ITEM_INCLUDE,

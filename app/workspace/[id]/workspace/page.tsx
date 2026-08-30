@@ -96,26 +96,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
                 },
               },
             },
-            sprints: {
-              select: {
-                id: true,
-                name: true,
-                startDate: true,
-                endDate: true,
-                status: true,
-                tasks: {
-                  select: {
-                    id: true,
-                    title: true,
-                    status: true,
-                    priority: true,
-                    storyPoints: true,
-                    assigneeId: true,
-                  },
-                },
-              },
-              orderBy: { startDate: "desc" },
-            },
+
             _count: { select: { goals: true, documents: true, members: true } },
           },
         },

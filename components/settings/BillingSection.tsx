@@ -231,9 +231,6 @@ export function BillingSection({
         {limits.timelineGantt && (
           <FeatureChip label="Timeline & Gantt" />
         )}
-        {limits.sprintTracking && (
-          <FeatureChip label="Sprint Tracking" />
-        )}
         {limits.integrations && (
           <FeatureChip label="Integrations" />
         )}

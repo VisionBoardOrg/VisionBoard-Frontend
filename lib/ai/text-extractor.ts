@@ -167,7 +167,6 @@ export function formatTaskForEmbedding(task: {
   dueDate?: Date | null;
   assigneeName?: string | null;
   milestoneTitle?: string | null;
-  sprintName?: string | null;
   blockedReason?: string | null;
   comments?: Array<{ authorName?: string; body: string }>;
 }): string {
@@ -182,7 +181,6 @@ export function formatTaskForEmbedding(task: {
     task.assigneeName ? `Assignee: ${task.assigneeName}` : "Unassigned",
     task.dueDate ? `Due Date: ${task.dueDate.toISOString().split("T")[0]}` : "",
     task.milestoneTitle ? `Milestone: ${task.milestoneTitle}` : "",
-    task.sprintName ? `Sprint: ${task.sprintName}` : "",
     task.blockedReason ? `⚠️ BLOCKER REASON: ${task.blockedReason}` : "",
     task.description ? `Description: ${task.description}` : "",
     commentsText ? `Discussion & Comments:\n${commentsText}` : "",

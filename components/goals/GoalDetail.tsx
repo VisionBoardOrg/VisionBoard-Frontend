@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
-import { computeGoalHealth } from "@/lib/dashboard-utils";
 import { Zap, FileText, MessageCircle, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { MentionInput, renderMentionedBody } from "@/components/ui/MentionInput";
@@ -15,7 +14,7 @@ const GoalHealthScore = dynamic(
 
 interface KeyResult { id: string; title: string; target: number; current: number; unit: string }
 
-interface DeconstructSprint {
+interface DeconstructMilestone {
   name: string;
   goal: string;
   durationWeeks: number;
@@ -25,7 +24,7 @@ interface DeconstructSprint {
 interface DeconstructResult {
   recommendation?: string;
   suggestedTimeline?: string;
-  sprints?: DeconstructSprint[];
+  milestones?: DeconstructMilestone[];
   risks?: string[];
 }
 
@@ -67,6 +66,78 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
   const [deconstructResult, setDeconstructResult] = useState<DeconstructResult | null>(null);
   const [deconstructLoading, setDeconstructLoading] = useState(false);
 
+  // Goal inline editing
+  const [goalTitle, setGoalTitle] = useState(goal.title);
+  const [goalObjective, setGoalObjective] = useState(goal.objective);
+  const [editingGoalField, setEditingGoalField] = useState<"title" | "objective" | null>(null);
+  const [goalSaving, setGoalSaving] = useState(false);
+  const [goalSaveError, setGoalSaveError] = useState("");
+
+  async function saveGoalField(field: "title" | "objective", value: string) {
+    if (!value.trim()) return;
+    setGoalSaving(true);
+    setGoalSaveError("");
+    try {
+      const res = await fetch(`/api/goals/${goal.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value.trim() }),
+      });
+      if (res.ok) {
+        if (field === "title") setGoalTitle(value.trim());
+        else setGoalObjective(value.trim());
+        setEditingGoalField(null);
+      } else {
+        const data = await res.json();
+        setGoalSaveError(data.error ?? "Failed to save. Please try again.");
+      }
+    } catch {
+      setGoalSaveError("Network error. Please try again.");
+    } finally {
+      setGoalSaving(false);
+    }
+  }
+
+  // Milestone inline editing
+  const [editingMsId, setEditingMsId] = useState<string | null>(null);
+  const [editingMsField, setEditingMsField] = useState<"title" | "description" | null>(null);
+  const [editingMsValue, setEditingMsValue] = useState("");
+  const [msSaving, setMsSaving] = useState(false);
+  const [msSaveError, setMsSaveError] = useState("");
+
+  async function saveMilestoneField(msId: string, field: "title" | "description") {
+    if (field === "title" && !editingMsValue.trim()) return;
+    setMsSaving(true);
+    setMsSaveError("");
+    try {
+      const res = await fetch(`/api/milestones/${msId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: editingMsValue.trim() || null }),
+      });
+      if (res.ok) {
+        setMilestones((prev) =>
+          prev.map((m) => m.id === msId ? { ...m, [field]: editingMsValue.trim() || null } : m)
+        );
+        setEditingMsId(null);
+        setEditingMsField(null);
+      } else {
+        const data = await res.json();
+        setMsSaveError(data.error ?? "Failed to save. Please try again.");
+      }
+    } catch {
+      setMsSaveError("Network error. Please try again.");
+    } finally {
+      setMsSaving(false);
+    }
+  }
+
+  function startMsEdit(msId: string, field: "title" | "description", current: string | null) {
+    setEditingMsId(msId);
+    setEditingMsField(field);
+    setEditingMsValue(current ?? "");
+  }
+
   // Milestone creation state
   const [milestones, setMilestones] = useState(goal.milestones);
   const [showAddMilestone, setShowAddMilestone] = useState(false);
@@ -77,13 +148,7 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
   const [msSubmitting, setMsSubmitting] = useState(false);
   const [msError, setMsError] = useState("");
 
-  const health = computeGoalHealth({
-    ...goal,
-    milestones: milestones.map((m) => ({
-      ...m,
-      tasks: (m.tasks ?? []).map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
-    })),
-  } as never);
+  const health = goal.healthScore;
 
   const keyResults = (goal.keyResults as KeyResult[]) ?? [];
 
@@ -173,8 +238,90 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                 <span className="text-xs text-muted">Due {new Date(goal.targetDate).toLocaleDateString()}</span>
               )}
             </div>
-            <h1 className="text-xl font-bold text-ink">{goal.title}</h1>
-            <p className="text-slate text-sm mt-2">{goal.objective}</p>
+            <h1 className="text-xl font-bold text-ink">
+              {editingGoalField === "title" ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={goalTitle}
+                      onChange={(e) => { setGoalTitle(e.target.value); setGoalSaveError(""); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && goalTitle.length <= 200) saveGoalField("title", goalTitle);
+                        if (e.key === "Escape") { setGoalTitle(goal.title); setEditingGoalField(null); setGoalSaveError(""); }
+                      }}
+                      className="flex-1 text-xl font-bold text-ink border-b-2 border-blue bg-transparent focus:outline-none"
+                    />
+                    <button onClick={() => saveGoalField("title", goalTitle)} disabled={goalSaving || goalTitle.length > 200} className="text-xs text-blue font-semibold hover:text-blue-mid disabled:opacity-50">
+                      {goalSaving ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={() => { setGoalTitle(goal.title); setEditingGoalField(null); setGoalSaveError(""); }} className="text-xs text-muted hover:text-ink">Cancel</button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    {goalSaveError
+                      ? <p className="text-xs text-danger font-medium">{goalSaveError}</p>
+                      : goalTitle.length > 200
+                        ? <p className="text-xs text-danger font-medium">Title is too long (max 200 characters)</p>
+                        : <span />
+                    }
+                    <span className={`text-[11px] tabular-nums ${goalTitle.length > 200 ? "text-danger font-semibold" : goalTitle.length > 180 ? "text-warning" : "text-muted"}`}>
+                      {goalTitle.length}/200
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditingGoalField("title")}
+                  className="text-left hover:text-blue transition-colors group w-full"
+                  title="Click to edit title"
+                >
+                  {goalTitle}
+                  <span className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-muted font-normal">✎</span>
+                </button>
+              )}
+            </h1>
+            <div className="text-slate text-sm mt-2">
+              {editingGoalField === "objective" ? (
+                <div className="space-y-2">
+                  <textarea
+                    autoFocus
+                    value={goalObjective}
+                    onChange={(e) => { setGoalObjective(e.target.value); setGoalSaveError(""); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") { setGoalObjective(goal.objective); setEditingGoalField(null); setGoalSaveError(""); }
+                    }}
+                    rows={3}
+                    className="w-full text-sm text-slate border border-blue/40 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue/20 bg-white resize-none"
+                  />
+                  <div className="flex items-center justify-between">
+                    {goalSaveError
+                      ? <p className="text-xs text-danger font-medium">{goalSaveError}</p>
+                      : goalObjective.length > 2000
+                        ? <p className="text-xs text-danger font-medium">Objective is too long (max 2000 characters)</p>
+                        : <span />
+                    }
+                    <span className={`text-[11px] tabular-nums ${goalObjective.length > 2000 ? "text-danger font-semibold" : goalObjective.length > 1800 ? "text-warning" : "text-muted"}`}>
+                      {goalObjective.length}/2000
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => saveGoalField("objective", goalObjective)} disabled={goalSaving || goalObjective.length > 2000} className="text-xs text-blue font-semibold hover:text-blue-mid disabled:opacity-50">
+                      {goalSaving ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={() => { setGoalObjective(goal.objective); setEditingGoalField(null); setGoalSaveError(""); }} className="text-xs text-muted hover:text-ink">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setEditingGoalField("objective")}
+                  className="text-left hover:text-ink transition-colors group w-full"
+                  title="Click to edit objective"
+                >
+                  {goalObjective}
+                  <span className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-muted">✎</span>
+                </button>
+              )}
+            </div>
           </div>
           <div className="sm:shrink-0">
             <GoalHealthScore score={health} size="md" />
@@ -222,22 +369,22 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
                   {deconstructResult.recommendation}
                 </div>
               )}
-              {deconstructResult.sprints && deconstructResult.sprints.length > 0 && (
+              {deconstructResult.milestones && deconstructResult.milestones.length > 0 && (
                 <div>
-                  <span className="text-xs font-semibold text-ink uppercase tracking-wide">Suggested Sprints</span>
+                  <span className="text-xs font-semibold text-ink uppercase tracking-wide">Suggested Milestones</span>
                   <div className="mt-2 space-y-2">
-                    {deconstructResult.sprints.map((sprint, i) => (
+                    {deconstructResult.milestones.map((ms, i) => (
                       <div key={i} className="bg-white border border-border rounded-xl p-3">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium text-sm text-ink">{sprint.name}</span>
-                          <span className="text-xs text-muted">{sprint.durationWeeks}w</span>
+                          <span className="font-medium text-sm text-ink">{ms.name}</span>
+                          <span className="text-xs text-muted">{ms.durationWeeks}w</span>
                         </div>
-                        <p className="text-xs text-slate mb-2">{sprint.goal}</p>
+                        <p className="text-xs text-slate mb-2">{ms.goal}</p>
                         <div className="flex flex-wrap gap-1">
-                          {sprint.tasks.slice(0, 4).map((t, ti) => (
+                          {ms.tasks.slice(0, 4).map((t, ti) => (
                             <span key={ti} className="text-[10px] px-2 py-0.5 bg-offwhite border border-border rounded-full text-slate">{t.title}</span>
                           ))}
-                          {sprint.tasks.length > 4 && <span className="text-[10px] text-muted">+{sprint.tasks.length - 4} more</span>}
+                          {ms.tasks.length > 4 && <span className="text-[10px] text-muted">+{ms.tasks.length - 4} more</span>}
                         </div>
                       </div>
                     ))}
@@ -359,14 +506,91 @@ export function GoalDetail({ goal, workspaceId, userId }: GoalDetailProps) {
               <div key={ms.id} className="border border-border rounded-xl p-4">
                 <div className="flex items-center gap-2 mb-2">
                   {STATUS_ICON[ms.status]}
-                  <span className="font-medium text-ink text-sm">{ms.title}</span>
-                  {ms.targetDate && (
-                    <span className="text-xs text-muted ml-auto">
+                  {editingMsId === ms.id && editingMsField === "title" ? (
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          autoFocus
+                          value={editingMsValue}
+                          onChange={(e) => { setEditingMsValue(e.target.value); setMsSaveError(""); }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && editingMsValue.length <= 300) saveMilestoneField(ms.id, "title");
+                            if (e.key === "Escape") { setEditingMsId(null); setEditingMsField(null); setMsSaveError(""); }
+                          }}
+                          className="flex-1 text-sm font-medium text-ink border-b border-blue bg-transparent focus:outline-none"
+                        />
+                        <button onClick={() => saveMilestoneField(ms.id, "title")} disabled={msSaving || editingMsValue.length > 300} className="text-xs text-blue font-semibold hover:text-blue-mid disabled:opacity-50 shrink-0">{msSaving ? "…" : "Save"}</button>
+                        <button onClick={() => { setEditingMsId(null); setEditingMsField(null); setMsSaveError(""); }} className="text-xs text-muted hover:text-ink shrink-0">✕</button>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        {msSaveError
+                          ? <p className="text-xs text-danger font-medium">{msSaveError}</p>
+                          : editingMsValue.length > 300
+                            ? <p className="text-xs text-danger font-medium">Too long (max 300 characters)</p>
+                            : <span />
+                        }
+                        <span className={`text-[11px] tabular-nums ${editingMsValue.length > 300 ? "text-danger font-semibold" : editingMsValue.length > 270 ? "text-warning" : "text-muted"}`}>
+                          {editingMsValue.length}/300
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => startMsEdit(ms.id, "title", ms.title)}
+                      className="font-medium text-ink text-sm text-left hover:text-blue transition-colors group flex-1"
+                      title="Click to edit"
+                    >
+                      {ms.title}
+                      <span className="ml-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-xs text-muted font-normal">✎</span>
+                    </button>
+                  )}
+                  {ms.targetDate && !(editingMsId === ms.id && editingMsField === "title") && (
+                    <span className="text-xs text-muted ml-auto shrink-0">
                       {new Date(ms.targetDate).toLocaleDateString()}
                     </span>
                   )}
                 </div>
-                {ms.description && <p className="text-xs text-slate mb-2">{ms.description}</p>}
+
+                {/* Description — editable */}
+                {editingMsId === ms.id && editingMsField === "description" ? (
+                  <div className="mb-2 space-y-1.5">
+                    <textarea
+                      autoFocus
+                      value={editingMsValue}
+                      onChange={(e) => { setEditingMsValue(e.target.value); setMsSaveError(""); }}
+                      onKeyDown={(e) => { if (e.key === "Escape") { setEditingMsId(null); setEditingMsField(null); setMsSaveError(""); } }}
+                      rows={2}
+                      placeholder="Add a description…"
+                      className="w-full text-xs text-slate border border-blue/40 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue/20 bg-white resize-none"
+                    />
+                    <div className="flex items-center justify-between">
+                      {msSaveError
+                        ? <p className="text-xs text-danger font-medium">{msSaveError}</p>
+                        : editingMsValue.length > 1000
+                          ? <p className="text-xs text-danger font-medium">Too long (max 1000 characters)</p>
+                          : <span />
+                      }
+                      <span className={`text-[11px] tabular-nums ${editingMsValue.length > 1000 ? "text-danger font-semibold" : editingMsValue.length > 900 ? "text-warning" : "text-muted"}`}>
+                        {editingMsValue.length}/1000
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => saveMilestoneField(ms.id, "description")} disabled={msSaving || editingMsValue.length > 1000} className="text-xs text-blue font-semibold hover:text-blue-mid disabled:opacity-50">{msSaving ? "Saving…" : "Save"}</button>
+                      <button onClick={() => { setEditingMsId(null); setEditingMsField(null); setMsSaveError(""); }} className="text-xs text-muted hover:text-ink">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => startMsEdit(ms.id, "description", ms.description)}
+                    className="block text-left w-full mb-2 group"
+                    title="Click to edit description"
+                  >
+                    {ms.description
+                      ? <span className="text-xs text-slate group-hover:text-ink transition-colors">{ms.description} <span className="opacity-0 group-hover:opacity-100 transition-opacity text-muted">✎</span></span>
+                      : <span className="text-xs text-muted opacity-0 group-hover:opacity-60 transition-opacity">+ Add description</span>
+                    }
+                  </button>
+                )}
                 <div className="flex flex-wrap gap-1.5">
                   {(ms.tasks ?? []).slice(0, 5).map((t) => (
                     <span key={t.id} className={`text-[10px] px-2 py-0.5 rounded-full border ${

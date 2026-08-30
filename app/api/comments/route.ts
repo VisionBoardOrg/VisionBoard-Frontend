@@ -3,10 +3,32 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { resolveMentions } from "@/lib/mentions";
+import sanitizeHtml from "sanitize-html";
 import {
   dispatchMentionNotification,
   dispatchCommentNotification,
 } from "@/lib/notifications";
+
+/**
+ * SECURITY (HIGH-4): Sanitize comment body before storage to prevent stored XSS.
+ * Allow a small allowlist of safe inline formatting tags; strip everything else.
+ */
+function sanitizeCommentBody(raw: string): string {
+  return sanitizeHtml(raw, {
+    allowedTags: ["b", "i", "em", "strong", "u", "s", "code", "a", "br"],
+    allowedAttributes: {
+      a: ["href", "target", "rel"],
+    },
+    allowedSchemes: ["https", "http", "mailto"],
+    transformTags: {
+      // Force all links to open in a new tab with noopener for safety
+      a: (_tagName, attribs) => ({
+        tagName: "a",
+        attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer" },
+      }),
+    },
+  });
+}
 
 const createSchema = z.object({
   body: z.string().min(1).max(2000),
@@ -93,15 +115,16 @@ export async function POST(request: NextRequest) {
   const mentions = await resolveMentions(parsed.data.body, workspaceId);
   const mentionedUserIds = mentions.map((m) => m.user.id);
   const entityId = goalId ?? milestoneId ?? taskId ?? documentId;
-  // The .refine() on createSchema guarantees at least one of these is set,
-  // so entityId will never be undefined here.  The non-null assertion is safe.
   const resolvedEntityId = entityId!;
+
+  // Sanitize body before storage — strip disallowed HTML to prevent stored XSS
+  const sanitizedBody = sanitizeCommentBody(parsed.data.body);
 
   // Create comment + activity log in a single transaction
   const [comment] = await prisma.$transaction([
     prisma.comment.create({
       data: {
-        body: parsed.data.body,
+        body: sanitizedBody,
         authorId: session.user.id,
         entityType: parsed.data.entityType,
         goalId: goalId ?? null,

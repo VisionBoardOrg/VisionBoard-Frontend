@@ -132,7 +132,7 @@ Generate a fitting goal title, goal objective, and 3-7 chronological milestones 
       console.warn("[api/ai/roadmap-generator] Model returned empty response. finish_reason:",
         response.choices[0]?.finish_reason);
       await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -151,7 +151,7 @@ Generate a fitting goal title, goal objective, and 3-7 chronological milestones 
     } catch {
       console.warn("[api/ai/roadmap-generator] JSON parse failed. Raw response:", raw);
       await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -222,7 +222,7 @@ Generate a fitting goal title, goal objective, and 3-7 chronological milestones 
 
     // Refund the credit — the AI call failed so no value was delivered
     await prisma.user.update({
-      where: { id: session.user.id },
+      where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
       data: { aiCreditsUsed: { decrement: 1 } },
     }).catch(() => { /* best-effort refund */ });
 

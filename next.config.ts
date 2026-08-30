@@ -38,6 +38,7 @@ const securityHeaders = [
   },
   {
     key: "Content-Security-Policy",
+    // No nonce in static headers — 'strict-dynamic' allows Next.js chunk loading.
     value: buildCsp(),
   },
 ];

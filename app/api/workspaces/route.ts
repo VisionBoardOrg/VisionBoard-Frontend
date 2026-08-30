@@ -10,7 +10,7 @@ import { TemplateName } from "@/lib/templates";
 const createSchema = z.object({
   name: z.string().min(1).max(80),
   role: z.enum(["pm", "exec", "eng", "marketing", "admin"] as const),
-  template: z.enum(["blank", "okr_board", "product_roadmap", "quarterly_plan", "sprint_board"] as const),
+  template: z.enum(["blank", "okr_board", "product_roadmap", "quarterly_plan"] as const),
 });
 
 export async function POST(request: NextRequest) {

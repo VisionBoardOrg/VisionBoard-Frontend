@@ -8,7 +8,6 @@ import {
   Target, Plus, CheckCircle2, Clock, AlertTriangle, Circle,
   ChevronRight, FileText, MessageCircle,
 } from "lucide-react";
-import { computeGoalHealth } from "@/lib/dashboard-utils";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
 
 const GoalHealthScore = dynamic(
@@ -136,13 +135,7 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {filtered.map((goal) => {
-            const health = computeGoalHealth({
-              ...goal,
-              milestones: goal.milestones.map((m) => ({
-                ...m,
-                tasks: (m.tasks ?? []).map((t) => ({ ...t, storyPoints: t.storyPoints ?? 0 })),
-              })),
-            } as never);
+            const health = goal.healthScore;
 
             const totalTasks = goal.milestones.reduce((sum, m) => sum + (m.tasks ?? []).length, 0);
             const doneTasks = goal.milestones.reduce(

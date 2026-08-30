@@ -48,7 +48,10 @@ export async function POST(request: NextRequest) {
         secure: process.env.ADMIN_COOKIE_INSECURE !== "true",
         sameSite: "strict",
         maxAge: 60 * 60 * 24, // 1 day session
-        path: "/",
+        // SECURITY (LOW-1): Restrict cookie to /admin paths only so it is never
+        // sent with requests to application routes. httpOnly alone prevents JS
+        // access, but path scoping limits the network exposure window.
+        path: "/admin",
       });
 
       return response;

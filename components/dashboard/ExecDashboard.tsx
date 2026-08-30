@@ -23,7 +23,7 @@ export function ExecDashboard({ workspace }: ExecDashboardProps) {
     ? Math.round(goals.reduce((sum, g) => sum + (g.healthScore ?? 0), 0) / goals.length)
     : 0;
 
-  const sprintTasks = workspace.sprints.flatMap((s) => s.tasks);
+  const sprintTasks = workspace.goals.flatMap((g) => g.milestones.flatMap((m) => m.tasks));
   const sprintPercent = sprintTasks.length
     ? Math.round((sprintTasks.filter((t) => t.status === "done").length / sprintTasks.length) * 100)
     : 0;
@@ -32,7 +32,7 @@ export function ExecDashboard({ workspace }: ExecDashboardProps) {
     { label: "Goals", value: avgHealth, color: "#2563EB" },
     { label: "Product", value: donePercent, color: "#0EA5E9" },
     { label: "Design", value: Math.min(100, donePercent + 14), color: "#8B5CF6" },
-    { label: "Sprint", value: sprintPercent, color: "#10B981" },
+    { label: "Tasks", value: sprintPercent, color: "#10B981" },
   ];
 
   return (

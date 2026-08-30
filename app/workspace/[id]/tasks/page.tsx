@@ -40,7 +40,7 @@ export default async function TasksPage({ params }: TasksPageProps) {
             goal: { select: { id: true, title: true } },
           },
         },
-        sprint: { select: { id: true, name: true } },
+
       },
       orderBy: [
         { status: "asc" },

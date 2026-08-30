@@ -47,6 +47,13 @@ const REQUIRED_SECRETS: EnvCheck[] = [
     description: "Admin panel password — must be unique and not a known default",
   },
   {
+    // SECURITY: ADMIN_USERNAME must not be the predictable default "admin".
+    key: "ADMIN_USERNAME",
+    disallowedValues: ["admin"],
+    description:
+      "Admin panel username — must not be the default 'admin' (predictable, aids brute-force).",
+  },
+  {
     key: "DATABASE_URL",
     minLength: 10,
     description: "PostgreSQL connection string",
@@ -58,6 +65,30 @@ const REQUIRED_SECRETS: EnvCheck[] = [
     description:
       "Stripe secret key (sk_live_... in production, sk_test_... in staging). " +
       "Without this, all billing actions fail silently at runtime.",
+  },
+  {
+    // SECURITY: CRON_SECRET protects destructive cron endpoints (user purge, data cleanup).
+    // Without it the cron routes refuse to run entirely, breaking scheduled maintenance.
+    key: "CRON_SECRET",
+    minLength: 32,
+    description:
+      "Cron job authentication secret (generate: openssl rand -base64 32). " +
+      "Required by /api/cron/sweeps and /api/cron/cleanup-users.",
+  },
+  {
+    // SECURITY: Without Redis, rate limits and cron locks are per-instance only,
+    // making brute-force attacks and double-cron-fire possible on serverless deployments.
+    key: "UPSTASH_REDIS_REST_URL",
+    minLength: 10,
+    description:
+      "Upstash Redis REST URL — required in production for cross-instance rate limiting and cron locks. " +
+      "Without this, rate limits are bypassable on Vercel/serverless deployments.",
+  },
+  {
+    key: "UPSTASH_REDIS_REST_TOKEN",
+    minLength: 10,
+    description:
+      "Upstash Redis REST token — required alongside UPSTASH_REDIS_REST_URL.",
   },
 ];
 
@@ -100,9 +131,9 @@ export function validateEnv(): void {
     }
   }
 
-  // Warn if NEXTAUTH_URL / APP_URL is missing — affects email link generation
+  // Fail in production if neither URL is set — email links will be broken.
   if (!process.env.NEXTAUTH_URL && !process.env.APP_URL) {
-    warn(
+    report(
       "Neither NEXTAUTH_URL nor APP_URL is set. Password reset and invite email " +
         "links will fall back to http://localhost:3000 which is wrong in production."
     );
