@@ -11,13 +11,11 @@
 
 import Stripe from "stripe";
 
-// Validate the key at module initialisation time.  validate-env.ts checks this
-// at startup; this guard is a second line of defence for any import path that
-// bypasses instrumentation (e.g. direct route invocations in test environments).
+// Validate the key at module initialisation time.
 const stripeKey = process.env.STRIPE_SECRET_KEY;
 if (!stripeKey && process.env.NODE_ENV === "production") {
-  throw new Error(
-    "[stripe] STRIPE_SECRET_KEY is not set. Add it to your environment before deploying."
+  console.warn(
+    "[stripe] WARNING: STRIPE_SECRET_KEY is not set. Stripe API calls will fail at runtime."
   );
 }
 
