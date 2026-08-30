@@ -71,7 +71,7 @@ export async function createNotification(input: CreateNotificationInput) {
       },
     });
 
-    // Emit live event to SSE subscribers
+    // Emit live event to SSE subscribers (fire-and-forget — async, non-blocking)
     emitLiveNotification({
       id: notification.id,
       userId: notification.userId,
@@ -88,7 +88,7 @@ export async function createNotification(input: CreateNotificationInput) {
       read: notification.read,
       metadata: notification.metadata as Record<string, unknown> | null,
       createdAt: notification.createdAt.toISOString(),
-    });
+    }).catch((err) => console.error("[notifications] SSE emit failed:", err));
 
     return notification;
   } catch (err) {
@@ -337,6 +337,9 @@ export async function dispatchTaskDueAlert(params: {
 
 /**
  * 6. Dispatch Milestone Delayed notification (Triggered by Sweeper)
+ *
+ * Single-milestone variant — fetches goal owner + workspace admins in a
+ * single parallel query rather than two sequential round-trips.
  */
 export async function dispatchMilestoneDelayedNotification(params: {
   milestoneId: string;
@@ -348,30 +351,26 @@ export async function dispatchMilestoneDelayedNotification(params: {
 }) {
   const { milestoneId, milestoneTitle, targetDate, goalId, goalTitle, workspaceId } = params;
 
-  // Notify goal owner or workspace admins
-  const goal = await prisma.goal.findUnique({
-    where: { id: goalId },
-    select: { ownerId: true },
-  });
+  // F-11: fetch goal owner + workspace admins in parallel (was 2 sequential queries)
+  const [goal, admins] = await Promise.all([
+    prisma.goal.findUnique({ where: { id: goalId }, select: { ownerId: true } }),
+    prisma.workspaceMember.findMany({
+      where: { workspaceId, role: { in: ["admin", "pm"] } },
+      select: { userId: true },
+    }),
+  ]);
 
   const recipients = new Set<string>();
   if (goal?.ownerId) recipients.add(goal.ownerId);
-
-  const admins = await prisma.workspaceMember.findMany({
-    where: { workspaceId, role: { in: ["admin", "pm"] } },
-    select: { userId: true },
-  });
   admins.forEach((a) => recipients.add(a.userId));
 
-  const targetDateStr = targetDate
-    ? ` (target was ${targetDate.toLocaleDateString()})`
-    : "";
+  const targetDateStr = targetDate ? ` (target was ${targetDate.toLocaleDateString()})` : "";
 
   const inputs: CreateNotificationInput[] = Array.from(recipients).map((userId) => ({
     userId,
     workspaceId,
     actorId: null,
-    type: "milestone_delayed",
+    type: "milestone_delayed" as NotificationType,
     title: `Milestone Delayed: ${milestoneTitle}`,
     message: `Milestone "${milestoneTitle}"${targetDateStr} under goal "${goalTitle || "Goal"}" has elapsed without completion.`,
     entityType: "milestone",

@@ -74,11 +74,7 @@ export default async function TemplatesPage({ params }: TemplatesPageProps) {
                   <span className="bg-offwhite border border-border rounded-full px-2.5 py-0.5 font-medium text-slate">
                     {tmpl.data.goals.reduce((s, g) => s + g.milestones.length, 0)} milestones
                   </span>
-                  {tmpl.data.sprints.length > 0 && (
-                    <span className="bg-offwhite border border-border rounded-full px-2.5 py-0.5 font-medium text-slate">
-                      {tmpl.data.sprints.length} sprints
-                    </span>
-                  )}
+
                 </div>
               </div>
 

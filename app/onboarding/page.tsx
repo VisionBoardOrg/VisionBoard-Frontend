@@ -12,7 +12,7 @@ type Step = 1 | 2 | 3;
 const ROLES: { value: MemberRole; label: string; icon: React.ElementType; description: string }[] = [
   { value: "pm", label: "Product Manager", icon: Target, description: "Roadmaps, OKRs, feature prioritization" },
   { value: "exec", label: "Executive / Strategy", icon: Building2, description: "Company-wide rollup, team alignment" },
-  { value: "eng", label: "Engineering / Ops", icon: Settings, description: "Sprint boards, blockers, velocity" },
+  { value: "eng", label: "Engineering / Ops", icon: Settings, description: "Milestone tracking, blockers, task management" },
   { value: "marketing", label: "Marketing / Growth", icon: TrendingUp, description: "Campaign milestones, launch timelines" },
 ];
 
@@ -21,7 +21,6 @@ const TEMPLATES: { value: TemplateName; label: string; icon: React.ElementType; 
   { value: "okr_board", label: "OKR Board", icon: Target, description: "Objectives & key results with quarterly tracking and progress rings.", tags: ["Q3", "Goals", "KRs"] },
   { value: "product_roadmap", label: "Product Roadmap", icon: Map, description: "Connect feedback → features → releases on a visual timeline.", tags: ["Milestones", "Releases", "Features"] },
   { value: "quarterly_plan", label: "Quarterly Plan", icon: ClipboardList, description: "Multi-team goals mapped to resource allocation and bandwidth.", tags: ["Teams", "Resources", "Q-plan"] },
-  { value: "sprint_board", label: "Sprint Board", icon: Zap, description: "Agile board with velocity forecasting and standup summaries.", tags: ["Agile", "Velocity", "Standups"] },
 ];
 
 export default function OnboardingPage() {

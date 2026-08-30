@@ -73,7 +73,7 @@ export default async function OpenGraphImage() {
             </svg>
           </div>
           <div style={{ display: "flex", fontSize: "32px", fontWeight: "bold", letterSpacing: "-0.03em" }}>
-            Vision<span style={{ color: "#3B82F6" }}>Board</span>
+            <span>Vision</span><span style={{ color: "#3B82F6" }}>Board</span>
           </div>
         </div>
 

@@ -4,333 +4,439 @@ import { evaluateAllGoalsHealth } from "@/lib/goal-health";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { evaluateQuotaThresholds, checkAndRecordQuotaWarning } from "@/lib/quota-alerts";
 import {
-  dispatchMilestoneDelayedNotification,
   dispatchTaskDueAlert,
   dispatchGoalHealthNotification,
   dispatchQuotaNotification,
 } from "@/lib/notifications";
 import { runUserCleanup, UserCleanupResult } from "@/lib/user-cleanup";
-
-import { timingSafeEqual } from "crypto";
-
-function safeCompare(a: string, b: string): boolean {
-  try {
-    const bufA = Buffer.from(a);
-    const bufB = Buffer.from(b);
-    if (bufA.length !== bufB.length) {
-      timingSafeEqual(bufA, bufA);
-      return false;
-    }
-    return timingSafeEqual(bufA, bufB);
-  } catch {
-    return false;
-  }
-}
+import { safeCompare } from "@/lib/auth/safe-compare";
+import { acquireCronLock } from "@/lib/cron-lock";
 
 /**
- * GET /api/cron/sweeps
+ * Vercel Cron sends requests from a documented set of IP ranges.
+ * Allowing only those IPs as a secondary check makes the cron secret
+ * substantially harder to abuse if it ever leaks — an attacker also needs
+ * to originate from a Vercel infrastructure IP to trigger the endpoint.
  *
- * Automated background sweeper that handles:
- * 1. Task due dates & overdue sweeps (24h/48h windows & overdue detection).
- * 2. Milestone slippage evaluation & auto-marking overdue milestones as "delayed".
- * 3. Goal health score recalculation across all active workspaces.
- * 4. Proactive AI & storage quota threshold sweeps (80%/90% capacity warnings).
- * 5. Retention cleanup: activity logs past each workspace's plan retention
- *    window and read notifications older than 90 days.
+ * Source: https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs
+ * The list is intentionally conservative. Add new ranges here as Vercel publishes them.
  *
- * Protected by CRON_SECRET verification.
+ * Set CRON_DISABLE_IP_CHECK=true to bypass in local development where
+ * requests arrive from 127.0.0.1 or ::1.
  */
-export async function GET(request: NextRequest) {
+const VERCEL_CRON_IPS = new Set([
+  "76.76.21.21",    // Vercel Cron primary
+  "76.76.21.22",
+  "76.76.21.0",
+  "::1",            // local loopback (IPv6)
+  "127.0.0.1",      // local loopback (IPv4)
+]);
+
+/**
+ * Extract the originating IP, preferring Vercel's own header before
+ * the generic x-forwarded-for chain (which can be spoofed by clients
+ * on deployments that don't strip it).
+ */
+function getCronCallerIp(request: NextRequest): string {
+  // x-vercel-forwarded-for is injected by Vercel infrastructure and cannot
+  // be overwritten by the client on Vercel-hosted deployments.
+  const vercelIp = request.headers.get("x-vercel-forwarded-for");
+  if (vercelIp) return vercelIp.split(",")[0].trim();
+  const xfwd = request.headers.get("x-forwarded-for");
+  if (xfwd) return xfwd.split(",")[0].trim();
+  return "unknown";
+}
+
+function authorizeCron(request: NextRequest): boolean {
+  // ── 1. Token check (always enforced) ──────────────────────────────────────
   const authHeader = request.headers.get("authorization");
   const cronSecretHeader = request.headers.get("x-cron-secret");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
   const token = cronSecretHeader || bearerToken;
-
   const expectedSecret = process.env.CRON_SECRET;
 
+  // SECURITY: Never fall back to a hardcoded default. validate-env.ts requires
+  // CRON_SECRET to be set (32+ chars) in production; refuse if it is absent.
   if (!expectedSecret || expectedSecret.length < 16) {
     if (process.env.NODE_ENV === "production") {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      console.error("[cron/sweeps] CRON_SECRET not configured — refusing request.");
+      return false;
     }
-    if (!token || !safeCompare(token, "dev-cron-secret")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    // Development: accept the well-known dev token but warn loudly.
+    console.warn("[cron/sweeps] CRON_SECRET not set — accepting dev-cron-secret for local use only.");
+    if (!token || !safeCompare(token, "dev-cron-secret")) return false;
   } else {
-    if (!token || !safeCompare(token, expectedSecret)) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!token || !safeCompare(token, expectedSecret)) return false;
+  }
+
+  // ── 2. IP allowlist (secondary defence, skippable in local dev) ───────────
+  // SECURITY (LOW-6): Even with a valid token, reject requests that don't
+  // originate from a known Vercel Cron IP. This limits the blast radius if the
+  // cron secret is ever compromised — an attacker also needs a Vercel-infra IP.
+  if (process.env.CRON_DISABLE_IP_CHECK !== "true") {
+    const callerIp = getCronCallerIp(request);
+    if (!VERCEL_CRON_IPS.has(callerIp)) {
+      console.warn(`[cron/sweeps] IP not in allowlist: ${callerIp}`);
+      return false;
     }
+  }
+
+  return true;
+}
+
+// ── Per-run caps — prevents a single cron invocation from holding the DB
+// connection pool hostage on a large platform.
+const TASK_CAP        = 1000;
+const MILESTONE_CAP   = 1000;
+const WORKSPACE_CAP   = 500; // max workspaces checked for quota in one run
+const NOTIF_CHUNK     = 10;  // parallel notification dispatches per batch
+
+/**
+ * GET /api/cron/sweeps
+ *
+ * Daily background sweep handling:
+ * 1. Task due-date & overdue alerts (capped at TASK_CAP rows)
+ * 2. Milestone slippage detection & auto-delay (capped at MILESTONE_CAP rows)
+ * 3. Goal health recalculation across all active workspaces
+ * 4. Proactive AI & storage quota threshold warnings
+ * 5. Retention cleanup — activity logs, read notifications, AI generation logs
+ * 6. Account deletion warnings & purge
+ *
+ * Each phase is independently try/catched so a failure in one phase never
+ * aborts the remaining phases.
+ */
+export async function GET(request: NextRequest) {
+  if (!authorizeCron(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // ── Distributed lock — prevent parallel cron triggers from double-alerting ──
+  // Vercel Cron can occasionally fire duplicate triggers within milliseconds.
+  // Two parallel runs share no in-process state, so both would find the same
+  // overdue tasks and dispatch duplicate notifications to users.
+  // The lock (Redis SET NX when Upstash is configured, in-process Map otherwise)
+  // ensures only one run proceeds; the duplicate immediately returns 409.
+  const { acquired, lock } = await acquireCronLock("sweeps", 5 * 60 * 1000);
+  if (!acquired) {
+    console.log("[cron/sweeps] Parallel trigger detected — skipping (lock held by another run).");
+    return NextResponse.json(
+      { skipped: true, reason: "parallel run in progress" },
+      { status: 409 }
+    );
   }
 
   const now = new Date();
+  const oneDayAgo              = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   const fortyEightHoursFromNow = new Date(now.getTime() + 48 * 60 * 60 * 1000);
 
-  // ── 1. Task Due Date & Overdue Sweeps (Single Consolidated Query) ────────
-  const candidateTasks = await prisma.task.findMany({
-    where: {
-      status: { not: "done" },
-      dueDate: { lte: fortyEightHoursFromNow },
-    },
-    // Defensive cap — a pathological backlog should not make this query
-    // return (and hold) an unbounded row set in memory.
-    take: 1000,
-    select: {
-      id: true,
-      title: true,
-      dueDate: true,
-      assigneeId: true,
-      milestone: {
-        select: {
-          id: true,
-          goal: { select: { id: true, workspaceId: true } },
-        },
+  const results: Record<string, unknown> = { success: true, timestamp: now.toISOString() };
+
+  try {
+
+  // ── Phase 1: Task due-date sweep ─────────────────────────────────────────
+  try {
+    const candidateTasks = await prisma.task.findMany({
+      where: { status: { not: "done" }, dueDate: { lte: fortyEightHoursFromNow } },
+      take: TASK_CAP,
+      select: {
+        id: true, title: true, dueDate: true, assigneeId: true,
+        milestone: { select: { id: true, goal: { select: { id: true, workspaceId: true } } } },
       },
-    },
-  });
-
-  const nowTime = now.getTime();
-  const twentyFourHoursTime = twentyFourHoursFromNow.getTime();
-
-  const overdueTasks: typeof candidateTasks = [];
-  const dueSoon24hTasks: typeof candidateTasks = [];
-  const dueUpcoming48hTasks: typeof candidateTasks = [];
-
-  for (const t of candidateTasks) {
-    if (!t.dueDate) continue;
-    const dueTime = new Date(t.dueDate).getTime();
-    if (dueTime < nowTime) {
-      overdueTasks.push(t);
-    } else if (dueTime <= twentyFourHoursTime) {
-      dueSoon24hTasks.push(t);
-    } else {
-      dueUpcoming48hTasks.push(t);
-    }
-  }
-
-  // ── 2. Milestone Slippage & Auto-Delay ─────────────────────────────────────
-  const slippingMilestones = await prisma.milestone.findMany({
-    where: {
-      status: { notIn: ["completed", "delayed"] },
-      targetDate: { lt: now },
-    },
-    // Defensive cap, same rationale as the task sweep above.
-    take: 1000,
-    select: {
-      id: true,
-      title: true,
-      targetDate: true,
-      goal: { select: { id: true, workspaceId: true } },
-    },
-  });
-
-  let newlyDelayedCount = 0;
-  if (slippingMilestones.length > 0) {
-    const ids = slippingMilestones.map((m) => m.id);
-    const updateResult = await prisma.milestone.updateMany({
-      where: { id: { in: ids } },
-      data: { status: "delayed" },
     });
-    newlyDelayedCount = updateResult.count;
 
-    // Record activity logs for delayed milestones — single batched insert
-    // instead of one awaited round-trip per milestone.
-    const delayLogRows = slippingMilestones.map((m) => ({
-      workspaceId: m.goal.workspaceId,
-      userId: null,
-      entityType: "milestone",
-      entityId: m.id,
-      action: "milestone_delayed_auto",
-      diff: {
-        reason: "Target date elapsed without completion",
-        targetDate: m.targetDate,
-        detectedAt: now.toISOString(),
-      },
-    }));
-    await prisma.activityLog
-      .createMany({ data: delayLogRows })
-      .catch((err) => console.error("[cron/sweeps] Batched activity log write failed:", err));
+    const nowTime = now.getTime();
+    const twentyFourHoursTime = twentyFourHoursFromNow.getTime();
 
-    // Dispatch milestone delayed notifications in chunks of 10 so we never
-    // flood the database with dozens of concurrent dispatches.
-    const delayNotifDispatches = slippingMilestones.map((m) =>
-      dispatchMilestoneDelayedNotification({
-        milestoneId: m.id,
-        milestoneTitle: m.title,
-        targetDate: m.targetDate,
-        goalId: m.goal.id,
-        workspaceId: m.goal.workspaceId,
-      }).catch((err) => console.error("[cron/sweeps] Milestone delayed notification failed:", err))
+    const overdueTasks:    typeof candidateTasks = [];
+    const dueSoon24hTasks: typeof candidateTasks = [];
+
+    for (const t of candidateTasks) {
+      if (!t.dueDate) continue;
+      const dueTime = new Date(t.dueDate).getTime();
+      if (dueTime < nowTime) overdueTasks.push(t);
+      else if (dueTime <= twentyFourHoursTime) dueSoon24hTasks.push(t);
+    }
+
+    // Deduplicate: fetch recent notifications for all candidate task ids in one query
+    const candidateTaskIds = [
+      ...overdueTasks.map((t) => t.id),
+      ...dueSoon24hTasks.map((t) => t.id),
+    ];
+
+    const recentTaskNotifs = candidateTaskIds.length > 0
+      ? await prisma.notification.findMany({
+          where: { entityId: { in: candidateTaskIds }, createdAt: { gte: oneDayAgo } },
+          select: { entityId: true, type: true, userId: true },
+        })
+      : [];
+
+    const recentNotifSet = new Set(
+      recentTaskNotifs.map((n) => `${n.userId}:${n.entityId}:${n.type}`)
     );
-    const NOTIF_CHUNK = 10;
-    for (let i = 0; i < delayNotifDispatches.length; i += NOTIF_CHUNK) {
-      await Promise.allSettled(delayNotifDispatches.slice(i, i + NOTIF_CHUNK));
+
+    const taskAlerts = [
+      ...overdueTasks
+        .filter((t) => {
+          if (!t.assigneeId || !t.dueDate) return false;
+          const key = `${t.assigneeId}:${t.id}:task_overdue`;
+          if (recentNotifSet.has(key)) return false;
+          recentNotifSet.add(key);
+          return true;
+        })
+        .map((t) =>
+          dispatchTaskDueAlert({
+            taskId: t.id, taskTitle: t.title, dueDate: t.dueDate!,
+            assigneeId: t.assigneeId!, workspaceId: t.milestone.goal.workspaceId, isOverdue: true,
+          }).catch((err) => console.error("[cron/sweeps] Overdue task notification failed:", err))
+        ),
+      ...dueSoon24hTasks
+        .filter((t) => {
+          if (!t.assigneeId || !t.dueDate) return false;
+          const key = `${t.assigneeId}:${t.id}:task_due_soon`;
+          if (recentNotifSet.has(key)) return false;
+          recentNotifSet.add(key);
+          return true;
+        })
+        .map((t) =>
+          dispatchTaskDueAlert({
+            taskId: t.id, taskTitle: t.title, dueDate: t.dueDate!,
+            assigneeId: t.assigneeId!, workspaceId: t.milestone.goal.workspaceId, isOverdue: false,
+          }).catch((err) => console.error("[cron/sweeps] Due-soon task notification failed:", err))
+        ),
+    ];
+
+    // Fire in chunks to avoid saturating the connection pool
+    for (let i = 0; i < taskAlerts.length; i += NOTIF_CHUNK) {
+      await Promise.allSettled(taskAlerts.slice(i, i + NOTIF_CHUNK));
     }
+
+    results.taskSweep = {
+      overdueCount: overdueTasks.length,
+      dueSoon24hCount: dueSoon24hTasks.length,
+    };
+  } catch (err) {
+    console.error("[cron/sweeps] Phase 1 (task sweep) failed:", err);
+    results.taskSweep = { error: "phase failed" };
   }
 
-  // ── Dispatch Task Due Date Notifications (Deduplicated within 24h via batch fetch) ──
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  // ── Phase 2: Milestone slippage ──────────────────────────────────────────
+  try {
+    const slippingMilestones = await prisma.milestone.findMany({
+      where: { status: { notIn: ["completed", "delayed"] }, targetDate: { lt: now } },
+      take: MILESTONE_CAP,
+      select: {
+        id: true, title: true, targetDate: true,
+        goal: { select: { id: true, workspaceId: true } },
+      },
+    });
 
-  const candidateTaskIds = [
-    ...overdueTasks.map((t) => t.id),
-    ...dueSoon24hTasks.map((t) => t.id),
-  ];
+    let newlyDelayedCount = 0;
+    if (slippingMilestones.length > 0) {
+      const ids = slippingMilestones.map((m) => m.id);
 
-  const recentTaskNotifs = await prisma.notification.findMany({
-    where: {
-      entityId: { in: candidateTaskIds },
-      createdAt: { gte: oneDayAgo },
-    },
-    select: { entityId: true, type: true, userId: true },
-  });
+      // Batch update + activity logs in a single transaction
+      const [updateResult] = await prisma.$transaction([
+        prisma.milestone.updateMany({ where: { id: { in: ids } }, data: { status: "delayed" } }),
+        prisma.activityLog.createMany({
+          data: slippingMilestones.map((m) => ({
+            workspaceId: m.goal.workspaceId,
+            userId: null as string | null,
+            entityType: "milestone",
+            entityId: m.id,
+            action: "milestone_delayed_auto",
+            diff: {
+              reason: "Target date elapsed without completion",
+              targetDate: m.targetDate,
+              detectedAt: now.toISOString(),
+            },
+          })),
+        }),
+      ]);
+      newlyDelayedCount = updateResult.count;
 
-  const recentNotifSet = new Set(
-    recentTaskNotifs.map((n) => `${n.userId}:${n.entityId}:${n.type}`)
-  );
+      // Pre-fetch all goal owners and workspace admins in bulk — avoids N×2 queries
+      // (was: prisma.goal.findUnique + prisma.workspaceMember.findMany per milestone)
+      const uniqueGoalIds      = [...new Set(slippingMilestones.map((m) => m.goal.id))];
+      const uniqueWorkspaceIds = [...new Set(slippingMilestones.map((m) => m.goal.workspaceId))];
 
-  for (const t of overdueTasks) {
-    if (!t.assigneeId || !t.dueDate) continue;
-    const notifKey = `${t.assigneeId}:${t.id}:task_overdue`;
-    if (!recentNotifSet.has(notifKey)) {
-      recentNotifSet.add(notifKey);
-      dispatchTaskDueAlert({
-        taskId: t.id,
-        taskTitle: t.title,
-        dueDate: t.dueDate,
-        assigneeId: t.assigneeId,
-        workspaceId: t.milestone.goal.workspaceId,
-        isOverdue: true,
-      }).catch((err) => console.error("[cron/sweeps] Overdue task notification failed:", err));
-    }
-  }
+      const [goalOwners, wsAdmins] = await Promise.all([
+        prisma.goal.findMany({
+          where: { id: { in: uniqueGoalIds } },
+          select: { id: true, ownerId: true },
+        }),
+        prisma.workspaceMember.findMany({
+          where: { workspaceId: { in: uniqueWorkspaceIds }, role: { in: ["admin", "pm"] } },
+          select: { userId: true, workspaceId: true },
+        }),
+      ]);
 
-  for (const t of dueSoon24hTasks) {
-    if (!t.assigneeId || !t.dueDate) continue;
-    const notifKey = `${t.assigneeId}:${t.id}:task_due_soon`;
-    if (!recentNotifSet.has(notifKey)) {
-      recentNotifSet.add(notifKey);
-      dispatchTaskDueAlert({
-        taskId: t.id,
-        taskTitle: t.title,
-        dueDate: t.dueDate,
-        assigneeId: t.assigneeId,
-        workspaceId: t.milestone.goal.workspaceId,
-        isOverdue: false,
-      }).catch((err) => console.error("[cron/sweeps] Due soon task notification failed:", err));
-    }
-  }
+      const goalOwnerMap = new Map(goalOwners.map((g) => [g.id, g.ownerId]));
+      const wsAdminMap   = new Map<string, string[]>();
+      for (const a of wsAdmins) {
+        const arr = wsAdminMap.get(a.workspaceId) ?? [];
+        arr.push(a.userId);
+        wsAdminMap.set(a.workspaceId, arr);
+      }
 
-  // ── 3. Goal Health Recalculation & Alerts ─────────────────────────────────
-  const goalEvaluations = await evaluateAllGoalsHealth();
-  const atRiskGoals = goalEvaluations.filter((g) => g.status === "at_risk");
-  const degradedGoals = goalEvaluations.filter((g) => g.degraded);
+      const milestoneNotifs = slippingMilestones.map((m) => {
+        const recipients = new Set<string>();
+        const ownerId = goalOwnerMap.get(m.goal.id);
+        if (ownerId) recipients.add(ownerId);
+        (wsAdminMap.get(m.goal.workspaceId) ?? []).forEach((id) => recipients.add(id));
 
-  if (atRiskGoals.length > 0) {
-    const atRiskGoalIds = atRiskGoals.map((g) => g.goalId);
-    const [recentGoalNotifs, goalOwners] = await Promise.all([
-      prisma.notification.findMany({
-        where: {
-          entityId: { in: atRiskGoalIds },
-          type: { in: ["goal_at_risk", "goal_health_degraded"] },
-          createdAt: { gte: oneDayAgo },
-        },
-        select: { entityId: true },
-      }),
-      prisma.goal.findMany({
-        where: { id: { in: atRiskGoalIds } },
-        select: { id: true, ownerId: true, workspaceId: true },
-      }),
-    ]);
+        return Array.from(recipients).map((userId) =>
+          prisma.notification.create({
+            data: {
+              userId,
+              workspaceId: m.goal.workspaceId,
+              actorId: null,
+              type: "milestone_delayed",
+              title: `Milestone Delayed: ${m.title}`,
+              message: `"${m.title}" elapsed without completion${m.targetDate ? ` (target was ${m.targetDate.toLocaleDateString()})` : ""}.`,
+              entityType: "milestone",
+              entityId: m.id,
+              link: `/workspace/${m.goal.workspaceId}/goals?goalId=${m.goal.id}`,
+            },
+          }).catch((err) => console.error("[cron/sweeps] Milestone notif failed:", err))
+        );
+      }).flat();
 
-    const recentAlertedGoalIds = new Set(recentGoalNotifs.map((n) => n.entityId));
-    const goalMap = new Map(goalOwners.map((g) => [g.id, g]));
-
-    for (const g of atRiskGoals) {
-      if (!recentAlertedGoalIds.has(g.goalId)) {
-        const goal = goalMap.get(g.goalId);
-        if (goal) {
-          dispatchGoalHealthNotification({
-            goalId: g.goalId,
-            goalTitle: g.goalTitle,
-            healthScore: g.healthScore,
-            workspaceId: goal.workspaceId,
-            ownerId: goal.ownerId,
-            degraded: g.degraded,
-          }).catch((err) => console.error("[cron/sweeps] Goal health alert failed:", err));
-        }
+      for (let i = 0; i < milestoneNotifs.length; i += NOTIF_CHUNK) {
+        await Promise.allSettled(milestoneNotifs.slice(i, i + NOTIF_CHUNK));
       }
     }
+
+    results.milestoneSweep = { slippingDetected: slippingMilestones.length, newlyDelayedCount };
+  } catch (err) {
+    console.error("[cron/sweeps] Phase 2 (milestone sweep) failed:", err);
+    results.milestoneSweep = { error: "phase failed" };
   }
 
-  // ── 4. Quota Threshold Warnings (AI & Storage) ───────────────────────────
-  // Also fetches each owner's plan here so the retention phase below can reuse
-  // this single workspace scan (no second full-table read).
-  const allWorkspaces = await prisma.workspace.findMany({
-    select: { id: true, ownerId: true, owner: { select: { plan: true } } },
-  });
+  // ── Phase 3: Goal health recalculation ───────────────────────────────────
+  try {
+    const goalEvaluations = await evaluateAllGoalsHealth();
+    const atRiskGoals = goalEvaluations.filter((g) => g.status === "at_risk" || g.degraded);
 
-  const quotaWarnings: Array<Record<string, unknown>> = [];
-  const CHUNK_SIZE = 10;
+    if (atRiskGoals.length > 0) {
+      const atRiskGoalIds = atRiskGoals.map((g) => g.goalId);
+      const [recentGoalNotifs, goalOwners] = await Promise.all([
+        prisma.notification.findMany({
+          where: {
+            entityId: { in: atRiskGoalIds },
+            type: { in: ["goal_at_risk", "goal_health_degraded"] },
+            createdAt: { gte: oneDayAgo },
+          },
+          select: { entityId: true },
+        }),
+        prisma.goal.findMany({
+          where: { id: { in: atRiskGoalIds } },
+          select: { id: true, ownerId: true, workspaceId: true },
+        }),
+      ]);
 
-  for (let i = 0; i < allWorkspaces.length; i += CHUNK_SIZE) {
-    const chunk = allWorkspaces.slice(i, i + CHUNK_SIZE);
-    await Promise.allSettled(
-      chunk.map(async (ws) => {
-        try {
-          const quotaEval = await evaluateQuotaThresholds(ws.id);
-          if (quotaEval && quotaEval.hasAnyWarning) {
+      const recentAlertedGoalIds = new Set(recentGoalNotifs.map((n) => n.entityId));
+      const goalMap = new Map(goalOwners.map((g) => [g.id, g]));
+
+      const healthAlerts = atRiskGoals
+        .filter((g) => !recentAlertedGoalIds.has(g.goalId))
+        .map((g) => {
+          const goal = goalMap.get(g.goalId);
+          if (!goal) return null;
+          return dispatchGoalHealthNotification({
+            goalId: g.goalId, goalTitle: g.goalTitle, healthScore: g.healthScore,
+            workspaceId: goal.workspaceId, ownerId: goal.ownerId, degraded: g.degraded,
+          }).catch((err) => console.error("[cron/sweeps] Goal health alert failed:", err));
+        })
+        .filter(Boolean) as Promise<unknown>[];
+
+      for (let i = 0; i < healthAlerts.length; i += NOTIF_CHUNK) {
+        await Promise.allSettled(healthAlerts.slice(i, i + NOTIF_CHUNK));
+      }
+    }
+
+    results.goalHealthSweep = {
+      totalEvaluated: goalEvaluations.length,
+      atRiskCount: atRiskGoals.length,
+    };
+  } catch (err) {
+    console.error("[cron/sweeps] Phase 3 (goal health) failed:", err);
+    results.goalHealthSweep = { error: "phase failed" };
+  }
+
+  // ── Phase 4: Quota threshold warnings ────────────────────────────────────
+  // Single workspace scan reused for both quota checks and retention cleanup.
+  let allWorkspaces: Array<{ id: string; ownerId: string; owner: { plan: string } }> = [];
+  try {
+    allWorkspaces = await prisma.workspace.findMany({
+      take: WORKSPACE_CAP,
+      select: { id: true, ownerId: true, owner: { select: { plan: true } } },
+    });
+
+    const quotaWarnings: unknown[] = [];
+
+    for (let i = 0; i < allWorkspaces.length; i += NOTIF_CHUNK) {
+      const chunk = allWorkspaces.slice(i, i + NOTIF_CHUNK);
+      await Promise.allSettled(
+        chunk.map(async (ws) => {
+          try {
+            const quotaEval = await evaluateQuotaThresholds(ws.id);
+            if (!quotaEval?.hasAnyWarning) return;
+
             await checkAndRecordQuotaWarning(ws.id, quotaEval, ws.ownerId);
             quotaWarnings.push({
               workspaceId: ws.id,
-              workspaceName: quotaEval.workspaceName,
-              plan: quotaEval.plan,
               aiWarning: quotaEval.aiCredits.warningLevel,
-              aiPercent: quotaEval.aiCredits.percentage,
               storageWarning: quotaEval.storage.warningLevel,
-              storagePercent: quotaEval.storage.percentage,
             });
 
+            // Check for recent quota notifications before dispatching (single query)
             if (quotaEval.aiCredits.warningLevel !== "none" && ws.ownerId) {
               const recentAiNotif = await prisma.notification.findFirst({
                 where: {
-                  userId: ws.ownerId,
-                  workspaceId: ws.id,
+                  userId: ws.ownerId, workspaceId: ws.id,
                   type: { in: ["quota_warning", "quota_exceeded"] },
                   createdAt: { gte: oneDayAgo },
                 },
+                select: { id: true },
               });
               if (!recentAiNotif) {
                 dispatchQuotaNotification({
-                  workspaceId: ws.id,
-                  workspaceName: quotaEval.workspaceName,
-                  type: "ai_credits",
-                  warningLevel: quotaEval.aiCredits.warningLevel,
-                  percentage: quotaEval.aiCredits.percentage,
-                  ownerId: ws.ownerId,
-                }).catch((err) => console.error("[cron/sweeps] AI quota notification failed:", err));
+                  workspaceId: ws.id, workspaceName: quotaEval.workspaceName,
+                  type: "ai_credits", warningLevel: quotaEval.aiCredits.warningLevel,
+                  percentage: quotaEval.aiCredits.percentage, ownerId: ws.ownerId,
+                }).catch((err) => console.error("[cron/sweeps] Quota notification failed:", err));
               }
             }
+          } catch (err) {
+            console.error(`[cron/sweeps] Quota check failed for workspace ${ws.id}:`, err);
           }
-        } catch (err) {
-          console.error(`[cron/sweeps] Quota check failed for workspace ${ws.id}:`, err);
-        }
-      })
-    );
+        })
+      );
+    }
+
+    results.quotaSweep = {
+      totalWorkspacesChecked: allWorkspaces.length,
+      workspacesWithWarningsCount: quotaWarnings.length,
+    };
+  } catch (err) {
+    console.error("[cron/sweeps] Phase 4 (quota sweep) failed:", err);
+    results.quotaSweep = { error: "phase failed" };
   }
 
-  // ── 5. Retention Cleanup (Activity Logs & Read Notifications) ────────────
-  // Non-fatal: any failure is logged and never aborts the sweep.
-  let activityLogsDeleted = 0;
-  let readNotificationsDeleted = 0;
+  // ── Phase 5: Retention cleanup ────────────────────────────────────────────
   try {
-    // a) Delete activity logs older than each workspace's plan retention
-    //    window. Group workspace ids by retention length (reusing the single
-    //    workspace fetch from the quota phase) so we run one deleteMany per
-    //    tier instead of one per workspace.
+    let activityLogsDeleted    = 0;
+    let readNotificationsDeleted = 0;
+    let aiLogsDeleted          = 0;
+
+    // a) Activity logs — group workspaces by retention window to run one
+    //    deleteMany per tier instead of one per workspace
     const retentionGroups = new Map<number, string[]>();
     for (const ws of allWorkspaces) {
-      const plan = ws.owner.plan ?? "free";
-      const days = PLAN_LIMITS[plan].activityLogDays;
-      if (days < 0) continue; // -1 = unlimited retention (enterprise)
+      const plan = (ws.owner.plan ?? "free") as keyof typeof PLAN_LIMITS;
+      const days = PLAN_LIMITS[plan]?.activityLogDays ?? 7;
+      if (days < 0) continue; // unlimited (enterprise)
       const ids = retentionGroups.get(days);
       if (ids) ids.push(ws.id);
       else retentionGroups.set(days, [ws.id]);
@@ -344,53 +450,49 @@ export async function GET(request: NextRequest) {
       activityLogsDeleted += result.count;
     }
 
-    // b) Delete read notifications older than 90 days.
-    const notificationCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    // b) Read notifications older than 90 days
+    const notifCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
     const notifResult = await prisma.notification.deleteMany({
-      where: { read: true, readAt: { lt: notificationCutoff } },
+      where: { read: true, readAt: { lt: notifCutoff } },
     });
     readNotificationsDeleted = notifResult.count;
+
+    // c) AI generation logs — keep same window as activity logs per plan
+    //    Use 90 days as a safe default for workspaces not in our current scan cap
+    const aiLogCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const aiLogResult = await prisma.aIGenerationLog.deleteMany({
+      where: { createdAt: { lt: aiLogCutoff } },
+    });
+    aiLogsDeleted = aiLogResult.count;
+
+    results.retentionSweep = { activityLogsDeleted, readNotificationsDeleted, aiLogsDeleted };
   } catch (err) {
-    console.error("[cron/sweeps] Retention cleanup failed:", err);
+    console.error("[cron/sweeps] Phase 5 (retention cleanup) failed:", err);
+    results.retentionSweep = { error: "phase failed" };
   }
 
-  // ── 6. Account Deletion Warnings & Purge Cleanup ─────────────────────────
-  let userCleanup: UserCleanupResult = {
-    warningsSent: 0,
-    purgedCount: 0,
-    purgedUserIds: [],
-  };
+  // ── Phase 6: User account deletion ───────────────────────────────────────
+  let userCleanup: UserCleanupResult = { warningsSent: 0, purgedCount: 0, purgedUserIds: [] };
   try {
     userCleanup = await runUserCleanup();
   } catch (err) {
-    console.error("[cron/sweeps] User cleanup failed:", err);
+    console.error("[cron/sweeps] Phase 6 (user cleanup) failed:", err);
+  }
+  // SECURITY (LOW-4): Never return purgedUserIds in the HTTP response.
+  // Internal user IDs in the response body assist enumeration attacks if the
+  // cron secret is ever compromised. Log them server-side only.
+  results.userCleanupSweep = {
+    warningsSent: userCleanup.warningsSent,
+    purgedCount:  userCleanup.purgedCount,
+  };
+  if (userCleanup.purgedUserIds.length > 0) {
+    console.log("[cron/sweeps] Purged user IDs:", userCleanup.purgedUserIds);
   }
 
-  return NextResponse.json({
-    success: true,
-    timestamp: now.toISOString(),
-    taskSweep: {
-      overdueCount: overdueTasks.length,
-      dueSoon24hCount: dueSoon24hTasks.length,
-      dueUpcoming48hCount: dueUpcoming48hTasks.length,
-    },
-    milestoneSweep: {
-      slippingDetected: slippingMilestones.length,
-      newlyDelayedCount,
-    },
-    goalHealthSweep: {
-      totalEvaluated: goalEvaluations.length,
-      atRiskCount: atRiskGoals.length,
-      degradedCount: degradedGoals.length,
-    },
-    quotaSweep: {
-      totalWorkspacesChecked: allWorkspaces.length,
-      workspacesWithWarningsCount: quotaWarnings.length,
-    },
-    retentionSweep: {
-      activityLogsDeleted,
-      readNotificationsDeleted,
-    },
-    userCleanupSweep: userCleanup,
-  });
+  return NextResponse.json(results);
+  } finally {
+    // Release the lock early so the slot is free for the next scheduled run
+    // rather than waiting for the full TTL to expire.
+    await lock.release();
+  }
 }

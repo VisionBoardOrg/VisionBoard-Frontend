@@ -14,7 +14,7 @@ const postSchema = z.object({
 export async function GET(request: NextRequest) {
   // Rate limit: lightweight stats read (used when the Copilot drawer opens) —
   // more generous than the reindex POST, but still guarded against polling abuse.
-  const rateLimit = checkRateLimit(request, "ai-copilot-index-stats", {
+  const rateLimit = await checkRateLimit(request, "ai-copilot-index-stats", {
     windowMs: 15 * 60 * 1000,
     max: 30,
   });
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   // Rate limit: reindexing embeds an entire workspace (expensive) — strict cap.
-  const rateLimit = checkRateLimit(request, "ai-copilot-index", {
+  const rateLimit = await checkRateLimit(request, "ai-copilot-index", {
     windowMs: 15 * 60 * 1000,
     max: 5,
   });

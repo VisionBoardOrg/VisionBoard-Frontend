@@ -49,7 +49,7 @@ interface TaskData {
     title: string;
     goal: { id: string; title: string };
   };
-  sprint: { id: string; name: string } | null;
+
 }
 
 interface Props {
@@ -175,11 +175,6 @@ export function TasksFilteredList({ tasks, workspaceId }: Props) {
                             <span className="truncate max-w-[120px]">{task.milestone.title}</span>
                           </Link>
 
-                          {task.sprint && (
-                            <span className="bg-offwhite border border-border px-2 py-0.5 rounded-full">
-                              {task.sprint.name}
-                            </span>
-                          )}
 
                           {task.storyPoints != null && (
                             <span className="bg-offwhite border border-border px-2 py-0.5 rounded-full">

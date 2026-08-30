@@ -69,7 +69,7 @@ export default async function WorkspacesPage() {
   }));
 
   const workspaceLimit =
-    limits.workspaces === "unlimited" || (limits.workspaces as number) < 0
+    limits.workspaces === null || (limits.workspaces as number) < 0
       ? null
       : (limits.workspaces as number);
 
@@ -79,7 +79,7 @@ export default async function WorkspacesPage() {
       role={activeMembership?.role ?? session.user.role}
       plan={plan}
       aiCreditsUsed={user?.aiCreditsUsed ?? 0}
-      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
+      aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
       userId={session.user.id}
       isOwner={activeWorkspace?.ownerId === session.user.id}
     >

@@ -62,9 +62,9 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
   }
 
   const EXAMPLES = [
-    "Move the auth milestone to next sprint",
     "Mark the onboarding goal as in progress",
     "Assign the design milestone to Ade",
+    "Move the auth milestone to completed",
   ];
 
   /** Human-readable label for a raw change key (e.g. "dueDate" → "Due date") */
@@ -76,8 +76,6 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
     startDate: "Start date",
     title: "Title",
     priority: "Priority",
-    sprint: "Sprint",
-    sprintId: "Sprint",
     milestone: "Milestone",
     milestoneId: "Milestone",
     storyPoints: "Story points",
@@ -126,7 +124,7 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
               ref={inputRef}
               value={command}
               onChange={(e) => setCommand(e.target.value)}
-              placeholder='e.g. "Move the auth milestone to next sprint and assign it to Ade"'
+              placeholder='e.g. "Mark the auth milestone as completed and assign it to Ade"'
               className="w-full text-sm text-ink placeholder:text-muted focus:outline-none"
             />
             <div className="flex justify-between items-center mt-3">

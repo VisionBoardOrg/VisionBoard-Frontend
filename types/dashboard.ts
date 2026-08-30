@@ -10,7 +10,7 @@ export type DashboardMember = WorkspaceMember & { user: DashboardUser };
 
 /**
  * Slim task projection — status/assignee everywhere; title/priority/storyPoints
- * only on sprint tasks (Eng dashboard list + velocity math).
+ * for task list and milestone progress displays.
  */
 export type DashboardTask = {
   id: string;
@@ -39,21 +39,11 @@ export type DashboardGoal = {
   milestones: DashboardMilestone[];
 };
 
-export type DashboardSprint = {
-  id: string;
-  name: string;
-  startDate: Date;
-  endDate: Date;
-  status: string;
-  tasks: DashboardTask[];
-};
-
 /** Slim workspace graph consumed by the role dashboards (PM/Exec/Eng/Marketing). */
 export type DashboardWorkspace = {
   id: string;
   name: string;
   goals: DashboardGoal[];
-  sprints: DashboardSprint[];
   members: DashboardMember[];
   _count: { goals: number; documents: number; members: number };
 };

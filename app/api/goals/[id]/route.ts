@@ -14,7 +14,7 @@ const patchSchema = z.object({
     current: z.number(),
     unit: z.string().max(50),
   })).max(20).optional(),
-  targetDate: nullableIsoDateString,
+  targetDate: nullableIsoDateString.optional(),
   status: z.enum(["draft", "active", "completed", "cancelled"]).optional(),
   healthScore: z.number().int().min(0).max(100).optional(),
 });

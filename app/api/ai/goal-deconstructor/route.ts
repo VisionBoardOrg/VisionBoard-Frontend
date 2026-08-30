@@ -40,7 +40,7 @@ const schema = z.object({
 
 export async function POST(request: NextRequest) {
   // Rate limit: AI generation route (LLM call per request)
-  const rateLimit = checkRateLimit(request, "ai-goal-deconstructor", {
+  const rateLimit = await checkRateLimit(request, "ai-goal-deconstructor", {
     windowMs: 15 * 60 * 1000,
     max: 10,
   });
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
   // in the catch block. This prevents concurrent requests from bypassing the
   // limit by racing past the read-before-write check.
   const creditLimit = PLAN_LIMITS[user.plan].aiCreditsPerMonth;
-  const isUnlimited = creditLimit === -1 || creditLimit === "unlimited";
+  const isUnlimited = creditLimit === null || creditLimit === -1;
 
   if (!isUnlimited) {
     // updateMany with a WHERE condition is the atomic compare-and-swap:
@@ -100,10 +100,10 @@ export async function POST(request: NextRequest) {
   }
   // ───────────────────────────────────────────────────────────────────────────
 
-  const systemPrompt = `You are an OKR and sprint planning expert. Given a high-level objective, break it down into actionable sub-tasks, sprint milestones, and owner recommendations.
+  const systemPrompt = `You are an OKR and project planning expert. Given a high-level objective, break it down into actionable milestones, sub-tasks, and owner recommendations.
 Return ONLY valid JSON (no markdown fences):
 {
-  "sprints": [
+  "milestones": [
     {
       "name": "string",
       "goal": "string",
@@ -154,7 +154,7 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
       console.warn("[api/ai/goal-deconstructor] Model returned empty response. finish_reason:",
         response.choices[0]?.finish_reason);
       await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -177,7 +177,7 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
     } catch {
       console.warn("[api/ai/goal-deconstructor] JSON parse failed. Raw response:", raw);
       await prisma.user.update({
-        where: { id: session.user.id },
+        where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
         data: { aiCreditsUsed: { decrement: 1 } },
       }).catch(() => {});
       return NextResponse.json(
@@ -194,7 +194,7 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
         userId: session.user.id,
         feature: "goal_deconstructor",
         promptInput: hashPrompt(userContent),
-        modelOutput: JSON.stringify(result),
+        modelOutput: hashPrompt(JSON.stringify(result)),
         tokensUsed:
           (response.usage?.prompt_tokens ?? 0) + (response.usage?.completion_tokens ?? 0),
         accepted: null,
@@ -208,7 +208,7 @@ Today is ${new Date().toISOString().split("T")[0]}. Target date: ${targetDate ??
 
     // Refund the credit — the AI call failed so no value was delivered
     await prisma.user.update({
-      where: { id: session.user.id },
+      where: { id: session.user.id, aiCreditsUsed: { gt: 0 } },
       data: { aiCreditsUsed: { decrement: 1 } },
     }).catch(() => { /* best-effort refund */ });
 

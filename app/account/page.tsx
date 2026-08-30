@@ -61,7 +61,7 @@ export default async function AccountPage() {
       role={session.user.role}
       plan={plan}
       aiCreditsUsed={user.aiCreditsUsed}
-      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
+      aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
       userId={session.user.id}
       isOwner={isOwner}
     >

@@ -3,10 +3,32 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { resolveMentions } from "@/lib/mentions";
+import sanitizeHtml from "sanitize-html";
 import {
   dispatchMentionNotification,
   dispatchCommentNotification,
 } from "@/lib/notifications";
+
+/**
+ * SECURITY (HIGH-4): Sanitize comment body before storage to prevent stored XSS.
+ * Allow a small allowlist of safe inline formatting tags; strip everything else.
+ */
+function sanitizeCommentBody(raw: string): string {
+  return sanitizeHtml(raw, {
+    allowedTags: ["b", "i", "em", "strong", "u", "s", "code", "a", "br"],
+    allowedAttributes: {
+      a: ["href", "target", "rel"],
+    },
+    allowedSchemes: ["https", "http", "mailto"],
+    transformTags: {
+      // Force all links to open in a new tab with noopener for safety
+      a: (_tagName, attribs) => ({
+        tagName: "a",
+        attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer" },
+      }),
+    },
+  });
+}
 
 const createSchema = z.object({
   body: z.string().min(1).max(2000),
@@ -15,7 +37,14 @@ const createSchema = z.object({
   milestoneId: z.string().optional(),
   taskId: z.string().optional(),
   documentId: z.string().optional(),
-});
+}).refine(
+  (data) => data.goalId || data.milestoneId || data.taskId || data.documentId,
+  {
+    message: "At least one entity reference is required (goalId, milestoneId, taskId, or documentId)",
+    // Point at the first entity field so the error is easy to surface in client validation
+    path: ["goalId"],
+  }
+);
 
 /**
  * Resolve the workspaceId for the entity being commented on.
@@ -85,13 +114,17 @@ export async function POST(request: NextRequest) {
   // Resolve any @mentions present in the comment body
   const mentions = await resolveMentions(parsed.data.body, workspaceId);
   const mentionedUserIds = mentions.map((m) => m.user.id);
-  const entityId = goalId ?? milestoneId ?? taskId ?? documentId ?? "unknown";
+  const entityId = goalId ?? milestoneId ?? taskId ?? documentId;
+  const resolvedEntityId = entityId!;
+
+  // Sanitize body before storage — strip disallowed HTML to prevent stored XSS
+  const sanitizedBody = sanitizeCommentBody(parsed.data.body);
 
   // Create comment + activity log in a single transaction
   const [comment] = await prisma.$transaction([
     prisma.comment.create({
       data: {
-        body: parsed.data.body,
+        body: sanitizedBody,
         authorId: session.user.id,
         entityType: parsed.data.entityType,
         goalId: goalId ?? null,
@@ -106,7 +139,7 @@ export async function POST(request: NextRequest) {
         workspaceId,
         userId: session.user.id,
         entityType,
-        entityId,
+        entityId: resolvedEntityId,
         action: "commented",
         diff: {
           mentionedUserIds,
@@ -128,7 +161,7 @@ export async function POST(request: NextRequest) {
       authorName,
       workspaceId,
       entityType: parsed.data.entityType,
-      entityId,
+      entityId: resolvedEntityId,
       commentBody: parsed.data.body,
     }).catch((err) => console.error("[comments/route] Mention notification failed:", err));
   }
@@ -169,7 +202,7 @@ export async function POST(request: NextRequest) {
           authorName,
           workspaceId,
           entityType: parsed.data.entityType,
-          entityId,
+          entityId: resolvedEntityId,
           entityTitle,
           commentBody: parsed.data.body,
         });

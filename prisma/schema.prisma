@@ -99,8 +99,8 @@ model Workspace {
   boardItems    BoardItem[]
   documents     Document[]
   goals         Goal[]
-  sprints       Sprint[]
   tasks         Task[]            @relation("WorkspaceTasks")
+
   owner         User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   invites       WorkspaceInvite[]
   members       WorkspaceMember[]
@@ -177,7 +177,6 @@ model Task {
   title       String
   description String?
   assigneeId  String?
-  sprintId    String?
   dueDate     DateTime?  @default(now())
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -195,37 +194,16 @@ model Task {
   documents   Document[] @relation("TaskDocuments")
   assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
   milestone   Milestone  @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
-  sprint      Sprint?    @relation(fields: [sprintId], references: [id])
   workspace   Workspace  @relation("WorkspaceTasks", fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([milestoneId])
   @@index([assigneeId])
-  @@index([sprintId])
   @@index([status])
   @@index([workspaceId])
   @@index([status, dueDate])
   @@index([milestoneId, order])
   @@index([milestoneId, status])
-  @@index([sprintId, status])
   @@index([assigneeId, status, priority, dueDate])
-}
-
-model Sprint {
-  id          String    @id @default(cuid())
-  name        String
-  startDate   DateTime
-  endDate     DateTime
-  status      String    @default("planned")
-  workspaceId String
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  velocity    Int?
-  goal        String?
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  tasks       Task[]
-
-  @@index([workspaceId])
-  @@index([status])
 }
 
 model Document {
@@ -400,12 +378,6 @@ enum Priority {
   medium
   high
   urgent
-}
-
-enum SprintStatus {
-  planned
-  active
-  completed
 }
 
 enum BoardEntityType {

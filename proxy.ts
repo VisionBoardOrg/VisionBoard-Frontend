@@ -7,6 +7,17 @@
  *
  * Do NOT import lib/auth/index.ts here — it pulls in Prisma + bcryptjs which
  * are Node.js-only and will crash in Edge Runtime.
+ *
+ * ── WebSocket / Real-time presence ──────────────────────────────────────────
+ * The live-cursor and board-event WebSocket layer (hooks/useWebSocket.ts) uses
+ * a stateful persistent connection that CANNOT run inside Vercel Functions or
+ * this Edge middleware. On serverless / multi-instance deployments each replica
+ * is isolated — clients on different instances cannot exchange messages.
+ *
+ * Before deploying to a horizontally-scaled or serverless environment, replace
+ * the custom WS server with a managed presence service (Liveblocks, Ably,
+ * PartyKit, or Soketi). See AGENTS.md § "WebSocket / Real-time Presence" for
+ * the full migration guide.
  */
 
 import NextAuth from "next-auth";
@@ -14,6 +25,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyAdminSession } from "@/lib/auth/admin-session";
 import { authConfig } from "@/auth.config";
+import { buildCsp } from "@/lib/csp";
+import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 
 // Create a lightweight auth() helper that only decodes the JWT cookie.
 // No Prisma, no bcrypt — safe for Edge Runtime.
@@ -23,25 +36,6 @@ const { auth } = NextAuth(authConfig);
 const PROTECTED_PREFIXES = ["/dashboard", "/workspace", "/onboarding"];
 // Routes that authenticated users should not see
 const AUTH_ROUTES = ["/auth/login", "/auth/register"];
-
-/**
- * Build the Content-Security-Policy header value.
- */
-function buildCsp(): string {
-  return [
-    "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https: blob:",
-    "font-src 'self' data:",
-    "connect-src 'self' https: wss: https://cloudflareinsights.com https://api.stripe.com",
-    "frame-src 'none' https://js.stripe.com https://hooks.stripe.com",
-    "frame-ancestors 'none'",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ].join("; ");
-}
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -85,13 +79,29 @@ export async function proxy(request: NextRequest) {
 
     if (isProtected && !session) {
       const loginUrl = new URL("/auth/login", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
+      // SECURITY (MEDIUM-2): Validate callbackUrl before embedding in the redirect.
+      // getSafeCallbackUrl rejects absolute URLs, protocol-relative URLs, and
+      // backslash-based paths that could be used for open-redirect phishing.
+      const safeCallback = getSafeCallbackUrl(pathname, "/dashboard");
+      loginUrl.searchParams.set("callbackUrl", safeCallback);
       return NextResponse.redirect(loginUrl);
     }
 
     if (isAuthRoute && session) {
       const dest = session.user.workspaceId ? "/dashboard" : "/onboarding";
       return NextResponse.redirect(new URL(dest, request.url));
+    }
+
+    // SECURITY (MEDIUM-7): Require email verification before accessing workspace
+    // or dashboard routes. Unverified users are redirected to a page that prompts
+    // them to check their inbox and resend the verification email.
+    // /onboarding is excluded so new users can complete workspace setup first.
+    if (session && !session.user.emailVerified) {
+      const needsVerification =
+        pathname.startsWith("/workspace") || pathname.startsWith("/dashboard");
+      if (needsVerification) {
+        return NextResponse.redirect(new URL("/auth/verify-email-required", request.url));
+      }
     }
   }
 

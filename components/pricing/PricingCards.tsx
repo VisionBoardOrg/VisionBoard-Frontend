@@ -57,7 +57,7 @@ const plans = [
       "Up to 25 team members",
       "100 GB document storage",
       "Full roadmap & board views",
-      "Sprint & milestone tracking",
+      "Milestone & task tracking",
       "Role-based permissions",
       "Priority email support",
     ],

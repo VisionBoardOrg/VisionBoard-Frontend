@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Rate limit: 3 resend attempts per 15 minutes per IP
-  const rateLimit = checkRateLimit(request, "resend-verification", {
+  const rateLimit = await checkRateLimit(request, "resend-verification", {
     windowMs: 15 * 60 * 1000,
     max: 3,
   });

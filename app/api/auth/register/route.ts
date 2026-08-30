@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-
+import { checkRateLimit } from "@/lib/rate-limit";
 import { sendVerificationEmail } from "@/lib/email-verification";
 
 const registerSchema = z.object({
   name: z.string().min(1).max(100),
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().pipe(z.string().email()),
   // Minimum 12 characters with at least one non-alphabetic character
   password: z
     .string()
@@ -20,6 +20,15 @@ const registerSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Rate limit: 5 registrations per IP per hour.
+  // Prevents email quota DoS, DB spam, bcrypt CPU exhaustion, and fake Stripe
+  // customer record creation — all exploitable with zero auth required.
+  const rl = await checkRateLimit(request, "register", {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 5,
+  });
+  if (!rl.allowed) return rl.response!;
+
   try {
     const body = await request.json();
     const parsed = registerSchema.safeParse(body);

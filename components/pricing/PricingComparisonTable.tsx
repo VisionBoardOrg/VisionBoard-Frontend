@@ -17,7 +17,6 @@ export default function PricingComparisonTable() {
       name: "Progress Tracking",
       features: [
         { name: "Custom roadmap status", free: "1 filter", startup: true, growth: true, enterprise: true },
-        { name: "Sprint tracking", free: false, startup: true, growth: true, enterprise: true },
         { name: "Milestone management", free: false, startup: true, growth: true, enterprise: true },
         { name: "Timeline & Gantt view (coming soon)", free: false, startup: false, growth: true, enterprise: true },
       ],

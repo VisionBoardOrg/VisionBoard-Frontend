@@ -15,8 +15,12 @@ const roleSchema = z.object({
  * PATCH /api/workspaces/[id]/members/role
  *
  * Rules:
- * - Any member may change their OWN role (dashboard view switch), EXCEPT:
- *     • they may not self-assign "admin" unless they are already admin or owner.
+ * - Any member may change their OWN role to non-privileged roles (eng, exec, marketing).
+ * - SECURITY (MEDIUM-1): Self-escalation to "pm" OR "admin" is blocked unless the
+ *   caller is already admin or owner. "pm" is privileged because it grants invitation
+ *   powers (POST /members), cancellation powers (DELETE /members), and the ability
+ *   to read the open invite link token (GET /invite-link). Allowing any member to
+ *   self-assign "pm" would let them bypass member-count and invite controls.
  * - Workspace owners and admins may change OTHER members' roles.
  * - Only the workspace owner may grant "admin" to another member.
  * - Nobody (including the owner) may use this endpoint to change the workspace

@@ -67,7 +67,7 @@ export function WorkspacesClient({
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState<"pm" | "exec" | "eng" | "marketing" | "admin">("pm");
-  const [newTemplate, setNewTemplate] = useState<"blank" | "okr_board" | "product_roadmap" | "quarterly_plan" | "sprint_board">("blank");
+  const [newTemplate, setNewTemplate] = useState<"blank" | "okr_board" | "product_roadmap" | "quarterly_plan">("blank");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
 
@@ -428,7 +428,6 @@ export function WorkspacesClient({
                   <option value="okr_board">OKR Board</option>
                   <option value="product_roadmap">Product Roadmap</option>
                   <option value="quarterly_plan">Quarterly Plan</option>
-                  <option value="sprint_board">Sprint Board</option>
                 </select>
               </div>
 

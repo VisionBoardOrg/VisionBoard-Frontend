@@ -38,7 +38,7 @@ const getWorkspaceMembership = cache((userId: string) =>
 );
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().pipe(z.string().email()),
   // Match the registration minimum — shorter values can never be valid credentials
   password: z.string().min(12),
 });
@@ -46,6 +46,23 @@ const loginSchema = z.object({
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(prisma),
+  // SECURITY (MEDIUM-11): Explicitly configure session cookie attributes so they
+  // are not silently downgraded by reverse-proxy misconfigurations or the beta's
+  // own heuristics. httpOnly + secure + sameSite=lax is the correct baseline for
+  // a cookie that must survive top-level navigations from external links (e.g.
+  // email verification clicks) while still blocking CSRF from cross-site POSTs.
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        // Always require HTTPS. Override with NEXTAUTH_COOKIE_INSECURE=true for
+        // local HTTP dev only — never in staging or production.
+        secure: process.env.NEXTAUTH_COOKIE_INSECURE !== "true",
+        sameSite: "lax" as const,
+        path: "/",
+      },
+    },
+  },
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,

@@ -11,7 +11,15 @@
 
 import Stripe from "stripe";
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "sk_test_dummy_key_for_build", {
+// Validate the key at module initialisation time.
+const stripeKey = process.env.STRIPE_SECRET_KEY;
+if (!stripeKey && process.env.NODE_ENV === "production") {
+  console.warn(
+    "[stripe] WARNING: STRIPE_SECRET_KEY is not set. Stripe API calls will fail at runtime."
+  );
+}
+
+export const stripe = new Stripe(stripeKey ?? "sk_test_dummy_key_for_build", {
   apiVersion: "2025-02-24.acacia",
   typescript: true,
 });

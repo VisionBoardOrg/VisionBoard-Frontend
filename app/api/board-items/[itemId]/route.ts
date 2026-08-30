@@ -64,6 +64,28 @@ export async function PATCH(
   if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (item.workspace.members.length === 0) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  // SECURITY (HIGH-3 follow-up): Validate any re-linking targets belong to this
+  // workspace before writing. Without this check a member of Workspace A could
+  // PATCH a board item to point at a goal from Workspace B and receive that
+  // goal's data in the response via the BOARD_ITEM_INCLUDE eager-load.
+  const { linkedGoalId, linkedMilestoneId, linkedTaskId } = parsed.data;
+  const workspaceId = item.workspaceId;
+
+  if (linkedGoalId != null) {
+    const goal = await prisma.goal.findFirst({ where: { id: linkedGoalId, workspaceId } });
+    if (!goal) return NextResponse.json({ error: "Linked goal not found in this workspace." }, { status: 403 });
+  }
+  if (linkedMilestoneId != null) {
+    const milestone = await prisma.milestone.findFirst({
+      where: { id: linkedMilestoneId, goal: { workspaceId } },
+    });
+    if (!milestone) return NextResponse.json({ error: "Linked milestone not found in this workspace." }, { status: 403 });
+  }
+  if (linkedTaskId != null) {
+    const task = await prisma.task.findFirst({ where: { id: linkedTaskId, workspaceId } });
+    if (!task) return NextResponse.json({ error: "Linked task not found in this workspace." }, { status: 403 });
+  }
+
   const updated = await prisma.boardItem.update({
     where: { id: itemId },
     data: parsed.data,

@@ -62,7 +62,7 @@ export async function evaluateQuotaThresholds(
   const aiMax = limits.aiCreditsPerMonth;
   let aiStatus: QuotaStatus;
 
-  if (aiMax === -1 || aiMax === "unlimited") {
+  if (aiMax === null || aiMax === -1) {
     aiStatus = {
       used: workspace.owner.aiCreditsUsed,
       max: "unlimited",
@@ -107,7 +107,7 @@ export async function evaluateQuotaThresholds(
   const storageMaxMb = limits.storageMb;
   let storageStatus: QuotaStatus & { usedMb: number; maxMb: number | "unlimited" };
 
-  if (storageMaxMb === -1) {
+  if (storageMaxMb === null || storageMaxMb === -1) {
     const usedMb = Number(workspace.storageUsedBytes) / (1024 * 1024);
     storageStatus = {
       used: Number(workspace.storageUsedBytes),

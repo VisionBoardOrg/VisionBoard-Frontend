@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
+import { PLAN_LIMITS } from "@/lib/plan-limits";
+import type { PlanTier } from "@prisma/client";
 
 interface WorkspaceLayoutProps {
   params: Promise<{ id: string }>;
@@ -39,7 +41,7 @@ export default async function WorkspaceLayout({
       role={session.user.role}
       plan={plan}
       aiCreditsUsed={currentUser.aiCreditsUsed}
-      aiCreditsMax={plan === "free" ? 10 : plan === "startup" ? 100 : -1}
+      aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
       userId={session.user.id}
       isOwner={isOwner}
     >

@@ -1,15 +1,24 @@
 import { PlanTier } from "@prisma/client";
 
 /**
- * WorkspaceContext carries the plan and a generic "current count" field.
+ * PlanLimitContext — carries the plan tier plus named, semantically distinct
+ * counts for every resource type we gate.
  *
- * `aiCreditsUsed` is kept for backwards-compatibility but is conceptually
- * overloaded — each call site passes the relevant count (credits, members,
- * documents, workspaces) as this field.
+ * Using a separate field per resource ensures the TypeScript compiler catches
+ * any call site that passes the wrong count.  The previous single
+ * `aiCreditsUsed` field was re-used for member counts, document counts, and
+ * workspace counts, which made wrong-count bugs invisible at compile time.
  */
-interface WorkspaceContext {
+export interface PlanLimitContext {
   plan: PlanTier;
-  aiCreditsUsed: number;
+  /** Number of AI credits the user has consumed this month. */
+  currentAiCredits: number;
+  /** Current number of accepted + pending members in the workspace. */
+  currentMemberCount: number;
+  /** Current number of documents in the workspace. */
+  currentDocumentCount: number;
+  /** Current number of workspaces owned by the user. */
+  currentWorkspaceCount: number;
 }
 
 interface LimitCheck {
@@ -21,7 +30,6 @@ interface LimitCheck {
 type Feature =
   | "ai_credit"
   | "timeline_gantt"
-  | "sprint_tracking"
   | "integrations"
   | "sso"
   | "invite_member"
@@ -29,40 +37,46 @@ type Feature =
   | "create_workspace";
 
 interface PlanLimitDef {
-  workspaces: number | "unlimited";
-  members: number | "unlimited";
-  aiCreditsPerMonth: number | "unlimited";
+  workspaces: number | null;
+  members: number | null;
+  aiCreditsPerMonth: number | null;
   activityLogDays: number; // -1 = unlimited
   timelineGantt: boolean;
-  sprintTracking: boolean;
   integrations: boolean;
   sso: boolean;
-  /** Max documents per workspace. -1 = unlimited */
-  documents: number;
-  /** Max total document storage in MB per workspace. -1 = unlimited */
-  storageMb: number;
+  /** Max documents per workspace. null = unlimited */
+  documents: number | null;
+  /** Max total document storage in MB per workspace. null = unlimited */
+  storageMb: number | null;
 }
 
+/**
+ * Plan limits table.
+ *
+ * `null` means unlimited for every numeric field.  The old code mixed `-1` and
+ * the string `"unlimited"` for the same concept; unifying on `null` lets the
+ * compiler enforce nullability at every check site.
+ */
 export const PLAN_LIMITS: Record<PlanTier, PlanLimitDef> = {
   free: {
     workspaces: 1, members: 5, aiCreditsPerMonth: 10, activityLogDays: 7,
-    timelineGantt: false, sprintTracking: false, integrations: false, sso: false,
+    timelineGantt: false, integrations: false, sso: false,
     documents: 10, storageMb: 5,
   },
   startup: {
     workspaces: 5, members: 25, aiCreditsPerMonth: 100, activityLogDays: 30,
-    timelineGantt: true, sprintTracking: true, integrations: false, sso: false,
+    timelineGantt: true, integrations: false, sso: false,
     documents: 100, storageMb: 100,
   },
   growth: {
-    workspaces: -1, members: 100, aiCreditsPerMonth: -1, activityLogDays: 90,
-    timelineGantt: true, sprintTracking: true, integrations: true, sso: false,
-    documents: -1, storageMb: 1000,
+    workspaces: null, members: 100, aiCreditsPerMonth: null, activityLogDays: 90,
+    timelineGantt: true, integrations: true, sso: false,
+    documents: null, storageMb: 1000,
   },
   enterprise: {
-    workspaces: -1, members: -1, aiCreditsPerMonth: -1, activityLogDays: -1,
-    timelineGantt: true, sprintTracking: true, integrations: true, sso: true,
-    documents: -1, storageMb: -1,
+    workspaces: null, members: null, aiCreditsPerMonth: null, activityLogDays: -1,
+    timelineGantt: true, integrations: true, sso: true,
+    documents: null, storageMb: null,
   },
 } as const;
 
@@ -73,15 +87,15 @@ const UPGRADE_COPY: Record<string, string> = {
   enterprise: "",
 };
 
-export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCheck {
+export function checkPlanLimit(ctx: PlanLimitContext, feature: Feature): LimitCheck {
   const limits = PLAN_LIMITS[ctx.plan];
   const upgrade = UPGRADE_COPY[ctx.plan];
 
   switch (feature) {
     case "ai_credit": {
       const max = limits.aiCreditsPerMonth;
-      if (max === -1 || max === "unlimited") return { allowed: true };
-      if (ctx.aiCreditsUsed >= (max as number)) {
+      if (max === null) return { allowed: true };
+      if (ctx.currentAiCredits >= max) {
         return {
           allowed: false,
           reason: `You've used all ${max} AI credits this month on the ${ctx.plan} plan.`,
@@ -90,18 +104,26 @@ export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCh
       }
       return { allowed: true };
     }
+
     case "timeline_gantt":
-      return limits.timelineGantt ? { allowed: true } : { allowed: false, reason: "Timeline/Gantt view requires Startup plan or higher.", upgradePrompt: upgrade };
-    case "sprint_tracking":
-      return limits.sprintTracking ? { allowed: true } : { allowed: false, reason: "Sprint tracking requires Startup plan or higher.", upgradePrompt: upgrade };
+      return limits.timelineGantt
+        ? { allowed: true }
+        : { allowed: false, reason: "Timeline/Gantt view requires Startup plan or higher.", upgradePrompt: upgrade };
+
     case "integrations":
-      return limits.integrations ? { allowed: true } : { allowed: false, reason: "Integrations require Growth plan or higher.", upgradePrompt: upgrade };
+      return limits.integrations
+        ? { allowed: true }
+        : { allowed: false, reason: "Integrations require Growth plan or higher.", upgradePrompt: upgrade };
+
     case "sso":
-      return limits.sso ? { allowed: true } : { allowed: false, reason: "SSO/SAML requires Enterprise plan.", upgradePrompt: upgrade };
+      return limits.sso
+        ? { allowed: true }
+        : { allowed: false, reason: "SSO/SAML requires Enterprise plan.", upgradePrompt: upgrade };
+
     case "invite_member": {
       const max = limits.members;
-      if (max === -1 || max === "unlimited") return { allowed: true };
-      if (ctx.aiCreditsUsed >= (max as number)) {
+      if (max === null) return { allowed: true };
+      if (ctx.currentMemberCount >= max) {
         return {
           allowed: false,
           reason: `Your ${ctx.plan} plan allows up to ${max} team members.`,
@@ -110,10 +132,11 @@ export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCh
       }
       return { allowed: true };
     }
+
     case "create_document": {
       const max = limits.documents;
-      if (max === -1) return { allowed: true };
-      if (ctx.aiCreditsUsed >= max) {
+      if (max === null) return { allowed: true };
+      if (ctx.currentDocumentCount >= max) {
         return {
           allowed: false,
           reason: `Your ${ctx.plan} plan allows up to ${max} documents per workspace.`,
@@ -122,18 +145,20 @@ export function checkPlanLimit(ctx: WorkspaceContext, feature: Feature): LimitCh
       }
       return { allowed: true };
     }
+
     case "create_workspace": {
       const max = limits.workspaces;
-      if (max === -1 || max === "unlimited") return { allowed: true };
-      if (ctx.aiCreditsUsed >= (max as number)) {
+      if (max === null) return { allowed: true };
+      if (ctx.currentWorkspaceCount >= max) {
         return {
           allowed: false,
-          reason: `Your ${ctx.plan} plan allows up to ${max} workspace${(max as number) === 1 ? "" : "s"}.`,
+          reason: `Your ${ctx.plan} plan allows up to ${max} workspace${max === 1 ? "" : "s"}.`,
           upgradePrompt: upgrade,
         };
       }
       return { allowed: true };
     }
+
     default:
       return { allowed: true };
   }
@@ -165,7 +190,7 @@ export function checkStorageLimit(
   incomingMb: number,
 ): LimitCheck {
   const max = PLAN_LIMITS[plan].storageMb;
-  if (max === -1) return { allowed: true };
+  if (max === null) return { allowed: true };
   const upgrade = UPGRADE_COPY[plan];
   if (currentUsedMb + incomingMb > max) {
     return {
@@ -197,12 +222,11 @@ export function getQuotaThresholdWarning(
   const max = feature === "ai_credit" ? limits.aiCreditsPerMonth : limits.storageMb;
   const upgrade = UPGRADE_COPY[plan];
 
-  if (max === -1 || max === "unlimited") {
+  if (max === null) {
     return { isApproaching: false, thresholdPercent: 0, percentage: 0 };
   }
 
-  const maxNum = Number(max);
-  const percentage = Math.min(100, Math.round((currentUsage / maxNum) * 100));
+  const percentage = Math.min(100, Math.round((currentUsage / max) * 100));
 
   if (percentage >= 90) {
     return {
@@ -226,4 +250,3 @@ export function getQuotaThresholdWarning(
 
   return { isApproaching: false, thresholdPercent: 0, percentage };
 }
-

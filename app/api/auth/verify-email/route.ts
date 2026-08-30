@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
   const token = searchParams.get("token");
 
-  const fallbackRedirect = `${origin}/dashboard`;
+  // SECURITY (HIGH-5): Use the server-configured APP_URL as the redirect base,
+  // never request.url's origin. A misconfigured reverse proxy or Host header
+  // injection could otherwise redirect users to an attacker-controlled domain.
+  const appBase = process.env.APP_URL || process.env.NEXTAUTH_URL || "http://localhost:3000";
+  const fallbackRedirect = `${appBase}/dashboard`;
 
   if (!token) {
     return NextResponse.redirect(`${fallbackRedirect}?verified=error&reason=invalid`);

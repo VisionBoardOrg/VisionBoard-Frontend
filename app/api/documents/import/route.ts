@@ -1,84 +1,75 @@
+import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import mammoth from "mammoth";
-// Import directly from lib/pdf-parse.js to avoid pdf-parse root index.js test file debug checks in Next.js builds
-// @ts-ignore
-import pdfParse from "pdf-parse/lib/pdf-parse.js";
+// SECURITY (HIGH-9): Replaced pdf-parse (unmaintained, ReDoS vulnerabilities) with pdfjs-dist.
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import sanitizeHtml from "sanitize-html";
-import * as XLSX from "xlsx";
+// SECURITY (HIGH-8): Replaced xlsx/SheetJS CE (unmaintained, multiple CVEs) with exceljs.
+import ExcelJS from "exceljs";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
 import { parse as parseHtml } from "node-html-parser";
+
+// SECURITY (LOW-5): Hard cap on imported file size to prevent memory exhaustion
+// via oversized files passed to pdf/spreadsheet parsers.
+export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 /**
  * Convert Excel / CSV spreadsheet buffer into a structured Tiptap ProseMirror document.
+ * Uses ExcelJS instead of the unmaintained SheetJS CE.
  */
-/**
- * Convert Excel / CSV spreadsheet buffer into a structured Tiptap ProseMirror document.
- */
-export function excelToTiptap(buffer: Buffer): object {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
+export async function excelToTiptap(buffer: Buffer): Promise<object> {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer as any);
   const content: object[] = [];
 
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) continue;
-
-    if (workbook.SheetNames.length > 1) {
+  workbook.eachSheet((sheet: ExcelJS.Worksheet) => {
+    if (workbook.worksheets.length > 1) {
       content.push({
         type: "heading",
         attrs: { level: 2 },
-        content: [{ type: "text", text: `Sheet: ${sheetName}` }],
+        content: [{ type: "text", text: `Sheet: ${sheet.name}` }],
       });
     }
 
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
-    if (!rows || rows.length === 0) continue;
+    const rows: string[][] = [];
+    sheet.eachRow((row: ExcelJS.Row) => {
+      const cells = (row.values as ExcelJS.CellValue[]).slice(1); // index 0 is empty
+      rows.push(cells.map((c) => (c !== null && c !== undefined ? String(c).trim() : "")));
+    });
 
-    const validRows = rows.filter(
-      (r) => Array.isArray(r) && r.some((val) => val !== undefined && val !== null && String(val).trim() !== "")
-    );
-    if (validRows.length === 0) continue;
+    if (rows.length === 0) return;
 
-    const headerRow = validRows[0];
-    const dataRows = validRows.slice(1);
+    const headerRow = rows[0];
+    const dataRows = rows.slice(1).filter((r) => r.some((v) => v !== ""));
 
     if (dataRows.length > 0) {
-      const headerText = headerRow.map((cell) => String(cell ?? "").trim()).join(" | ");
       content.push({
         type: "paragraph",
-        content: [{ type: "text", text: `Columns: ${headerText}`, marks: [{ type: "bold" }] }],
+        content: [{ type: "text", text: `Columns: ${headerRow.join(" | ")}`, marks: [{ type: "bold" }] }],
       });
 
-      const listItems: object[] = [];
-      for (const row of dataRows.slice(0, 500)) {
+      const listItems: object[] = dataRows.slice(0, 500).map((row) => {
         const rowText = row
-          .map((cell, idx) => {
-            const colName = headerRow[idx] ? String(headerRow[idx]).trim() : `Col ${idx + 1}`;
-            const val = cell !== undefined && cell !== null ? String(cell).trim() : "";
-            return val ? `${colName}: ${val}` : null;
-          })
+          .map((val, idx) => (val ? `${headerRow[idx] || `Col ${idx + 1}`}: ${val}` : null))
           .filter(Boolean)
           .join(" • ");
-
-        if (rowText) {
-          listItems.push({
-            type: "listItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: rowText }] }],
-          });
-        }
-      }
+        return {
+          type: "listItem",
+          content: [{ type: "paragraph", content: [{ type: "text", text: rowText }] }],
+        };
+      });
 
       if (listItems.length > 0) {
         content.push({ type: "bulletList", content: listItems });
       }
     } else {
-      const text = headerRow.map((cell) => String(cell ?? "").trim()).join(" | ");
-      content.push({ type: "paragraph", content: [{ type: "text", text }] });
+      content.push({ type: "paragraph", content: [{ type: "text", text: headerRow.join(" | ") }] });
     }
-  }
+  });
 
   if (content.length === 0) {
     content.push({ type: "paragraph", content: [{ type: "text", text: "Empty spreadsheet." }] });
@@ -443,9 +434,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "file and workspaceId are required" }, { status: 400 });
   }
 
-  // 15 MB limit
-  if (file.size > 15 * 1024 * 1024) {
-    return NextResponse.json({ error: "File must be smaller than 15 MB." }, { status: 413 });
+  // SECURITY (LOW-5): Enforce the import file size limit before passing to
+  // any parser. pdf-parse/pdfjs-dist and ExcelJS can consume large amounts of
+  // memory on crafted files; rejecting early prevents DoS via resource exhaustion.
+  if (file.size > MAX_IMPORT_FILE_BYTES) {
+    return NextResponse.json(
+      { error: `File must be smaller than ${MAX_IMPORT_FILE_BYTES / (1024 * 1024)} MB.` },
+      { status: 413 }
+    );
   }
 
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -497,7 +493,13 @@ export async function POST(request: NextRequest) {
   // ── Plan limit checks ──────────────────────────────────────────────────────
   const docCount = await prisma.document.count({ where: { workspaceId } });
   const countCheck = checkPlanLimit(
-    { plan, aiCreditsUsed: docCount },
+    {
+      plan,
+      currentAiCredits: 0,
+      currentMemberCount: 0,
+      currentDocumentCount: docCount,
+      currentWorkspaceCount: 0,
+    },
     "create_document"
   );
   if (!countCheck.allowed) {
@@ -508,22 +510,6 @@ export async function POST(request: NextRequest) {
   }
 
   const storageLimitMb = PLAN_LIMITS[plan].storageMb;
-  if (storageLimitMb !== -1) {
-    const incomingMb = file.size / (1024 * 1024);
-    const [{ storageUsedBytes }] = await prisma.$queryRaw<[{ storageUsedBytes: bigint }]>`
-      SELECT "storageUsedBytes" FROM "Workspace" WHERE id = ${workspaceId}
-    `;
-    const currentMb = Number(storageUsedBytes ?? 0) / (1024 * 1024);
-    if (currentMb + incomingMb > storageLimitMb) {
-      return NextResponse.json(
-        {
-          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${plan} plan.`,
-          upgradePrompt: "Upgrade for more storage.",
-        },
-        { status: 403 }
-      );
-    }
-  }
   // ──────────────────────────────────────────────────────────────────────────
 
   const title = file.name.replace(/\.[^/.]+$/, "").trim() || "Imported document";
@@ -533,12 +519,21 @@ export async function POST(request: NextRequest) {
     if (ext === "pdf") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      const pdfData = await pdfParse(buffer);
-      tiptapContent = textToTiptap(pdfData.text || "");
+      // SECURITY (HIGH-9): pdfjs-dist replaces pdf-parse (unmaintained).
+      const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+      const pdfDoc = await loadingTask.promise;
+      const textParts: string[] = [];
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const tc = await page.getTextContent();
+        textParts.push(tc.items.map((item: any) => ("str" in item ? (item as { str: string }).str : "")).join(" "));
+      }
+      tiptapContent = textToTiptap(textParts.join("\n\n"));
     } else if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      tiptapContent = excelToTiptap(buffer);
+      // SECURITY (HIGH-8): exceljs replaces xlsx/SheetJS CE (unmaintained).
+      tiptapContent = await excelToTiptap(buffer);
     } else if (ext === "docx" || ext === "doc") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
@@ -577,10 +572,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to parse the document content." }, { status: 422 });
   }
 
+  // Use the actual serialised Tiptap JSON size for storage accounting, not the
+  // raw file size. Conversion can produce output significantly larger than the
+  // input (e.g. a 1 MB PDF may expand to 5 MB of Tiptap JSON nodes).
   const contentBytes = Buffer.byteLength(JSON.stringify(tiptapContent), "utf8");
 
-  const [document] = await prisma.$transaction([
-    prisma.document.create({
+  // ── Atomic storage quota enforcement ──────────────────────────────────────
+  // A single UPDATE atomically checks and increments the counter so concurrent
+  // uploads cannot both pass the quota check and then both commit (TOCTOU race).
+  //
+  // Pattern: UPDATE ... WHERE current + incoming <= limit RETURNING id
+  //   • 1 row updated → quota was not exceeded, increment applied.
+  //   • 0 rows updated → quota would be exceeded; reject without any write.
+  //
+  // For unlimited plans (storageMb === null) we skip the guarded UPDATE and
+  // always increment unconditionally.
+  const storageLimitBytes =
+    storageLimitMb !== null ? BigInt(Math.round(storageLimitMb * 1024 * 1024)) : null;
+
+  if (storageLimitBytes !== null) {
+    const updated = await prisma.$executeRaw`
+      UPDATE "Workspace"
+      SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
+      WHERE id = ${workspaceId}
+        AND "storageUsedBytes" + ${contentBytes} <= ${storageLimitBytes}
+    `;
+    if (updated === 0) {
+      return NextResponse.json(
+        {
+          error: `This would exceed your ${storageLimitMb} MB document storage limit on the ${plan} plan.`,
+          upgradePrompt: "Upgrade for more storage.",
+        },
+        { status: 403 }
+      );
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // Create the document. Storage is already incremented above (under limit).
+  // If document creation fails we roll back the storage counter best-effort.
+  let document: Awaited<ReturnType<typeof prisma.document.findUniqueOrThrow>> & {
+    author: { id: string; name: string | null } | null;
+  };
+  try {
+    document = await prisma.document.create({
       data: {
         workspaceId,
         title,
@@ -588,24 +623,45 @@ export async function POST(request: NextRequest) {
         authorId: session.user.id,
       },
       include: { author: { select: { id: true, name: true } } },
-    }),
-    prisma.activityLog.create({
-      data: {
-        workspaceId,
-        userId: session.user.id,
-        entityType: "document",
-        entityId: "pending",
-        action: "created",
-        diff: { title, importedFrom: file.name } as never,
-      },
-    }),
-  ]);
+    });
+  } catch (createErr) {
+    // Roll back the storage increment so we don't leak quota.
+    if (storageLimitBytes !== null) {
+      await prisma.$executeRaw`
+        UPDATE "Workspace"
+        SET "storageUsedBytes" = GREATEST("storageUsedBytes" - ${contentBytes}, 0)
+        WHERE id = ${workspaceId}
+      `.catch((rollbackErr: unknown) =>
+        console.error("[import-doc] Storage rollback failed:", rollbackErr)
+      );
+    }
+    throw createErr;
+  }
 
-  await prisma.$executeRaw`
-    UPDATE "Workspace"
-    SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
-    WHERE id = ${workspaceId}
-  `;
+  // For unlimited plans, increment storage outside the guarded UPDATE.
+  if (storageLimitBytes === null) {
+    await prisma.$executeRaw`
+      UPDATE "Workspace"
+      SET "storageUsedBytes" = "storageUsedBytes" + ${contentBytes}
+      WHERE id = ${workspaceId}
+    `.catch((err: unknown) =>
+      console.error("[import-doc] Storage increment failed (unlimited plan):", err)
+    );
+  }
+
+  // Fire-and-forget audit log with the real document ID now that it exists.
+  prisma.activityLog.create({
+    data: {
+      workspaceId,
+      userId: session.user.id,
+      entityType: "document",
+      entityId: document.id,
+      action: "created",
+      diff: { title, importedFrom: file.name } as never,
+    },
+  }).catch((err: unknown) =>
+    console.error("[import-doc] Activity log failed:", err)
+  );
 
   return NextResponse.json({ document }, { status: 201 });
 }

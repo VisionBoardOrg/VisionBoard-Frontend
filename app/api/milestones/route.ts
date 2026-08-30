@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
   });
   const order = (maxOrderResult._max.order ?? -1) + 1;
 
-  const [milestone] = await prisma.$transaction([
-    prisma.milestone.create({
+  const milestone = await prisma.$transaction(async (tx) => {
+    const ms = await tx.milestone.create({
       data: {
         goalId: parsed.data.goalId,
         title: parsed.data.title,
@@ -64,17 +64,20 @@ export async function POST(request: NextRequest) {
         order,
       } as never,
       include: { tasks: true },
-    }),
-    prisma.activityLog.create({
+    });
+
+    await tx.activityLog.create({
       data: {
         workspaceId: parsed.data.workspaceId,
         userId: session.user.id,
         entityType: "milestone",
-        entityId: "pending",
+        entityId: ms.id,
         action: "created",
       },
-    }),
-  ]);
+    });
+
+    return ms;
+  });
 
   return NextResponse.json({ milestone }, { status: 201 });
 }

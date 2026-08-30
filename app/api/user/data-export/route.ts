@@ -8,17 +8,28 @@
  * The response is streamed as a downloadable JSON attachment.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit } from "@/lib/rate-limit";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const userId = session.user.id;
+
+  // Rate limit: 3 exports per user per 24 hours.
+  // GDPR data exports are expensive (3 parallel unbounded queries) and subject
+  // to abuse as a DB load vector.  Per-user key prevents one account from
+  // exhausting the limit for others.
+  const rl = await checkRateLimit(request, `data-export:${userId}`, {
+    windowMs: 24 * 60 * 60 * 1000, // 24 hours
+    max: 3,
+  });
+  if (!rl.allowed) return rl.response!;
 
   // Fetch all personal data in parallel
   const [user, memberships, comments, aiLogs, activityLogs] = await Promise.all([
@@ -64,7 +75,9 @@ export async function GET() {
       },
       orderBy: { createdAt: "desc" },
     }),
-    // AI logs: only non-sensitive metadata, no raw prompt content
+    // AI logs: usage metadata only — no prompt or response content.
+    // modelOutput is stored as a SHA-256 hash in the DB (not raw text),
+    // so it is excluded from the export as it carries no user-readable value.
     prisma.aIGenerationLog.findMany({
       where: { userId },
       select: {

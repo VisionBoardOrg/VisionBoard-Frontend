@@ -21,9 +21,143 @@ export interface GoalHealthEvaluation {
   };
 }
 
+// ── Types for the shared scoring engine ───────────────────────────────────
+
+interface ScoringMilestone {
+  id: string;
+  status: string;
+  targetDate?: Date | string | null;
+}
+
+interface ScoringTask {
+  id: string;
+  status: string;
+  dueDate?: Date | string | null;
+}
+
+interface ScoringGoal {
+  status: string;
+  targetDate?: Date | string | null;
+  healthScore: number;
+}
+
+interface ScoringResult {
+  finalScore: number;
+  status: GoalHealthStatus;
+  degraded: boolean;
+  metrics: GoalHealthEvaluation["metrics"];
+  /** Milestone ids that were not already marked "delayed" but have elapsed. */
+  newlyDelayedMilestoneIds: string[];
+}
+
+// ── F-10: single shared scoring function ──────────────────────────────────
+
+/**
+ * Pure in-memory health score computation for a goal.
+ * Both `calculateGoalHealth` (single-goal API path) and
+ * `evaluateWorkspaceGoalsHealth` (bulk cron path) call this so the algorithm
+ * is defined exactly once — changes propagate to both callers automatically.
+ *
+ * No database access. All DB work is done by the callers.
+ */
+export function computeHealthScore(
+  goal: ScoringGoal,
+  milestones: ScoringMilestone[],
+  tasks: ScoringTask[],
+  now: Date
+): ScoringResult {
+  const totalMilestones    = milestones.length;
+  const completedMilestones = milestones.filter((m) => m.status === "completed").length;
+
+  const newlyDelayedMilestoneIds: string[] = [];
+  for (const m of milestones) {
+    if (
+      m.status !== "completed" &&
+      m.status !== "delayed" &&
+      m.targetDate &&
+      new Date(m.targetDate) < now
+    ) {
+      newlyDelayedMilestoneIds.push(m.id);
+    }
+  }
+
+  const delayedMilestones = milestones.filter(
+    (m) =>
+      m.status === "delayed" ||
+      (m.status !== "completed" && m.targetDate && new Date(m.targetDate) < now)
+  ).length;
+
+  const totalTasks   = tasks.length;
+  const doneTasks    = tasks.filter((t) => t.status === "done").length;
+  const blockedTasks = tasks.filter((t) => t.status === "blocked").length;
+  const overdueTasks = tasks.filter(
+    (t) => t.status !== "done" && t.dueDate && new Date(t.dueDate) < now
+  ).length;
+
+  let computedScore = 100;
+
+  if (totalTasks === 0 && totalMilestones === 0) {
+    computedScore =
+      goal.status === "completed" ? 100 :
+      goal.status === "cancelled" ? 0   : 70;
+  } else {
+    const taskRatio      = totalTasks > 0      ? doneTasks / totalTasks              : 1;
+    const milestoneRatio = totalMilestones > 0 ? completedMilestones / totalMilestones : 1;
+
+    let baseProgressScore = Math.round(taskRatio * 50 + milestoneRatio * 50);
+
+    if (baseProgressScore === 0 && totalTasks > 0) {
+      baseProgressScore = 75;
+    } else if (baseProgressScore > 0) {
+      baseProgressScore = Math.max(60, baseProgressScore);
+    }
+
+    const blockedPenalty          = Math.min(45, blockedTasks * 15);
+    const overduePenalty          = Math.min(30, overdueTasks * 10);
+    const delayedMilestonePenalty = Math.min(40, delayedMilestones * 20);
+
+    let goalDeadlinePenalty = 0;
+    if (
+      goal.targetDate &&
+      new Date(goal.targetDate) < now &&
+      (totalTasks > doneTasks || totalMilestones > completedMilestones)
+    ) {
+      goalDeadlinePenalty = 25;
+    }
+
+    computedScore =
+      baseProgressScore - blockedPenalty - overduePenalty -
+      delayedMilestonePenalty - goalDeadlinePenalty;
+
+    if (totalTasks > 0 && doneTasks === totalTasks && totalMilestones === completedMilestones) {
+      computedScore = 100;
+    }
+  }
+
+  const finalScore = Math.max(0, Math.min(100, Math.round(computedScore)));
+  const degraded   = finalScore < goal.healthScore && finalScore < 70;
+
+  const status: GoalHealthStatus =
+    finalScore < 40 ? "at_risk" :
+    finalScore < 70 ? "needs_attention" :
+    "on_track";
+
+  return {
+    finalScore,
+    status,
+    degraded,
+    metrics: {
+      totalMilestones, completedMilestones, delayedMilestones,
+      totalTasks, doneTasks, blockedTasks, overdueTasks,
+    },
+    newlyDelayedMilestoneIds,
+  };
+}
+
+// ── Single-goal path (triggered from API / webhooks) ──────────────────────
+
 /**
  * Calculates and persists the dynamic health score (0–100) for a given Goal.
- * Evaluates task completion, blocked items, overdue dates, and delayed milestones.
  */
 export async function calculateGoalHealth(goalId: string): Promise<GoalHealthEvaluation | null> {
   const goal = await prisma.goal.findUnique({
@@ -31,118 +165,31 @@ export async function calculateGoalHealth(goalId: string): Promise<GoalHealthEva
     include: {
       milestones: {
         include: {
-          tasks: {
-            select: {
-              id: true,
-              status: true,
-              dueDate: true,
-              priority: true,
-            },
-          },
+          tasks: { select: { id: true, status: true, dueDate: true, priority: true } },
         },
       },
     },
   });
-
   if (!goal) return null;
 
-  const now = new Date();
-  const milestones = goal.milestones;
-  const allTasks = milestones.flatMap((m) => m.tasks);
+  const now      = new Date();
+  const allTasks = goal.milestones.flatMap((m) => m.tasks);
 
-  const totalMilestones = milestones.length;
-  const completedMilestones = milestones.filter((m) => m.status === "completed").length;
+  const result = computeHealthScore(goal, goal.milestones, allTasks, now);
+  const { finalScore, status, degraded, metrics, newlyDelayedMilestoneIds } = result;
 
-  // Auto-detect delayed milestones based on targetDate or explicit status
-  const delayedMilestoneIds: string[] = [];
-  for (const m of milestones) {
-    if (m.status !== "completed" && m.targetDate && new Date(m.targetDate) < now) {
-      delayedMilestoneIds.push(m.id);
-    }
-  }
-
-  // Update delayed milestones in database if they weren't already marked delayed
-  if (delayedMilestoneIds.length > 0) {
+  // Persist newly-detected delayed milestones
+  if (newlyDelayedMilestoneIds.length > 0) {
     await prisma.milestone.updateMany({
-      where: {
-        id: { in: delayedMilestoneIds },
-        status: { not: "delayed" },
-      },
+      where: { id: { in: newlyDelayedMilestoneIds }, status: { not: "delayed" } },
       data: { status: "delayed" },
     }).catch((err) => console.error("[goal-health] Auto milestone delay update error:", err));
   }
 
-  const delayedMilestones = milestones.filter(
-    (m) => m.status === "delayed" || (m.status !== "completed" && m.targetDate && new Date(m.targetDate) < now)
-  ).length;
+  if (finalScore !== goal.healthScore) {
+    await prisma.goal.update({ where: { id: goalId }, data: { healthScore: finalScore } });
 
-  const totalTasks = allTasks.length;
-  const doneTasks = allTasks.filter((t) => t.status === "done").length;
-  const blockedTasks = allTasks.filter((t) => t.status === "blocked").length;
-  const overdueTasks = allTasks.filter(
-    (t) => t.status !== "done" && t.dueDate && new Date(t.dueDate) < now
-  ).length;
-
-  let computedScore = 100;
-
-  if (totalTasks === 0 && totalMilestones === 0) {
-    computedScore = goal.status === "completed" ? 100 : goal.status === "cancelled" ? 0 : 70;
-  } else {
-    // 1. Completion baseline (up to 100 points)
-    const taskRatio = totalTasks > 0 ? doneTasks / totalTasks : 1;
-    const milestoneRatio = totalMilestones > 0 ? completedMilestones / totalMilestones : 1;
-
-    let baseProgressScore = Math.round((taskRatio * 50) + (milestoneRatio * 50));
-
-    // If no progress has been made yet, start at a baseline of 75 instead of 0
-    if (baseProgressScore === 0 && totalTasks > 0) {
-      baseProgressScore = 75;
-    } else if (baseProgressScore > 0) {
-      // Scale up base progress so early-stage goals aren't automatically scored 0
-      baseProgressScore = Math.max(60, baseProgressScore);
-    }
-
-    // 2. Apply penalties for risks and bottlenecks
-    const blockedPenalty = Math.min(45, blockedTasks * 15);
-    const overduePenalty = Math.min(30, overdueTasks * 10);
-    const delayedMilestonePenalty = Math.min(40, delayedMilestones * 20);
-
-    // 3. Goal deadline penalty
-    let goalDeadlinePenalty = 0;
-    if (goal.targetDate && new Date(goal.targetDate) < now && (totalTasks > doneTasks || totalMilestones > completedMilestones)) {
-      goalDeadlinePenalty = 25;
-    }
-
-    computedScore = baseProgressScore - blockedPenalty - overduePenalty - delayedMilestonePenalty - goalDeadlinePenalty;
-
-    // If all tasks and milestones are done, force 100
-    if (totalTasks > 0 && doneTasks === totalTasks && totalMilestones === completedMilestones) {
-      computedScore = 100;
-    }
-  }
-
-  // Clamp score between 0 and 100
-  const finalScore = Math.max(0, Math.min(100, Math.round(computedScore)));
-
-  const previousScore = goal.healthScore;
-  const degraded = finalScore < previousScore && finalScore < 70;
-
-  let healthStatus: GoalHealthStatus = "on_track";
-  if (finalScore < 40) {
-    healthStatus = "at_risk";
-  } else if (finalScore < 70) {
-    healthStatus = "needs_attention";
-  }
-
-  // Update Goal healthScore if changed
-  if (finalScore !== previousScore) {
-    await prisma.goal.update({
-      where: { id: goalId },
-      data: { healthScore: finalScore },
-    });
-
-    // Record activity log if score degraded significantly
-    if (Math.abs(finalScore - previousScore) >= 10 || degraded) {
+    if (Math.abs(finalScore - goal.healthScore) >= 10 || degraded) {
       await prisma.activityLog.create({
         data: {
           workspaceId: goal.workspaceId,
@@ -151,12 +198,12 @@ export async function calculateGoalHealth(goalId: string): Promise<GoalHealthEva
           entityId: goalId,
           action: "health_score_updated",
           diff: {
-            previousScore,
+            previousScore: goal.healthScore,
             newScore: finalScore,
-            healthStatus,
-            blockedTasks,
-            overdueTasks,
-            delayedMilestones,
+            healthStatus: status,
+            blockedTasks: metrics.blockedTasks,
+            overdueTasks: metrics.overdueTasks,
+            delayedMilestones: metrics.delayedMilestones,
           },
         },
       }).catch((err) => console.error("[goal-health] Activity log write error:", err));
@@ -167,44 +214,23 @@ export async function calculateGoalHealth(goalId: string): Promise<GoalHealthEva
     goalId: goal.id,
     goalTitle: goal.title,
     workspaceId: goal.workspaceId,
-    previousScore,
+    previousScore: goal.healthScore,
     healthScore: finalScore,
-    status: healthStatus,
+    status,
     degraded,
-    metrics: {
-      totalMilestones,
-      completedMilestones,
-      delayedMilestones,
-      totalTasks,
-      doneTasks,
-      blockedTasks,
-      overdueTasks,
-    },
+    metrics,
   };
 }
 
-/**
- * Evaluates all active goals of a single workspace: fetches only that
- * workspace's goal graph (milestones + slim task rows), computes scores
- * in-memory, and bulk updates in batch transactions.
- */
+// ── Bulk workspace path (triggered from cron sweep) ────────────────────────
+
 async function evaluateWorkspaceGoalsHealth(workspaceId: string): Promise<GoalHealthEvaluation[]> {
   const goals = await prisma.goal.findMany({
-    where: {
-      status: { in: ["active", "draft"] },
-      workspaceId,
-    },
+    where: { status: { in: ["active", "draft"] }, workspaceId },
     include: {
       milestones: {
         include: {
-          tasks: {
-            select: {
-              id: true,
-              status: true,
-              dueDate: true,
-              priority: true,
-            },
-          },
+          tasks: { select: { id: true, status: true, dueDate: true, priority: true } },
         },
       },
     },
@@ -212,9 +238,9 @@ async function evaluateWorkspaceGoalsHealth(workspaceId: string): Promise<GoalHe
 
   if (goals.length === 0) return [];
 
-  const now = new Date();
+  const now         = new Date();
   const evaluations: GoalHealthEvaluation[] = [];
-  const delayedMilestoneIds: string[] = [];
+  const allNewlyDelayed: string[] = [];
   const goalsToUpdate: Array<{
     id: string;
     healthScore: number;
@@ -222,137 +248,54 @@ async function evaluateWorkspaceGoalsHealth(workspaceId: string): Promise<GoalHe
     ownerId: string | null;
     previousScore: number;
     degraded: boolean;
-    healthStatus: GoalHealthStatus;
+    status: GoalHealthStatus;
+    metrics: GoalHealthEvaluation["metrics"];
   }> = [];
 
   for (const goal of goals) {
-    const milestones = goal.milestones;
-    const allTasks = milestones.flatMap((m) => m.tasks);
+    const allTasks = goal.milestones.flatMap((m) => m.tasks);
+    const result   = computeHealthScore(goal, goal.milestones, allTasks, now);
+    const { finalScore, status, degraded, metrics, newlyDelayedMilestoneIds } = result;
 
-    const totalMilestones = milestones.length;
-    const completedMilestones = milestones.filter((m) => m.status === "completed").length;
+    allNewlyDelayed.push(...newlyDelayedMilestoneIds);
 
-    for (const m of milestones) {
-      if (m.status !== "completed" && m.targetDate && new Date(m.targetDate) < now && m.status !== "delayed") {
-        delayedMilestoneIds.push(m.id);
-      }
-    }
-
-    const delayedMilestones = milestones.filter(
-      (m) => m.status === "delayed" || (m.status !== "completed" && m.targetDate && new Date(m.targetDate) < now)
-    ).length;
-
-    const totalTasks = allTasks.length;
-    const doneTasks = allTasks.filter((t) => t.status === "done").length;
-    const blockedTasks = allTasks.filter((t) => t.status === "blocked").length;
-    const overdueTasks = allTasks.filter(
-      (t) => t.status !== "done" && t.dueDate && new Date(t.dueDate) < now
-    ).length;
-
-    let computedScore = 100;
-    if (totalTasks === 0 && totalMilestones === 0) {
-      computedScore = goal.status === "completed" ? 100 : goal.status === "cancelled" ? 0 : 70;
-    } else {
-      const taskRatio = totalTasks > 0 ? doneTasks / totalTasks : 1;
-      const milestoneRatio = totalMilestones > 0 ? completedMilestones / totalMilestones : 1;
-      let baseProgressScore = Math.round(taskRatio * 50 + milestoneRatio * 50);
-
-      if (baseProgressScore === 0 && totalTasks > 0) {
-        baseProgressScore = 75;
-      } else if (baseProgressScore > 0) {
-        baseProgressScore = Math.max(60, baseProgressScore);
-      }
-
-      const blockedPenalty = Math.min(45, blockedTasks * 15);
-      const overduePenalty = Math.min(30, overdueTasks * 10);
-      const delayedMilestonePenalty = Math.min(40, delayedMilestones * 20);
-
-      let goalDeadlinePenalty = 0;
-      if (
-        goal.targetDate &&
-        new Date(goal.targetDate) < now &&
-        (totalTasks > doneTasks || totalMilestones > completedMilestones)
-      ) {
-        goalDeadlinePenalty = 25;
-      }
-
-      computedScore =
-        baseProgressScore - blockedPenalty - overduePenalty - delayedMilestonePenalty - goalDeadlinePenalty;
-      if (totalTasks > 0 && doneTasks === totalTasks && totalMilestones === completedMilestones) {
-        computedScore = 100;
-      }
-    }
-
-    const finalScore = Math.max(0, Math.min(100, Math.round(computedScore)));
-    const previousScore = goal.healthScore;
-    const degraded = finalScore < previousScore && finalScore < 70;
-
-    let healthStatus: GoalHealthStatus = "on_track";
-    if (finalScore < 40) {
-      healthStatus = "at_risk";
-    } else if (finalScore < 70) {
-      healthStatus = "needs_attention";
-    }
-
-    const evaluation: GoalHealthEvaluation = {
+    evaluations.push({
       goalId: goal.id,
       goalTitle: goal.title,
       workspaceId: goal.workspaceId,
-      previousScore,
+      previousScore: goal.healthScore,
       healthScore: finalScore,
-      status: healthStatus,
+      status,
       degraded,
-      metrics: {
-        totalMilestones,
-        completedMilestones,
-        delayedMilestones,
-        totalTasks,
-        doneTasks,
-        blockedTasks,
-        overdueTasks,
-      },
-    };
-    evaluations.push(evaluation);
+      metrics,
+    });
 
-    if (finalScore !== previousScore) {
+    if (finalScore !== goal.healthScore) {
       goalsToUpdate.push({
-        id: goal.id,
-        healthScore: finalScore,
-        workspaceId: goal.workspaceId,
-        ownerId: goal.ownerId,
-        previousScore,
-        degraded,
-        healthStatus,
+        id: goal.id, healthScore: finalScore,
+        workspaceId: goal.workspaceId, ownerId: goal.ownerId,
+        previousScore: goal.healthScore, degraded, status, metrics,
       });
     }
   }
 
-  // 1. Batch update slipping milestones if any
-  if (delayedMilestoneIds.length > 0) {
-    await prisma.milestone
-      .updateMany({
-        where: { id: { in: delayedMilestoneIds }, status: { not: "delayed" } },
-        data: { status: "delayed" },
-      })
-      .catch((err) => console.error("[goal-health] Batch delayed milestones update error:", err));
+  // Batch update newly-delayed milestones
+  if (allNewlyDelayed.length > 0) {
+    await prisma.milestone.updateMany({
+      where: { id: { in: allNewlyDelayed }, status: { not: "delayed" } },
+      data: { status: "delayed" },
+    }).catch((err) => console.error("[goal-health] Batch delayed milestones update error:", err));
   }
 
-  // 2. Batch update goal scores in chunks of 50
-  if (goalsToUpdate.length > 0) {
-    const CHUNK_SIZE = 50;
-    for (let i = 0; i < goalsToUpdate.length; i += CHUNK_SIZE) {
-      const chunk = goalsToUpdate.slice(i, i + CHUNK_SIZE);
-      await prisma
-        .$transaction(
-          chunk.map((g) =>
-            prisma.goal.update({
-              where: { id: g.id },
-              data: { healthScore: g.healthScore },
-            })
-          )
-        )
-        .catch((err) => console.error("[goal-health] Batch goal health update error:", err));
-    }
+  // Bulk update goal health scores in chunks of 50
+  const CHUNK_SIZE = 50;
+  for (let i = 0; i < goalsToUpdate.length; i += CHUNK_SIZE) {
+    const chunk = goalsToUpdate.slice(i, i + CHUNK_SIZE);
+    await prisma
+      .$transaction(
+        chunk.map((g) => prisma.goal.update({ where: { id: g.id }, data: { healthScore: g.healthScore } }))
+      )
+      .catch((err) => console.error("[goal-health] Batch goal health update error:", err));
   }
 
   return evaluations;
@@ -360,16 +303,10 @@ async function evaluateWorkspaceGoalsHealth(workspaceId: string): Promise<GoalHe
 
 /**
  * Re-evaluates health scores for all active goals across all or a specific workspace.
- *
- * Processes one workspace at a time: instead of loading every active goal with
- * full milestone + task rows across ALL workspaces in a single query (an
- * unbounded, ever-growing result set), it first groups active goals by
- * workspaceId, then fetches and evaluates each workspace's goal graph
- * separately. A failure in one workspace is caught and logged so it cannot
- * kill the sweep for the remaining workspaces.
  */
-export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<GoalHealthEvaluation[]> {
-  // Single-workspace mode: evaluate just that workspace.
+export async function evaluateAllGoalsHealth(
+  workspaceId?: string
+): Promise<GoalHealthEvaluation[]> {
   if (workspaceId) {
     try {
       return await evaluateWorkspaceGoalsHealth(workspaceId);
@@ -379,8 +316,6 @@ export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<Goal
     }
   }
 
-  // Discover which workspaces actually have active/draft goals (cheap grouped
-  // count query) so we skip empty workspaces entirely.
   const workspaceGroups = await prisma.goal.groupBy({
     by: ["workspaceId"],
     where: { status: { in: ["active", "draft"] } },
@@ -389,12 +324,11 @@ export async function evaluateAllGoalsHealth(workspaceId?: string): Promise<Goal
   const allEvaluations: GoalHealthEvaluation[] = [];
   for (const group of workspaceGroups) {
     try {
-      const evaluations = await evaluateWorkspaceGoalsHealth(group.workspaceId);
-      allEvaluations.push(...evaluations);
+      const evals = await evaluateWorkspaceGoalsHealth(group.workspaceId);
+      allEvaluations.push(...evals);
     } catch (err) {
       console.error(`[goal-health] Evaluation failed for workspace ${group.workspaceId}:`, err);
     }
   }
-
   return allEvaluations;
 }

@@ -42,22 +42,6 @@ export async function seedWorkspace({
       },
     });
 
-    // Seed sprints
-    const sprintMap: Record<string, string> = {};
-    for (const sprintDef of templateData.data.sprints) {
-      const sprint = await tx.sprint.create({
-        data: {
-          workspaceId: ws.id,
-          name: sprintDef.name,
-          startDate: sprintDef.startDate,
-          endDate: sprintDef.endDate,
-          velocity: sprintDef.velocity,
-          status: "active",
-        },
-      });
-      sprintMap[sprintDef.name] = sprint.id;
-    }
-
     // Seed goals → milestones → tasks
     let boardX = 60;
     let boardY = 60;
@@ -117,10 +101,6 @@ export async function seedWorkspace({
 
         boardX += 260;
 
-        // Find first available sprint for in-progress tasks
-        const sprintIds = Object.values(sprintMap);
-        const firstSprintId = sprintIds[0] ?? null;
-
         for (const taskDef of msDef.tasks) {
           await tx.task.create({
             data: {
@@ -132,7 +112,6 @@ export async function seedWorkspace({
               storyPoints: taskDef.storyPoints,
               order: taskDef.order,
               dueDate: msDef.targetDate ?? new Date(),
-              sprintId: taskDef.status === "in_progress" || taskDef.status === "todo" ? firstSprintId : null,
               assigneeId: userId,
             },
           });

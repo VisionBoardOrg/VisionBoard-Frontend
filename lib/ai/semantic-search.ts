@@ -1,3 +1,4 @@
+import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { generateEmbedding, cosineSimilarity } from "./embeddings";
@@ -113,7 +114,11 @@ export async function searchWorkspaceKnowledge(
     );
   }
 
-  // ── Fallback: fetch all chunks and rank in JavaScript ────────────────────
+  // ── Fallback: fetch top-N chunks and rank in JavaScript ──────────────────
+  // Hard cap at 2000 rows — avoids loading the entire embedding table into
+  // memory. For workspaces larger than this, apply the pgvector migration to
+  // use the fast ANN path instead (see instrumentation.ts startup warning).
+  const FALLBACK_LIMIT = 2000;
   const embeddings = await prisma.workspaceEmbedding.findMany({
     where: {
       workspaceId,
@@ -129,6 +134,10 @@ export async function searchWorkspaceKnowledge(
       embedding: true,
       metadata: true,
     },
+    // Most recently updated chunks are likely most relevant — take the newest
+    // rows when we must truncate, rather than an arbitrary slice.
+    orderBy: { updatedAt: "desc" },
+    take: FALLBACK_LIMIT,
   });
 
   if (embeddings.length === 0) {
