@@ -1,27 +1,33 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { excelToTiptap, textToTiptap } from "../app/api/documents/import/route";
 
 async function runVerificationTests() {
   console.log("==================================================================");
   console.log("       VISIONBOARD DOCUMENT IMPORT SYSTEM VERIFICATION SUITE       ");
-  console.log("==================================================================\n");
+  console.log("==================================================================");
 
   let testPassed = true;
 
   // -----------------------------------------------------------------------------
   // TEST 1: LOAD TESTING (~14MB .xlsx file with 25,000+ rows)
   // -----------------------------------------------------------------------------
-  console.log("--- TEST 1: LOAD TESTING (~14MB .xlsx file processing) ---");
+  console.log("--- TEST 1: LOAD TESTING (.xlsx file processing) ---");
   try {
     const memBefore = process.memoryUsage().heapUsed / 1024 / 1024;
     console.log(`Initial Heap Memory: ${memBefore.toFixed(2)} MB`);
 
     console.log("Generating 25,000 row multi-column spreadsheet...");
     const sampleHeaders = ["ID", "Project", "Owner", "Status", "Priority", "Budget", "Quarter", "Notes"];
-    const rows: unknown[][] = [sampleHeaders];
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet1 = workbook.addWorksheet("PerformanceData");
+    const sheet2 = workbook.addWorksheet("SecondaryArchive");
+
+    sheet1.addRow(sampleHeaders);
+    sheet2.addRow(sampleHeaders);
 
     for (let i = 1; i <= 25000; i++) {
-      rows.push([
+      const row = [
         `TASK-${i}`,
         `VisionBoard Core Module Refactoring ${i}`,
         `Engineer ${i % 10}`,
@@ -30,20 +36,17 @@ async function runVerificationTests() {
         `$${(i * 123.45).toFixed(2)}`,
         `Q${(i % 4) + 1}`,
         `Comprehensive performance optimization and verification run iteration #${i}`
-      ]);
+      ];
+      sheet1.addRow(row);
+      sheet2.addRow(row);
     }
 
-    const worksheet = XLSX.utils.aoa_to_sheet(rows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "PerformanceData");
-    XLSX.utils.book_append_sheet(workbook, worksheet, "SecondaryArchive");
-
-    const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
+    const xlsxBuffer = Buffer.from(await workbook.xlsx.writeBuffer());
     const bufferMb = xlsxBuffer.length / 1024 / 1024;
     console.log(`Generated .xlsx Buffer Size: ${bufferMb.toFixed(2)} MB`);
 
     const startMs = Date.now();
-    const result = excelToTiptap(xlsxBuffer) as { type: string; content: unknown[] };
+    const result = (await excelToTiptap(xlsxBuffer)) as { type: string; content: unknown[] };
     const durationMs = Date.now() - startMs;
 
     const memAfter = process.memoryUsage().heapUsed / 1024 / 1024;

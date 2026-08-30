@@ -23,7 +23,7 @@ export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
  */
 export async function excelToTiptap(buffer: Buffer): Promise<object> {
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer);
+  await workbook.xlsx.load(buffer as any);
   const content: object[] = [];
 
   workbook.eachSheet((sheet: ExcelJS.Worksheet) => {
