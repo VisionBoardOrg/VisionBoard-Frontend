@@ -96,13 +96,6 @@ export async function proxy(request: NextRequest) {
     // or dashboard routes. Unverified users are redirected to a page that prompts
     // them to check their inbox and resend the verification email.
     // /onboarding is excluded so new users can complete workspace setup first.
-    if (session && !session.user.emailVerified) {
-      const needsVerification =
-        pathname.startsWith("/workspace") || pathname.startsWith("/dashboard");
-      if (needsVerification) {
-        return NextResponse.redirect(new URL("/auth/verify-email-required", request.url));
-      }
-    }
   }
 
   // ── 4. Security headers + CSP ────────────────────────────────────────────
