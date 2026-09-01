@@ -42,6 +42,7 @@ model User {
   triggeredNotifications Notification[] @relation("ActorNotifications")
   copilotConversations CopilotConversation[]
   ownedGoals    Goal[]             @relation("OwnedGoals")
+  apiKeys       ApiKey[]
 
   @@index([scheduledDeletion])
 }
@@ -508,3 +509,20 @@ enum NotificationType {
   WORKSPACE_INVITE
 }
 
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String    @db.VarChar(100)
+  keyPrefix   String    @db.VarChar(12)   // first 9 chars of raw key ("vsn_live_"), for display
+  keyHash     String    @unique           // SHA-256(rawKey), hex-encoded (64 chars)
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([keyHash])
+}

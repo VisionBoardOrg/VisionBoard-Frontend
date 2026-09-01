@@ -5,6 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ProfileSection } from "@/components/settings/ProfileSection";
 import { DataPrivacySection } from "@/components/settings/DataPrivacySection";
 import { BillingSection } from "@/components/settings/BillingSection";
+import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { Suspense } from "react";
 
@@ -94,6 +95,9 @@ export default async function AccountPage() {
             aiCreditsUsed={user.aiCreditsUsed}
           />
         </Suspense>
+
+        {/* ── API Keys ── */}
+        <ApiKeysSection />
 
         {/* ── Data & Privacy ── */}
         <DataPrivacySection

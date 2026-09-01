@@ -55,6 +55,16 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // NEW: MCP endpoint — uses its own API key auth, not NextAuth sessions
+  if (pathname === "/api/mcp") {
+    return NextResponse.next();
+  }
+
+  // NEW: MCP discovery endpoint — public, no auth required
+  if (pathname === "/.well-known/mcp.json") {
+    return NextResponse.next();
+  }
+
   // ── 2. Admin API Protection ────────────────────────────────────────────────
   if (
     pathname.startsWith("/api/admin") &&
