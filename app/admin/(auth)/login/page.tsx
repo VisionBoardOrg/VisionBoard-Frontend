@@ -27,8 +27,8 @@ export default function AdminLoginPage() {
       const data = await res.json();
 
       if (res.ok && data.success) {
-        // Redirect to dashboard
-        window.location.href = "/dashboard";
+        // Redirect to admin overview
+        window.location.href = "/admin/overview";
       } else {
         setError(data.message || "Invalid credentials, please try again.");
       }

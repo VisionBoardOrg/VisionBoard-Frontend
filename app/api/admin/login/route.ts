@@ -48,10 +48,10 @@ export async function POST(request: NextRequest) {
         secure: process.env.ADMIN_COOKIE_INSECURE !== "true",
         sameSite: "strict",
         maxAge: 60 * 60 * 24, // 1 day session
-        // SECURITY (LOW-1): Restrict cookie to /admin paths only so it is never
-        // sent with requests to application routes. httpOnly alone prevents JS
-        // access, but path scoping limits the network exposure window.
-        path: "/admin",
+        // Path must be "/" so the cookie is sent to both /admin/* UI routes AND
+        // /api/admin/* API routes. Setting path:"/admin" would exclude /api/admin/*
+        // because the path prefix "/api/admin" does not start with "/admin".
+        path: "/",
       });
 
       return response;
