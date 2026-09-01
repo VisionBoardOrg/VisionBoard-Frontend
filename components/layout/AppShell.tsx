@@ -20,6 +20,7 @@ import { ToastProvider } from "@/context/ToastContext";
 import { ConfirmProvider } from "@/context/ConfirmContext";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import type { PlanTier } from "@prisma/client";
+import { WorkspaceWebMCPTools } from "@/components/webmcp/WorkspaceWebMCPTools";
 
 // The copilot drawer is a ~950-line chunk with markdown rendering — load it
 // on demand instead of shipping it with every workspace page
@@ -398,6 +399,11 @@ function AppShellContent({ workspaceId, role, plan, children, userId, isOwner, a
           onClose={closePalette}
           onOpenCopilot={() => setCopilotOpen(true)}
         />
+      )}
+
+      {/* ── WebMCP browser tool registration ── */}
+      {workspaceId && (
+        <WorkspaceWebMCPTools workspaceId={workspaceId} />
       )}
 
       {/* ── Global Semantic AI Copilot Drawer ── */}

@@ -119,6 +119,7 @@ export async function proxy(request: NextRequest) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+  response.headers.set("Origin-Agent-Cluster", "?1");
 
   if (isHtmlRoute) {
     response.headers.set("Content-Security-Policy", buildCsp());

@@ -21,6 +21,7 @@ import { TimeScale } from "@/lib/gantt-engine";
 import { InteractiveGantt, GoalGroup } from "./InteractiveGantt";
 import { NewMilestoneModal } from "./NewMilestoneModal";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
+import { RoadmapWebMCPTools } from "@/components/webmcp/RoadmapWebMCPTools";
 
 interface RoadmapViewProps {
   workspaceId: string;
@@ -543,6 +544,9 @@ export function RoadmapView({
           }}
         />
       )}
+
+      {/* WebMCP: make roadmap tools available to browser AI agents */}
+      <RoadmapWebMCPTools workspaceId={workspaceId} />
     </div>
   );
 }

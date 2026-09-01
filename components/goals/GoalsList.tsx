@@ -9,6 +9,7 @@ import {
   ChevronRight, FileText, MessageCircle,
 } from "lucide-react";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
+import { GoalsWebMCPTools } from "@/components/webmcp/GoalsWebMCPTools";
 
 const GoalHealthScore = dynamic(
   () => import("@/components/dashboard/GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
@@ -207,6 +208,9 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
           })}
         </div>
       )}
+
+      {/* WebMCP: make goal tools available to browser AI agents */}
+      <GoalsWebMCPTools workspaceId={workspaceId} canCreate={canCreate} />
     </div>
   );
 }

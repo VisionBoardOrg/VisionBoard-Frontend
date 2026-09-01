@@ -204,6 +204,13 @@ export default async function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        {/* WebMCP origin trial token — register at https://developer.chrome.com/origintrials */}
+        {process.env.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN && (
+          <meta
+            httpEquiv="origin-trial"
+            content={process.env.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN}
+          />
+        )}
       </head>
       <body className="h-full bg-offwhite text-ink">
         <SessionProvider session={session} refetchOnWindowFocus={false}>
