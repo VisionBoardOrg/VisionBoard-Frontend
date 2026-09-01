@@ -79,41 +79,37 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
     };
   }, [fetchNotifications]);
 
-  // Single Real-time SSE Stream subscription with smart fallback polling and visibility awareness
+  // Tab-visibility-aware interval polling (pauses when browser tab is inactive)
   useEffect(() => {
-    let sse: EventSource | null = null;
-    let fallbackPollTimer: NodeJS.Timeout | null = null;
-    let isSseConnected = false;
+    let pollTimer: NodeJS.Timeout | null = null;
 
-    const startFallbackPolling = () => {
+    const startPolling = () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      if (!fallbackPollTimer && !isSseConnected) {
-        fallbackPollTimer = setInterval(() => {
+      if (!pollTimer) {
+        pollTimer = setInterval(() => {
           if (typeof document === "undefined" || document.visibilityState !== "hidden") {
             fetchNotifications();
           }
-        }, 30_000);
+        }, 30_000); // Poll every 30 seconds
       }
     };
 
-    const stopFallbackPolling = () => {
-      if (fallbackPollTimer) {
-        clearInterval(fallbackPollTimer);
-        fallbackPollTimer = null;
+    const stopPolling = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
       }
     };
 
     const handleVisibilityChange = () => {
       if (typeof document === "undefined") return;
       if (document.visibilityState === "visible") {
-        // Tab became active again — immediately refresh and resume polling if SSE is down
+        // Tab became active again — immediately refresh and resume polling
         fetchNotifications();
-        if (!isSseConnected) {
-          startFallbackPolling();
-        }
+        startPolling();
       } else {
         // Tab is hidden in background — suspend polling to save client battery and server resources
-        stopFallbackPolling();
+        stopPolling();
       }
     };
 
@@ -121,57 +117,15 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
       document.addEventListener("visibilitychange", handleVisibilityChange);
     }
 
-    try {
-      sse = new EventSource("/api/notifications/stream");
-
-      sse.onopen = () => {
-        // SSE connected successfully, stop redundant polling
-        isSseConnected = true;
-        stopFallbackPolling();
-      };
-
-      sse.onmessage = (event) => {
-        try {
-          if (!event.data || event.data.startsWith(":")) return;
-          const payload = JSON.parse(event.data);
-
-          if (payload.type === "CONNECTED") return;
-
-          // Received a new live notification
-          const newNotif = payload as NotificationResponseItem;
-
-          // Only show toast / prepend if scoped properly to active workspace
-          if (!workspaceId || !newNotif.workspaceId || newNotif.workspaceId === workspaceId) {
-            setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== newNotif.id)]);
-            setUnreadCount((prev) => prev + 1);
-            setLatestLiveEvent(newNotif);
-          }
-        } catch (parseErr) {
-          console.error("[NotificationContext] SSE payload parse error:", parseErr);
-        }
-      };
-
-      sse.onerror = () => {
-        // SSE disconnected, fall back to interval polling
-        isSseConnected = false;
-        startFallbackPolling();
-      };
-    } catch (err) {
-      console.error("[NotificationContext] SSE connection setup failed:", err);
-      isSseConnected = false;
-      startFallbackPolling();
-    }
+    startPolling();
 
     return () => {
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", handleVisibilityChange);
       }
-      stopFallbackPolling();
-      if (sse) {
-        sse.close();
-      }
+      stopPolling();
     };
-  }, [workspaceId, fetchNotifications]);
+  }, [fetchNotifications]);
 
   // Mark single or multiple notifications as read
   const markAsRead = useCallback(async (notificationIds: string[]) => {
