@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { emitLiveNotification } from "@/lib/notification-events";
+import { sendEmailWithRetry } from "@/lib/email/email-service";
+import { renderNotificationEmail } from "@/lib/email/templates/notification-email-template";
+import {
+  shouldSendEmailForNotification,
+  getUserNotificationPreferences,
+} from "@/lib/notification-preferences";
 import { Prisma, type NotificationType } from "@prisma/client";
 
 export interface CreateNotificationInput {
@@ -41,6 +47,103 @@ export interface NotificationResponseItem {
     name: string;
     slug: string;
   } | null;
+}
+
+/**
+ * Asynchronously dispatch an email notification if the recipient has enabled emails.
+ * Fire-and-forget; never blocks the in-app notification pipeline.
+ */
+export async function dispatchNotificationEmailAsync(notification: {
+  id: string;
+  userId: string;
+  workspaceId: string | null;
+  actorId: string | null;
+  type: NotificationType | string;
+  title: string;
+  message: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  link?: string | null;
+  metadata?: Prisma.JsonValue | Record<string, unknown> | null;
+  actor?: { id: string; name: string | null; image: string | null; email: string | null } | null;
+}): Promise<void> {
+  try {
+    // 1. Fetch recipient and workspace details in parallel
+    const [recipient, workspace] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: notification.userId },
+        select: { id: true, name: true, email: true },
+      }),
+      notification.workspaceId
+        ? prisma.workspace.findUnique({
+            where: { id: notification.workspaceId },
+            select: { name: true },
+          })
+        : null,
+    ]);
+
+    if (!recipient || !recipient.email) {
+      return;
+    }
+
+    // 2. Check user notification preferences
+    const check = await shouldSendEmailForNotification(
+      notification.userId,
+      notification.type
+    );
+
+    if (!check.shouldSend) {
+      return;
+    }
+
+    const preferences =
+      check.preferences ||
+      (await getUserNotificationPreferences(notification.userId));
+
+    // 3. Build URLs
+    const appUrl =
+      process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
+    const unsubscribeUrl = `${appUrl.replace(/\/+$/, "")}/api/notifications/unsubscribe?token=${encodeURIComponent(
+      preferences.unsubscribeToken
+    )}`;
+    const preferencesUrl = `${appUrl.replace(/\/+$/, "")}/account`;
+
+    // 4. Render email
+    const { subject, html, text } = renderNotificationEmail({
+      notification: {
+        id: notification.id,
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        entityType: notification.entityType,
+        entityId: notification.entityId,
+        link: notification.link,
+        metadata: notification.metadata as Record<string, unknown> | null,
+      },
+      recipient: {
+        name: recipient.name,
+        email: recipient.email,
+      },
+      actor: notification.actor
+        ? { name: notification.actor.name, email: notification.actor.email }
+        : null,
+      workspaceName: workspace?.name,
+      unsubscribeUrl,
+      preferencesUrl,
+      appUrl,
+    });
+
+    // 5. Transmit with retry
+    await sendEmailWithRetry({
+      to: recipient.email,
+      subject,
+      html,
+      text,
+      unsubscribeUrl,
+    });
+  } catch (err) {
+    console.error("[notifications] Failed in dispatchNotificationEmailAsync:", err);
+  }
 }
 
 /**
@@ -89,6 +192,11 @@ export async function createNotification(input: CreateNotificationInput) {
       metadata: notification.metadata as Record<string, unknown> | null,
       createdAt: notification.createdAt.toISOString(),
     }).catch((err) => console.error("[notifications] SSE emit failed:", err));
+
+    // Dispatch email notification (fire-and-forget — async, non-blocking)
+    dispatchNotificationEmailAsync(notification).catch((err) =>
+      console.error("[notifications] Email dispatch failed:", err)
+    );
 
     return notification;
   } catch (err) {

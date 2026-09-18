@@ -43,6 +43,7 @@ model User {
   copilotConversations CopilotConversation[]
   ownedGoals    Goal[]             @relation("OwnedGoals")
   apiKeys       ApiKey[]
+  notificationPreferences NotificationPreference?
 
   @@index([scheduledDeletion])
 }
@@ -525,4 +526,25 @@ model ApiKey {
 
   @@index([userId])
   @@index([keyHash])
+}
+
+model NotificationPreference {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  emailEnabled     Boolean  @default(true)
+  tasks            Boolean  @default(true)
+  mentions         Boolean  @default(true)
+  comments         Boolean  @default(true)
+  goalsMilestones  Boolean  @default(true)
+  quotasBilling    Boolean  @default(true)
+  systemAlerts     Boolean  @default(true)
+  typeOverrides    Json?
+  unsubscribeToken String   @unique @default(cuid())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([unsubscribeToken])
 }
