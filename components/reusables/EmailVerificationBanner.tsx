@@ -93,7 +93,7 @@ export function EmailVerificationBanner() {
               <strong
                 className={
                   statusMessage.type === "success"
-                    ? "text-emerald-800 dark:text-emerald-300 font-medium"
+                    ? "text-black dark:text-emerald-300 font-medium"
                     : "text-rose-800 dark:text-rose-300 font-medium"
                 }
               >

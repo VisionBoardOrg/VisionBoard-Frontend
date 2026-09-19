@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { MemberRole } from "@prisma/client";
 import { TemplateName } from "@/lib/templates";
 import Logo from "@/components/reusables/Logo";
@@ -25,12 +26,19 @@ const TEMPLATES: { value: TemplateName; label: string; icon: React.ElementType; 
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { data: session, update: updateSession } = useSession();
   const [step, setStep] = useState<Step>(1);
   const [selectedRole, setSelectedRole] = useState<MemberRole | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateName | null>(null);
   const [workspaceName, setWorkspaceName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (session?.user?.workspaceId) {
+      router.replace("/dashboard");
+    }
+  }, [session, router]);
 
   async function handleComplete() {
     if (!selectedRole || !selectedTemplate || !workspaceName.trim()) return;
@@ -61,6 +69,7 @@ export default function OnboardingPage() {
       }
 
       if (data?.workspace?.id) {
+        await updateSession();
         router.push(`/workspace/${data.workspace.id}/board`);
       }
     } catch (err: unknown) {

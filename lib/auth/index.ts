@@ -192,9 +192,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
       }
 
-      // Re-fetch workspace membership & user plan from DB:
+      // Refresh workspace membership & user plan from DB:
       // - On initial sign-in (fields not yet populated)
       // - On explicit session update trigger (e.g. after workspace creation)
+      // - Whenever workspaceId is still null (check for newly-created memberships)
       // - Every 5 minutes to pick up role changes or membership removal
       //
       // This callback runs ONLY in Node.js context (API routes, RSC pages).
@@ -202,11 +203,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
       const now       = Date.now();
       const lastFetch = (token.membershipFetchedAt as number | undefined) ?? 0;
-      // Refresh workspace membership only on explicit trigger, initial login (lastFetch === 0),
-      // or after 5 minutes — avoiding redundant DB queries on every request when workspaceId is null.
+      // Refresh workspace membership if workspaceId is missing (new user, or
+      // workspace was just created but token not yet refreshed via trigger="update"),
+      // or on the 5-minute cadence to catch cross-instance role/membership changes.
       const needsRefresh =
         trigger === "update" ||
-        (token.workspaceId === null && lastFetch === 0) ||
+        token.workspaceId === null ||
         (lastFetch > 0 && now - lastFetch > REFRESH_INTERVAL_MS);
 
       if (token.id && needsRefresh) {
