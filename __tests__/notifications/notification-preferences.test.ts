@@ -3,8 +3,10 @@ import {
   getCategoryForType,
   shouldSendEmailForNotification,
   unsubscribeByToken,
+  updateUserNotificationPreferences,
 } from "@/lib/notification-preferences";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -180,4 +182,55 @@ describe("notification-preferences", () => {
       expect(result.error).toContain("Invalid or expired");
     });
   });
+
+  describe("updateUserNotificationPreferences", () => {
+    it("upserts preferences with scalar values and converts null typeOverrides to Prisma.JsonNull", async () => {
+      vi.mocked(prisma.notificationPreference.upsert).mockResolvedValue({
+        id: "pref_1",
+        userId: "user_1",
+        emailEnabled: false,
+        tasks: false,
+        mentions: true,
+        comments: true,
+        goalsMilestones: true,
+        quotasBilling: true,
+        systemAlerts: true,
+        typeOverrides: null,
+        unsubscribeToken: "token_1",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      const result = await updateUserNotificationPreferences("user_1", {
+        emailEnabled: false,
+        tasks: false,
+        typeOverrides: null,
+      });
+
+      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith({
+        where: { userId: "user_1" },
+        update: {
+          emailEnabled: false,
+          tasks: false,
+          typeOverrides: Prisma.JsonNull,
+        },
+        create: {
+          userId: "user_1",
+          emailEnabled: false,
+          tasks: false,
+          mentions: true,
+          comments: true,
+          goalsMilestones: true,
+          quotasBilling: true,
+          systemAlerts: true,
+          typeOverrides: Prisma.JsonNull,
+        },
+      });
+
+      expect(result.emailEnabled).toBe(false);
+      expect(result.tasks).toBe(false);
+      expect(result.typeOverrides).toBeNull();
+    });
+  });
 });
+

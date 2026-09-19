@@ -9,7 +9,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import type { NotificationType } from "@prisma/client";
+import { Prisma, type NotificationType } from "@prisma/client";
 
 export interface UserPreferencesDTO {
   id: string;
@@ -194,11 +194,23 @@ export async function updateUserNotificationPreferences(
     typeOverrides: Record<string, boolean> | null;
   }>
 ): Promise<UserPreferencesDTO> {
+  const { typeOverrides, ...scalarUpdates } = updates;
+
+  const updateData: Prisma.NotificationPreferenceUpdateInput = {
+    ...scalarUpdates,
+    ...(typeOverrides !== undefined
+      ? {
+          typeOverrides:
+            typeOverrides === null
+              ? Prisma.JsonNull
+              : (typeOverrides as Prisma.InputJsonValue),
+        }
+      : {}),
+  };
+
   const result = await prisma.notificationPreference.upsert({
     where: { userId },
-    update: {
-      ...updates,
-    },
+    update: updateData,
     create: {
       userId,
       emailEnabled: updates.emailEnabled ?? true,
@@ -208,7 +220,10 @@ export async function updateUserNotificationPreferences(
       goalsMilestones: updates.goalsMilestones ?? true,
       quotasBilling: updates.quotasBilling ?? true,
       systemAlerts: updates.systemAlerts ?? true,
-      typeOverrides: updates.typeOverrides ?? undefined,
+      typeOverrides:
+        typeOverrides === null
+          ? Prisma.JsonNull
+          : (typeOverrides as Prisma.InputJsonValue | undefined) ?? undefined,
     },
   });
 

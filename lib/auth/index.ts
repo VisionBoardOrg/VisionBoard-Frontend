@@ -25,6 +25,8 @@ import { z } from "zod";
 import { authConfig } from "@/auth.config";
 import { cache } from "react";
 
+import { checkRateLimitByKey, getClientIp } from "@/lib/rate-limit";
+
 /**
  * Deduplicate workspace membership queries within a single request lifecycle (RSC / Server Components / layout + page).
  * Prevents multiple parallel auth() calls in layout + page + metadata from spamming the Prisma connection pool.
@@ -42,6 +44,10 @@ const loginSchema = z.object({
   // Match the registration minimum — shorter values can never be valid credentials
   password: z.string().min(12),
 });
+
+// Fixed bcrypt dummy hash for constant-time comparison when email does not exist (prevents timing side-channel)
+const TIMING_SAFE_DUMMY_HASH =
+  "$2b$12$e8Ym4B3lK1QkU5D3yU2v6eN4Ew6E1HjVvQhK.Y1M3GqO4Z8.F1B2C";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -77,17 +83,80 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email: parsed.data.email },
-        });
-        if (!user?.hashedPassword) return null;
+        const { email, password } = parsed.data;
 
-        const valid = await bcrypt.compare(parsed.data.password, user.hashedPassword);
-        if (!valid) return null;
+        // 1. IP Rate Limiting (max 15 login attempts per 15 min per IP)
+        const ip = request ? getClientIp(request) : "unknown";
+        const ipLimit = await checkRateLimitByKey(`rl:login:ip:${ip}`, {
+          windowMs: 15 * 60 * 1000,
+          max: 15,
+        });
+        if (!ipLimit.allowed) {
+          throw new Error("RATE_LIMIT_EXCEEDED");
+        }
+
+        // 2. User Lookup
+        const user = await prisma.user.findUnique({
+          where: { email },
+        });
+
+        // Constant-time mitigation against timing enumeration if user doesn't exist
+        if (!user || !user.hashedPassword) {
+          await bcrypt.compare(password, TIMING_SAFE_DUMMY_HASH);
+          await checkRateLimitByKey(`rl:login:email:${email}`, {
+            windowMs: 15 * 60 * 1000,
+            max: 10,
+          });
+          return null;
+        }
+
+        // 3. Account Lockout Check
+        if (user.lockedUntil && user.lockedUntil > new Date()) {
+          const remainingMinutes = Math.max(
+            1,
+            Math.ceil((user.lockedUntil.getTime() - Date.now()) / (60 * 1000))
+          );
+          throw new Error(`ACCOUNT_LOCKED:${remainingMinutes}`);
+        }
+
+        // 4. Verify Password
+        const valid = await bcrypt.compare(password, user.hashedPassword);
+        if (!valid) {
+          const newFailedAttempts = (user.failedLoginAttempts || 0) + 1;
+          const willLock = newFailedAttempts >= 5;
+          const lockedUntil = willLock
+            ? new Date(Date.now() + 15 * 60 * 1000)
+            : null;
+
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              failedLoginAttempts: newFailedAttempts,
+              lockedUntil,
+            },
+          });
+
+          if (willLock) {
+            throw new Error("ACCOUNT_LOCKED:15");
+          }
+
+          return null;
+        }
+
+        // 5. Successful login — clear lockout & reset failure counter
+        if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              failedLoginAttempts: 0,
+              lockedUntil: null,
+            },
+          });
+        }
 
         if (user.scheduledDeletion) {
           throw new Error(`ACCOUNT_DELETION_SCHEDULED:${user.email}`);

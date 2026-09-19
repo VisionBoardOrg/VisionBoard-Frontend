@@ -19,6 +19,8 @@ model User {
   hashedPassword      String?
   plan                PlanTier          @default(free)
   aiCreditsUsed       Int               @default(0)
+  failedLoginAttempts Int               @default(0)
+  lockedUntil         DateTime?
   // ── Stripe Billing ────────────────────────────────────────────────────────
   stripeCustomerId       String?  @unique
   stripeSubscriptionId   String?  @unique

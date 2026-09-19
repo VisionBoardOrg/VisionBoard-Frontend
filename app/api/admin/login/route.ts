@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { signAdminSession } from "@/lib/auth/admin-session";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkRateLimitByKey } from "@/lib/rate-limit";
 import { safeCompare } from "@/lib/auth/safe-compare";
 
 export async function POST(request: NextRequest) {
@@ -15,6 +15,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const { username, password } = await request.json();
+
+    // Secondary rate limit: check attempts against this specific username
+    if (username && typeof username === "string") {
+      const userRateLimit = await checkRateLimitByKey(
+        `rl:admin-login:user:${username.trim().toLowerCase()}`,
+        { windowMs: 15 * 60 * 1000, max: 5 }
+      );
+      if (!userRateLimit.allowed && userRateLimit.response) {
+        return userRateLimit.response;
+      }
+    }
 
     const expectedUsername = process.env.ADMIN_USERNAME || "admin";
     const expectedPassword = process.env.ADMIN_PASSWORD;
@@ -56,6 +67,9 @@ export async function POST(request: NextRequest) {
 
       return response;
     }
+
+    // Artificial delay on failed authentication to impede rapid brute-force automation
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     return NextResponse.json(
       { success: false, message: "Invalid username or password" },

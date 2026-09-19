@@ -15,6 +15,10 @@ function LoginForm() {
   const searchParamError = searchParams.get("error");
   const urlError = searchParamError === "OAuthAccountNotLinked"
     ? "An account already exists with the same email address using a different sign-in method."
+    : searchParamError?.includes("ACCOUNT_LOCKED")
+    ? `Too many failed attempts. This account is temporarily locked for ${searchParamError.split("ACCOUNT_LOCKED:")[1] || "15"} minutes. Please try again later or reset your password.`
+    : searchParamError?.includes("RATE_LIMIT_EXCEEDED")
+    ? "Too many sign-in attempts from this network. Please wait a few minutes before trying again."
     : searchParamError
     ? "Authentication failed. Please try again."
     : "";
@@ -41,6 +45,11 @@ function LoginForm() {
       if (res.error.includes("ACCOUNT_DELETION_SCHEDULED")) {
         const userEmail = res.error.split("ACCOUNT_DELETION_SCHEDULED:")[1] || form.email;
         setDeletionEmail(userEmail);
+      } else if (res.error.includes("ACCOUNT_LOCKED")) {
+        const minutes = res.error.split("ACCOUNT_LOCKED:")[1] || "15";
+        setError(`Too many failed attempts. This account is temporarily locked for ${minutes} minutes. Please try again later or reset your password.`);
+      } else if (res.error.includes("RATE_LIMIT_EXCEEDED")) {
+        setError("Too many sign-in attempts from this network. Please wait a few minutes before trying again.");
       } else {
         setError("Invalid email or password.");
       }

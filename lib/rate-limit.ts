@@ -73,31 +73,36 @@ type RedisRatelimitAdapter = {
   limit: (key: string) => Promise<{ success: boolean; remaining: number; reset: number }>;
 };
 
-let _redisAdapter: RedisRatelimitAdapter | null | "init" = "init";
+const _redisAdapters = new Map<string, RedisRatelimitAdapter>();
+let _redisUnavailable = false;
+let _warnedMissingRedis = false;
 
 async function getRedisAdapter(
   windowMs: number,
   max: number
 ): Promise<RedisRatelimitAdapter | null> {
-  if (_redisAdapter !== "init") return _redisAdapter;
+  const configKey = `${windowMs}:${max}`;
+  const existing = _redisAdapters.get(configKey);
+  if (existing) return existing;
+  if (_redisUnavailable) return null;
 
   const url = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (!url || !token) {
-    if (process.env.NODE_ENV === "production") {
+    if (process.env.NODE_ENV === "production" && !_warnedMissingRedis) {
       console.warn(
         "[rate-limit] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set. " +
           "Falling back to in-process store — rate limits ARE BYPASSABLE across serverless instances. " +
           "Set Upstash credentials to enforce limits across the entire fleet."
       );
+      _warnedMissingRedis = true;
     }
-    _redisAdapter = null;
+    _redisUnavailable = true;
     return null;
   }
 
   try {
-    // Dynamic import so the package is optional — the app still works without it.
     const [{ Ratelimit }, { Redis }] = await Promise.all([
       import("@upstash/ratelimit"),
       import("@upstash/redis"),
@@ -112,7 +117,7 @@ async function getRedisAdapter(
       analytics: false,
     });
 
-    _redisAdapter = {
+    const adapter: RedisRatelimitAdapter = {
       limit: async (key: string) => {
         const result = await ratelimit.limit(key);
         return {
@@ -122,12 +127,14 @@ async function getRedisAdapter(
         };
       },
     };
+
+    _redisAdapters.set(configKey, adapter);
+    return adapter;
   } catch (err) {
     console.warn("[rate-limit] Failed to initialise Upstash adapter:", err);
-    _redisAdapter = null;
+    _redisUnavailable = true;
+    return null;
   }
-
-  return _redisAdapter;
 }
 
 // ── IP extraction ──────────────────────────────────────────────────────────
@@ -141,6 +148,7 @@ function isValidIp(ip: string): boolean {
 
 /**
  * Extract the most trustworthy client IP from request headers.
+ * Supports NextRequest, standard Web Request, or any object with headers.get().
  *
  * Priority:
  * 1. cf-connecting-ip  — Cloudflare, cannot be spoofed on CF-proxied deployments
@@ -149,17 +157,18 @@ function isValidIp(ip: string): boolean {
  * 4. x-forwarded-for   — first valid IP in the chain
  * 5. "unknown"         — all requests share one bucket; still caps total rate
  */
-export function getClientIp(req: NextRequest): string {
-  const cfIp = req.headers.get("cf-connecting-ip");
+export function getClientIp(req: NextRequest | Request | { headers: { get: (name: string) => string | null } }): string {
+  const headers = req.headers;
+  const cfIp = headers.get("cf-connecting-ip");
   if (cfIp && isValidIp(cfIp.trim())) return cfIp.trim();
 
-  const xRealIp = req.headers.get("x-real-ip");
+  const xRealIp = headers.get("x-real-ip");
   if (xRealIp && isValidIp(xRealIp.trim())) return xRealIp.trim();
 
-  const xVercelIp = req.headers.get("x-vercel-ip");
+  const xVercelIp = headers.get("x-vercel-ip");
   if (xVercelIp && isValidIp(xVercelIp.trim())) return xVercelIp.trim();
 
-  const xForwardedFor = req.headers.get("x-forwarded-for");
+  const xForwardedFor = headers.get("x-forwarded-for");
   if (xForwardedFor) {
     const parts = xForwardedFor.split(",").map((p) => p.trim()).filter(Boolean);
     const candidate = parts[0];
@@ -172,28 +181,20 @@ export function getClientIp(req: NextRequest): string {
 // ── Public API ─────────────────────────────────────────────────────────────
 
 /**
- * Check and enforce a rate limit for the given action + client IP.
- *
+ * Check and enforce rate limit by an arbitrary storage key (IP, user ID, email, etc.).
  * Returns `{ allowed: true }` when under the limit, or
  * `{ allowed: false, response }` with a ready-to-return 429 NextResponse.
- *
- * Uses Upstash Redis sliding window when credentials are present (safe for
- * serverless/multi-instance), otherwise falls back to the in-process Map.
  */
-export async function checkRateLimit(
-  req: NextRequest,
-  action: string,
+export async function checkRateLimitByKey(
+  key: string,
   config: RateLimitConfig = { windowMs: 15 * 60 * 1000, max: 10 }
 ): Promise<{ allowed: boolean; remaining: number; resetSec: number; response?: NextResponse }> {
-  const ip = getClientIp(req);
-  const key = `rl:${action}:${ip}`;
-
   // Try Redis adapter first
   const adapter = await getRedisAdapter(config.windowMs, config.max);
 
   if (adapter) {
     const result = await adapter.limit(key);
-    const resetSec = Math.ceil((result.reset - Date.now()) / 1000);
+    const resetSec = Math.max(1, Math.ceil((result.reset - Date.now()) / 1000));
 
     if (!result.success) {
       return {
@@ -242,4 +243,19 @@ export async function checkRateLimit(
   }
 
   return { allowed: true, remaining, resetSec };
+}
+
+/**
+ * Check and enforce a rate limit for the given action + client IP.
+ * Uses Upstash Redis sliding window when credentials are present (safe for
+ * serverless/multi-instance), otherwise falls back to the in-process Map.
+ */
+export async function checkRateLimit(
+  req: NextRequest | Request | { headers: { get: (name: string) => string | null } },
+  action: string,
+  config: RateLimitConfig = { windowMs: 15 * 60 * 1000, max: 10 }
+): Promise<{ allowed: boolean; remaining: number; resetSec: number; response?: NextResponse }> {
+  const ip = getClientIp(req);
+  const key = `rl:${action}:ip:${ip}`;
+  return checkRateLimitByKey(key, config);
 }

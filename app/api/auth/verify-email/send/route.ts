@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { sendVerificationEmail } from "@/lib/email-verification";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkRateLimitByKey } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -10,13 +10,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Rate limit: 3 resend attempts per 15 minutes per IP
+  // 1. IP Rate limit: 3 resend attempts per 15 minutes per IP
   const rateLimit = await checkRateLimit(request, "resend-verification", {
     windowMs: 15 * 60 * 1000,
     max: 3,
   });
   if (!rateLimit.allowed && rateLimit.response) {
     return rateLimit.response;
+  }
+
+  // 2. Per-user Rate limit: 3 resend attempts per 15 minutes per account
+  const userRateLimit = await checkRateLimitByKey(
+    `rl:resend-verification:user:${session.user.id}`,
+    {
+      windowMs: 15 * 60 * 1000,
+      max: 3,
+    }
+  );
+  if (!userRateLimit.allowed && userRateLimit.response) {
+    return userRateLimit.response;
   }
 
   try {

@@ -4,7 +4,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { Resend } from "resend";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, checkRateLimitByKey } from "@/lib/rate-limit";
 
 const requestSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.string().email()),
@@ -84,6 +84,22 @@ export async function POST(request: NextRequest) {
   }
 
   const { email } = parsed.data;
+
+  // Enforce per-email rate limit: max 3 reset requests per hour per address
+  // Prevents email flooding / inbox bombing and Resend quota drain.
+  const emailRateLimit = await checkRateLimitByKey(`rl:reset-email:${email}`, {
+    windowMs: 60 * 60 * 1000,
+    max: 3,
+  });
+
+  if (!emailRateLimit.allowed) {
+    // Return standard success response to prevent email enumeration,
+    // but silently skip generating a token and skip email dispatch.
+    return NextResponse.json({
+      success: true,
+      message: "If that email exists, a reset link has been sent.",
+    });
+  }
 
   // Always return 200 to prevent email enumeration
   const user = await prisma.user.findUnique({ where: { email } });
