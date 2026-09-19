@@ -12,9 +12,24 @@
 
 import type { NextAuthConfig } from "next-auth";
 
+const isProduction = process.env.NODE_ENV === "production";
+const useSecureCookies =
+  isProduction && process.env.NEXTAUTH_COOKIE_INSECURE !== "true";
+
 export const authConfig: NextAuthConfig = {
   secret: process.env.AUTH_SECRET,
   session: { strategy: "jwt" },
+  useSecureCookies,
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        secure: useSecureCookies,
+        sameSite: "lax" as const,
+        path: "/",
+      },
+    },
+  },
   pages: {
     signIn: "/auth/login",
     error: "/auth/error",

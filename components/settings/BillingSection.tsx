@@ -8,9 +8,13 @@
  *
  * Reads `?checkout=success` and `?checkout=cancelled` query params to show
  * inline feedback after returning from Stripe Checkout.
+ *
+ * ⚠ Self-suspending export: internally calls `useSearchParams()` which
+ * Next.js 13+ requires to be behind a <Suspense> boundary during prerender.
+ * The public export wraps itself so callers don't need to remember to wrap.
  */
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { CreditCard, Zap, CheckCircle2, AlertCircle, Loader2, ExternalLink, X } from "lucide-react";
 import { PlanTier } from "@prisma/client";
@@ -78,7 +82,7 @@ const UPGRADE_PLANS: {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function BillingSection({
+function BillingSectionInner({
   workspaceId,
   plan,
   limits,
@@ -405,6 +409,23 @@ export function BillingSection({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Public, self-suspending export. Callers do NOT need to wrap in Suspense —
+ * the shell handles it so `useSearchParams()` is always behind a boundary
+ * during Next.js static prerender analysis.
+ */
+export function BillingSection(props: BillingSectionProps) {
+  return (
+    <Suspense
+      fallback={
+        <div className="bg-white rounded-2xl border border-border p-6 h-48 animate-pulse" />
+      }
+    >
+      <BillingSectionInner {...props} />
+    </Suspense>
   );
 }
 

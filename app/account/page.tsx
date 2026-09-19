@@ -8,7 +8,6 @@ import { BillingSection } from "@/components/settings/BillingSection";
 import { ApiKeysSection } from "@/components/settings/ApiKeysSection";
 import { NotificationPreferencesSection } from "@/components/settings/NotificationPreferencesSection";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
-import { Suspense } from "react";
 
 export const metadata = {
   title: "Account Settings — VisionBoard",
@@ -85,17 +84,15 @@ export default async function AccountPage() {
         />
 
         {/* ── Plan & Billing ── */}
-        <Suspense fallback={<div className="bg-white rounded-2xl border border-border p-6 h-48 animate-pulse" />}>
-          <BillingSection
-            plan={plan}
-            limits={limits}
-            isOwnerOrAdmin={true}
-            stripeCustomerId={user.stripeCustomerId ?? null}
-            stripeCurrentPeriodEnd={user.stripeCurrentPeriodEnd?.toISOString() ?? null}
-            stripeCancelAtPeriodEnd={user.stripeCancelAtPeriodEnd}
-            aiCreditsUsed={user.aiCreditsUsed}
-          />
-        </Suspense>
+        <BillingSection
+          plan={plan}
+          limits={limits}
+          isOwnerOrAdmin={true}
+          stripeCustomerId={user.stripeCustomerId ?? null}
+          stripeCurrentPeriodEnd={user.stripeCurrentPeriodEnd?.toISOString() ?? null}
+          stripeCancelAtPeriodEnd={user.stripeCancelAtPeriodEnd}
+          aiCreditsUsed={user.aiCreditsUsed}
+        />
 
         {/* ── Email Notifications Preferences ── */}
         <NotificationPreferencesSection />

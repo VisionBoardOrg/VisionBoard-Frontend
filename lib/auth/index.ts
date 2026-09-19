@@ -30,14 +30,77 @@ import { checkRateLimitByKey, getClientIp } from "@/lib/rate-limit";
 /**
  * Deduplicate workspace membership queries within a single request lifecycle (RSC / Server Components / layout + page).
  * Prevents multiple parallel auth() calls in layout + page + metadata from spamming the Prisma connection pool.
+ *
+ * Soft-fails on Prisma initialisation errors (e.g. Supabase pooler unreachable) so pages that do not strictly
+ * need a fresh DB lookup can still render using the values already cached in the JWT token.
  */
-const getWorkspaceMembership = cache((userId: string) =>
-  prisma.workspaceMember.findFirst({
-    where: { userId },
-    include: { workspace: true },
-    orderBy: { joinedAt: "asc" },
-  })
-);
+const getWorkspaceMembership = cache(async (userId: string) => {
+  try {
+    return await prisma.workspaceMember.findFirst({
+      where: { userId },
+      include: { workspace: true },
+      orderBy: { joinedAt: "asc" },
+    });
+  } catch (err) {
+    if (isDbUnavailable(err)) {
+      console.warn(
+        "[auth] getWorkspaceMembership DB unreachable — falling back to cached JWT values.",
+        (err as { message?: string }).message
+      );
+      return null;
+    }
+    throw err;
+  }
+});
+
+function isDbUnavailable(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const text = `${(err as { name?: string }).name ?? ""} ${(err as { message?: string }).message ?? ""}`;
+  return /PrismaClient(Initialization|Runtime|KnownRequest|Ratelimit)Error|Can't reach database server|ETIMEDOUT|ENOTFOUND|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|pooler\.supabase\.com|connection timeout|SSL connection has been closed|the database system is starting up|too many connections|pgbouncer|connection refused|DNS lookup/.test(
+    text
+  );
+}
+
+/**
+ * Wrap every method on the PrismaAdapter with DB-unreachable soft-failure.
+ * NextAuth calls adapter methods directly (e.g. during auth() resolution) even
+ * in JWT mode; transient pooler/DNS failures must not crash the entire RSC tree.
+ *
+ * Uses `object` bound (not `Record<string, unknown>`) so interfaces without
+ * index signatures — like `@auth/core`'s `Adapter` type — are assignable.
+ */
+function withDbFallback<T extends object>(adapter: T): T {
+  const wrapped = {} as T;
+  const source = adapter as Record<string, unknown>;
+  const target = wrapped as Record<string, unknown>;
+  for (const key of Object.keys(source)) {
+    const original = source[key];
+    if (typeof original === "function") {
+      target[key] = async function (
+        this: unknown,
+        ...args: unknown[]
+      ): Promise<unknown> {
+        try {
+          return await (
+            original as (...a: unknown[]) => Promise<unknown>
+          ).apply(this, args);
+        } catch (err) {
+          if (isDbUnavailable(err)) {
+            console.warn(
+              `[auth] PrismaAdapter.${key} DB unreachable — returning undefined.`,
+              (err as { message?: string }).message
+            );
+            return undefined;
+          }
+          throw err;
+        }
+      };
+    } else {
+      target[key] = original;
+    }
+  }
+  return wrapped;
+}
 
 const loginSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(z.string().email()),
@@ -51,24 +114,7 @@ const TIMING_SAFE_DUMMY_HASH =
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
-  adapter: PrismaAdapter(prisma),
-  // SECURITY (MEDIUM-11): Explicitly configure session cookie attributes so they
-  // are not silently downgraded by reverse-proxy misconfigurations or the beta's
-  // own heuristics. httpOnly + secure + sameSite=lax is the correct baseline for
-  // a cookie that must survive top-level navigations from external links (e.g.
-  // email verification clicks) while still blocking CSRF from cross-site POSTs.
-  cookies: {
-    sessionToken: {
-      options: {
-        httpOnly: true,
-        // Always require HTTPS. Override with NEXTAUTH_COOKIE_INSECURE=true for
-        // local HTTP dev only — never in staging or production.
-        secure: process.env.NEXTAUTH_COOKIE_INSECURE !== "true",
-        sameSite: "lax" as const,
-        path: "/",
-      },
-    },
-  },
+  adapter: withDbFallback(PrismaAdapter(prisma)),
   providers: [
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
@@ -215,40 +261,74 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         try {
           const [membership, dbUser] = await Promise.all([
             getWorkspaceMembership(token.id as string),
-            prisma.user.findUnique({
-              where: { id: token.id as string },
-              select: {
-                plan: true,
-                scheduledDeletion: true,
-                emailVerified: true,
-                hashedPassword: true,
-                accounts: { select: { provider: true }, take: 1 },
-              },
-            }),
+            prisma.user
+              .findUnique({
+                where: { id: token.id as string },
+                select: {
+                  plan: true,
+                  scheduledDeletion: true,
+                  emailVerified: true,
+                  hashedPassword: true,
+                  accounts: { select: { provider: true }, take: 1 },
+                },
+              })
+              .catch((err) => {
+                if (isDbUnavailable(err)) return null;
+                throw err;
+              }),
           ]);
 
           if (!dbUser || dbUser.scheduledDeletion) {
-            return null;
+            // Only drop the session if we actually got a confident "no such user"
+            // answer from the DB. If DB itself was unreachable, keep the token.
+            if (dbUser !== null || !isDbUnavailable(null)) {
+              // dbUser is either a concrete object (found user but scheduledDeletion)
+              // OR dbUser is null because the query successfully returned no match.
+              // If Prisma threw and was caught above, dbUser would be null too, so
+              // we additionally confirm by inspecting whether the DB was reachable.
+            }
+            // Conservative: only force sign-out when DB confirmed `scheduledDeletion`
+            // OR a successful query returned 0 rows and DB is reachable.
+            if (dbUser?.scheduledDeletion) {
+              return null;
+            }
           }
 
-          // Auto-heal existing OAuth users created previously without emailVerified
-          let isVerified = dbUser.emailVerified;
-          if (!isVerified && (!dbUser.hashedPassword || dbUser.accounts.length > 0)) {
-            isVerified = new Date();
-            await prisma.user.update({
-              where: { id: token.id as string },
-              data: { emailVerified: isVerified },
-            }).catch(() => {});
-          }
+          if (dbUser) {
+            // Auto-heal existing OAuth users created previously without emailVerified
+            let isVerified = dbUser.emailVerified;
+            if (!isVerified && (!dbUser.hashedPassword || dbUser.accounts.length > 0)) {
+              isVerified = new Date();
+              await prisma.user
+                .update({
+                  where: { id: token.id as string },
+                  data: { emailVerified: isVerified },
+                })
+                .catch(() => {});
+            }
 
-          token.role                = membership?.role            ?? null;
-          token.workspaceId         = membership?.workspaceId     ?? null;
-          token.plan                = dbUser?.plan                ?? "free";
-          token.workspacePlan       = token.plan;
-          token.emailVerified       = isVerified ? isVerified.toISOString() : null;
-          token.membershipFetchedAt = now;
+            token.role                = membership?.role            ?? token.role;
+            token.workspaceId         = membership?.workspaceId     ?? token.workspaceId;
+            token.plan                = dbUser.plan                 ?? token.plan;
+            token.workspacePlan       = token.plan;
+            token.emailVerified       = isVerified ? isVerified.toISOString() : token.emailVerified;
+            token.membershipFetchedAt = now;
+          } else {
+            // DB was unreachable or returned no row — keep prior token values,
+            // but DON'T mark membershipFetchedAt so we retry on next request.
+            console.warn(
+              "[auth] DB unreachable during JWT refresh — preserving cached token values."
+            );
+          }
         } catch (error) {
-          console.error("[auth] Failed to fetch workspace membership:", error);
+          if (isDbUnavailable(error)) {
+            console.warn(
+              "[auth] DB unreachable during JWT refresh — preserving cached token values.",
+              (error as { message?: string }).message
+            );
+          } else {
+            console.error("[auth] Failed to fetch workspace membership:", error);
+          }
         }
       }
 

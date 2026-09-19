@@ -20,17 +20,12 @@
  * the full migration guide.
  */
 
-import NextAuth from "next-auth";
+import { getToken } from "next-auth/jwt";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyAdminSession } from "@/lib/auth/admin-session";
-import { authConfig } from "@/auth.config";
 import { buildCsp } from "@/lib/csp";
 import { getSafeCallbackUrl } from "@/lib/safe-redirect";
-
-// Create a lightweight auth() helper that only decodes the JWT cookie.
-// No Prisma, no bcrypt — safe for Edge Runtime.
-const { auth } = NextAuth(authConfig);
 
 // Routes that require user authentication
 const PROTECTED_PREFIXES = ["/dashboard", "/workspace", "/onboarding"];
@@ -85,7 +80,37 @@ export async function proxy(request: NextRequest) {
   const isAuthRoute  = AUTH_ROUTES.some((p) => pathname.startsWith(p));
 
   if (isProtected || isAuthRoute) {
-    const session = await auth();
+    const isProduction = process.env.NODE_ENV === "production";
+    const useSecureCookie =
+      isProduction && process.env.NEXTAUTH_COOKIE_INSECURE !== "true";
+
+    let token = await getToken({
+      req: request,
+      secret: process.env.AUTH_SECRET,
+      secureCookie: useSecureCookie,
+    });
+
+    if (!token && !useSecureCookie) {
+      // Fallback check in case a secure cookie was set previously
+      token = await getToken({
+        req: request,
+        secret: process.env.AUTH_SECRET,
+        secureCookie: true,
+      });
+    }
+
+    if (!token) {
+      // Legacy NextAuth cookie name fallback
+      token = await getToken({
+        req: request,
+        secret: process.env.AUTH_SECRET,
+        cookieName: useSecureCookie
+          ? "__Secure-next-auth.session-token"
+          : "next-auth.session-token",
+      });
+    }
+
+    const session = token ? { user: token } : null;
 
     if (isProtected && !session) {
       const loginUrl = new URL("/auth/login", request.url);

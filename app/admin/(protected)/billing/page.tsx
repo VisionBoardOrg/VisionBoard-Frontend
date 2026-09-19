@@ -1,47 +1,39 @@
-import { Metadata } from "next";
-import { cookies } from "next/headers";
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { CreditCard, TrendingUp, AlertTriangle, Users } from "lucide-react";
 import MetricCard from "@/components/admin/MetricCard";
+import DataTable, { Column } from "@/components/admin/DataTable";
 
-export const metadata: Metadata = { title: "Billing" };
-
-interface BillingData {
-  summary: {
-    activeSubscriptions: number;
-    cancellingThisPeriod: number;
-    newSubscribersLast30d: number;
-    freeUsers: number;
-  };
-  planBreakdown: Record<string, number>;
-  recentSubscriptions: Array<{
-    id: string;
-    name: string | null;
-    email: string;
-    plan: string;
-    stripePriceId: string | null;
-    stripeCurrentPeriodEnd: string | null;
-    stripeCancelAtPeriodEnd: boolean;
-    createdAt: string;
-  }>;
+interface BillingSummary {
+  activeSubscriptions: number;
+  cancellingThisPeriod: number;
+  newSubscribersLast30d: number;
+  freeUsers: number;
 }
 
-async function getBillingData(): Promise<BillingData | null> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("admin_session")?.value;
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+interface BillingSubscription {
+  id: string;
+  name: string | null;
+  email: string;
+  plan: string;
+  stripePriceId: string | null;
+  stripeCurrentPeriodEnd: string | null;
+  stripeCancelAtPeriodEnd: boolean;
+  createdAt: string;
+}
 
-  try {
-    const res = await fetch(`${baseUrl}/api/admin/billing`, {
-      headers: { Cookie: `admin_session=${sessionCookie}` },
-      next: { revalidate: 300 },
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
+interface BillingData {
+  summary: BillingSummary;
+  planBreakdown: Record<string, number>;
+  recentSubscriptions: BillingSubscription[];
+  subscriptionsPagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
 }
 
 const PLAN_BADGE: Record<string, string> = {
@@ -51,10 +43,108 @@ const PLAN_BADGE: Record<string, string> = {
   enterprise: "bg-blue-deep/10 text-blue-deep",
 };
 
-export default async function BillingPage() {
-  const data = await getBillingData();
+const SUBSCRIPTION_COLUMNS: Column<BillingSubscription>[] = [
+  {
+    key: "name",
+    header: "User",
+    render: (row) => (
+      <div>
+        <p className="font-semibold text-ink">{row.name ?? "—"}</p>
+        <p className="text-xs text-muted">{row.email}</p>
+      </div>
+    ),
+  },
+  {
+    key: "plan",
+    header: "Plan",
+    sortable: true,
+    render: (row) => (
+      <span
+        className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase ${PLAN_BADGE[row.plan] ?? ""}`}
+      >
+        {row.plan}
+      </span>
+    ),
+  },
+  {
+    key: "stripeCurrentPeriodEnd",
+    header: "Period End",
+    sortable: true,
+    render: (row) => (
+      <span className="text-xs text-muted font-medium">
+        {row.stripeCurrentPeriodEnd
+          ? new Date(row.stripeCurrentPeriodEnd).toLocaleDateString()
+          : "—"}
+      </span>
+    ),
+  },
+  {
+    key: "stripeCancelAtPeriodEnd",
+    header: "Status",
+    render: (row) =>
+      row.stripeCancelAtPeriodEnd ? (
+        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-warning/10 text-warning">
+          Cancelling
+        </span>
+      ) : (
+        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-success/10 text-success">
+          Active
+        </span>
+      ),
+  },
+  {
+    key: "createdAt",
+    header: "Joined",
+    sortable: true,
+    render: (row) => (
+      <span className="text-xs text-muted font-medium">
+        {new Date(row.createdAt).toLocaleDateString()}
+      </span>
+    ),
+  },
+];
 
-  if (!data) {
+export default function BillingPage() {
+  const router = useRouter();
+  const [summary, setSummary] = useState<BillingSummary | null>(null);
+  const [planBreakdown, setPlanBreakdown] = useState<Record<string, number>>({});
+  const [subscriptions, setSubscriptions] = useState<BillingSubscription[]>([]);
+  const [subsTotal, setSubsTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(false);
+    try {
+      const params = new URLSearchParams({ page: String(page), limit: "50" });
+      const res = await fetch(`/api/admin/billing?${params}`);
+      if (res.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      if (!res.ok) {
+        setLoadError(true);
+        return;
+      }
+      const data: BillingData = await res.json();
+      setSummary(data.summary);
+      setPlanBreakdown(data.planBreakdown);
+      setSubscriptions(data.recentSubscriptions);
+      setSubsTotal(data.subscriptionsPagination?.total ?? data.recentSubscriptions.length);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [page, router]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  if (loadError || !summary) {
     return (
       <div className="flex items-center justify-center h-48">
         <p className="text-slate text-sm font-medium">Failed to load billing data.</p>
@@ -62,7 +152,6 @@ export default async function BillingPage() {
     );
   }
 
-  const { summary, planBreakdown, recentSubscriptions } = data;
   const paidTotal = summary.activeSubscriptions;
   const allUsers = Object.values(planBreakdown).reduce((a, b) => a + b, 0);
 
@@ -136,68 +225,29 @@ export default async function BillingPage() {
         </div>
       </div>
 
-      {/* Recent subscriptions */}
-      <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-bold text-ink">Recent Paid Subscriptions</h2>
+      {/* Recent subscriptions (paginated) */}
+      <div>
+        <div className="mb-3">
+          <h2 className="text-sm font-bold text-ink">Paid Subscriptions</h2>
+          <p className="text-xs text-muted font-medium mt-1">
+            {subsTotal.toLocaleString()} total paid accounts
+          </p>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-offwhite/60">
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate uppercase tracking-wide">User</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate uppercase tracking-wide">Plan</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate uppercase tracking-wide">Period End</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate uppercase tracking-wide">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-bold text-slate uppercase tracking-wide">Joined</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentSubscriptions.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted font-medium">
-                    No paid subscriptions found.
-                  </td>
-                </tr>
-              ) : (
-                recentSubscriptions.map((sub) => (
-                  <tr key={sub.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3">
-                      <p className="font-semibold text-ink">{sub.name ?? "—"}</p>
-                      <p className="text-xs text-muted">{sub.email}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase ${PLAN_BADGE[sub.plan] ?? ""}`}
-                      >
-                        {sub.plan}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted font-medium">
-                      {sub.stripeCurrentPeriodEnd
-                        ? new Date(sub.stripeCurrentPeriodEnd).toLocaleDateString()
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      {sub.stripeCancelAtPeriodEnd ? (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-warning/10 text-warning">
-                          Cancelling
-                        </span>
-                      ) : (
-                        <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-success/10 text-success">
-                          Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted font-medium">
-                      {new Date(sub.createdAt).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={SUBSCRIPTION_COLUMNS}
+          data={subscriptions}
+          getRowKey={(s) => s.id}
+          isLoading={isLoading}
+          searchable
+          searchPlaceholder="Search by user name or email…"
+          emptyMessage="No paid subscriptions found."
+          serverPagination={{
+            page,
+            totalItems: subsTotal,
+            pageSize: 50,
+            onPageChange: setPage,
+          }}
+        />
       </div>
     </div>
   );

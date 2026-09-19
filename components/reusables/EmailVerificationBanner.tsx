@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Mail, AlertTriangle, CheckCircle2, Loader2, X, RefreshCw } from "lucide-react";
 
-export function EmailVerificationBanner() {
+function EmailVerificationBannerInner() {
   const { data: session, update: updateSession } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -17,7 +17,6 @@ export function EmailVerificationBanner() {
   const verifiedParam = searchParams.get("verified");
   const reasonParam = searchParams.get("reason");
 
-  // If redirected with ?verified=true, trigger session update so emailVerified updates locally
   useEffect(() => {
     if (verifiedParam === "true") {
       updateSession();
@@ -25,7 +24,6 @@ export function EmailVerificationBanner() {
         type: "success",
         text: "Your email address has been successfully verified! 🎉",
       });
-      // Clean up URL query params after 4 seconds
       const timer = setTimeout(() => {
         const url = new URL(window.location.href);
         url.searchParams.delete("verified");
@@ -42,7 +40,6 @@ export function EmailVerificationBanner() {
     }
   }, [verifiedParam, reasonParam, updateSession, router]);
 
-  // Do not render banner if user is unauthenticated, verified, or user dismissed it
   if (!session?.user || session.user.emailVerified || dismissed) {
     if (!statusMessage) return null;
   }
@@ -137,5 +134,18 @@ export function EmailVerificationBanner() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Public export — self-wraps the banner in <Suspense> because it internally
+ * calls `useSearchParams()` which Next.js requires to be behind a Suspense
+ * boundary during static prerender analysis.
+ */
+export function EmailVerificationBanner() {
+  return (
+    <Suspense fallback={null}>
+      <EmailVerificationBannerInner />
+    </Suspense>
   );
 }

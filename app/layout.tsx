@@ -140,7 +140,24 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const session = await auth();
+  let session = null;
+  try {
+    session = await auth();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Next.js prerender analysis deliberately throws "Dynamic server usage:
+    // headers/cookies" to bail out of static generation. That is NOT an error
+    // — it marks the route as dynamic. Only log genuinely unexpected throws.
+    const isPrerenderBailout =
+      /Dynamic server usage|cookies|headers|searchParams/.test(msg);
+    if (!isPrerenderBailout) {
+      console.warn(
+        "[layout] auth() threw during RootLayout — treating session as null.",
+        msg
+      );
+    }
+    throw err;
+  }
 
   // Structured Data (JSON-LD) for Search Engine Rich Snippets
   const jsonLd = {

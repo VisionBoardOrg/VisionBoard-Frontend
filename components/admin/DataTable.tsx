@@ -21,6 +21,12 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   emptyMessage?: string;
   isLoading?: boolean;
+  serverPagination?: {
+    page: number;
+    totalItems: number;
+    pageSize: number;
+    onPageChange: (page: number) => void;
+  };
 }
 
 type SortDir = "asc" | "desc" | null;
@@ -35,15 +41,16 @@ export default function DataTable<T>({
   getRowKey,
   searchable = true,
   searchPlaceholder = "Search…",
-  pageSize = 20,
+  pageSize: clientPageSize = 20,
   onRowClick,
   emptyMessage = "No records found.",
   isLoading = false,
+  serverPagination,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
-  const [page, setPage] = useState(1);
+  const [clientPage, setClientPage] = useState(1);
 
   // Search
   const filtered = useMemo(() => {
@@ -78,8 +85,24 @@ export default function DataTable<T>({
   }, [filtered, sortKey, sortDir]);
 
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const paged = sorted.slice((page - 1) * pageSize, page * pageSize);
+  //
+  // When serverPagination is provided:
+  //   - The parent component fetches a single server-rendered page.
+  //   - We render ALL of `data` as-is (skip client-side slicing).
+  //   - Page controls are driven by the server totals and call onPageChange.
+  //
+  // Otherwise (client-only mode):
+  //   - Keep the original behaviour: slice `sorted` client-side.
+  const effectivePageSize = serverPagination?.pageSize ?? clientPageSize;
+  const totalPages = serverPagination
+    ? Math.max(1, Math.ceil(serverPagination.totalItems / effectivePageSize))
+    : Math.max(1, Math.ceil(sorted.length / effectivePageSize));
+
+  const paged = serverPagination
+    ? sorted
+    : sorted.slice((clientPage - 1) * effectivePageSize, clientPage * effectivePageSize);
+
+  const currentPage = serverPagination ? serverPagination.page : clientPage;
 
   function handleSort(key: string) {
     if (sortKey !== key) {
@@ -91,13 +114,33 @@ export default function DataTable<T>({
       setSortKey(null);
       setSortDir(null);
     }
-    setPage(1);
+    setClientPage(1);
+    serverPagination?.onPageChange(1);
   }
 
   function handleSearch(v: string) {
     setQuery(v);
-    setPage(1);
+    setClientPage(1);
+    serverPagination?.onPageChange(1);
   }
+
+  function handlePrevPage() {
+    if (serverPagination) {
+      serverPagination.onPageChange(Math.max(1, serverPagination.page - 1));
+    } else {
+      setClientPage((p) => Math.max(1, p - 1));
+    }
+  }
+
+  function handleNextPage() {
+    if (serverPagination) {
+      serverPagination.onPageChange(Math.min(totalPages, serverPagination.page + 1));
+    } else {
+      setClientPage((p) => Math.min(totalPages, p + 1));
+    }
+  }
+
+  const displayedCount = serverPagination ? serverPagination.totalItems : sorted.length;
 
   return (
     <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
@@ -195,19 +238,20 @@ export default function DataTable<T>({
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs font-medium text-slate">
           <span>
-            {sorted.length} result{sorted.length !== 1 ? "s" : ""} · Page {page} of {totalPages}
+            {displayedCount.toLocaleString()} result{displayedCount !== 1 ? "s" : ""} · Page{" "}
+            {currentPage} of {totalPages}
           </span>
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
+              onClick={handlePrevPage}
+              disabled={currentPage === 1}
               className="p-1.5 rounded-lg hover:bg-offwhite disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
+              onClick={handleNextPage}
+              disabled={currentPage === totalPages}
               className="p-1.5 rounded-lg hover:bg-offwhite disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
               <ChevronRight className="w-4 h-4" />

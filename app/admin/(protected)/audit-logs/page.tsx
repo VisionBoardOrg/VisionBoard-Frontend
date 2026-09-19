@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import DataTable, { Column } from "@/components/admin/DataTable";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -90,25 +92,40 @@ const COLUMNS: Column<AuditLog>[] = [
 ];
 
 export default function AuditLogsPage() {
+  const router = useRouter();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [entityTypeFilter, setEntityTypeFilter] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const fetchLogs = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const params = new URLSearchParams({ limit: "100" });
+      const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (entityTypeFilter) params.set("entityType", entityTypeFilter);
       const res = await fetch(`/api/admin/audit-logs?${params}`);
-      if (!res.ok) return;
+      if (res.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      if (!res.ok) {
+        setError(
+          `Failed to load audit logs (HTTP ${res.status}). Please try again in a moment.`
+        );
+        return;
+      }
       const data = await res.json();
       setLogs(data.logs);
       setTotal(data.pagination.total);
+    } catch {
+      setError("Network error while loading audit logs. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
-  }, [entityTypeFilter]);
+  }, [page, entityTypeFilter, router]);
 
   useEffect(() => {
     fetchLogs();
@@ -118,6 +135,22 @@ export default function AuditLogsPage() {
 
   return (
     <div className="space-y-6 max-w-7xl">
+      {error && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/30 bg-warning/5 text-warning text-sm font-medium">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Could not load audit logs</p>
+            <p className="text-xs text-slate mt-0.5">{error}</p>
+          </div>
+          <button
+            onClick={fetchLogs}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warning hover:bg-warning/80 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-ink tracking-tight">Audit Logs</h1>
@@ -131,7 +164,10 @@ export default function AuditLogsPage() {
           </label>
           <select
             value={entityTypeFilter}
-            onChange={(e) => setEntityTypeFilter(e.target.value)}
+            onChange={(e) => {
+              setEntityTypeFilter(e.target.value);
+              setPage(1);
+            }}
             className="bg-white border border-border rounded-xl px-3 py-2 text-xs font-medium text-ink cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
           >
             <option value="">All types</option>
@@ -151,8 +187,13 @@ export default function AuditLogsPage() {
         isLoading={isLoading}
         searchable
         searchPlaceholder="Search by action or entity type…"
-        pageSize={50}
         emptyMessage="No audit logs found."
+        serverPagination={{
+          page,
+          totalItems: total,
+          pageSize: 50,
+          onPageChange: setPage,
+        }}
       />
     </div>
   );

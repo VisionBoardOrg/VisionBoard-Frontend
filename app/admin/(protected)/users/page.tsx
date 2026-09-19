@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import DataTable, { Column } from "@/components/admin/DataTable";
-import { CheckCircle2, XCircle, Trash2 } from "lucide-react";
+import { CheckCircle2, XCircle, Trash2, AlertTriangle, RefreshCw } from "lucide-react";
 
 interface AdminUser {
   id: string;
@@ -101,21 +101,34 @@ export default function UsersPage() {
   const [planFilter, setPlanFilter] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "50" });
       if (planFilter) params.set("plan", planFilter);
       const res = await fetch(`/api/admin/users?${params}`);
-      if (!res.ok) return;
+      if (res.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      if (!res.ok) {
+        setError(
+          `Failed to load users (HTTP ${res.status}). Please try again in a moment.`
+        );
+        return;
+      }
       const data = await res.json();
       setUsers(data.users);
       setTotal(data.pagination.total);
+    } catch (e) {
+      setError("Network error while loading users. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
-  }, [page, planFilter]);
+  }, [page, planFilter, router]);
 
   useEffect(() => {
     fetchUsers();
@@ -123,6 +136,22 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6 max-w-7xl">
+      {error && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/30 bg-warning/5 text-warning text-sm font-medium">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Could not load users</p>
+            <p className="text-xs text-slate mt-0.5">{error}</p>
+          </div>
+          <button
+            onClick={fetchUsers}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warning hover:bg-warning/80 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-ink tracking-tight">Users</h1>
@@ -158,9 +187,14 @@ export default function UsersPage() {
         isLoading={isLoading}
         searchable
         searchPlaceholder="Search by name or email…"
-        pageSize={50}
         onRowClick={(u) => router.push(`/admin/users/${u.id}`)}
         emptyMessage="No users found."
+        serverPagination={{
+          page,
+          totalItems: total,
+          pageSize: 50,
+          onPageChange: setPage,
+        }}
       />
     </div>
   );

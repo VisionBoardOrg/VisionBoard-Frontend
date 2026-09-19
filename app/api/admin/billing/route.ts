@@ -6,15 +6,25 @@ export async function GET(request: NextRequest) {
   const denied = await requireAdmin(request);
   if (denied) return denied;
 
+  const { searchParams } = new URL(request.url);
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
+  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "50", 10)));
+
   try {
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const subWhere = {
+      stripeSubscriptionId: { not: null },
+      plan: { not: "free" as const },
+    };
 
     const [
       planBreakdown,
       activeSubscriptions,
       cancellingThisPeriod,
       newSubscribersLast30d,
+      paidSubsCount,
       recentSubscriptions,
     ] = await Promise.all([
       // Plan distribution
@@ -24,10 +34,7 @@ export async function GET(request: NextRequest) {
       }),
       // Active paid subscriptions
       prisma.user.count({
-        where: {
-          stripeSubscriptionId: { not: null },
-          plan: { not: "free" },
-        },
+        where: subWhere,
       }),
       // Cancelling at period end
       prisma.user.count({
@@ -37,16 +44,14 @@ export async function GET(request: NextRequest) {
       prisma.user.count({
         where: {
           createdAt: { gte: thirtyDaysAgo },
-          plan: { not: "free" },
-          stripeSubscriptionId: { not: null },
+          ...subWhere,
         },
       }),
-      // Recent subscriptions
+      // Total paid subscriptions (for pagination)
+      prisma.user.count({ where: subWhere }),
+      // Recent subscriptions, paginated
       prisma.user.findMany({
-        where: {
-          stripeSubscriptionId: { not: null },
-          plan: { not: "free" },
-        },
+        where: subWhere,
         select: {
           id: true,
           name: true,
@@ -58,7 +63,8 @@ export async function GET(request: NextRequest) {
           createdAt: true,
         },
         orderBy: { createdAt: "desc" },
-        take: 50,
+        skip: (page - 1) * limit,
+        take: limit,
       }),
     ]);
 
@@ -76,6 +82,12 @@ export async function GET(request: NextRequest) {
       },
       planBreakdown: planMap,
       recentSubscriptions,
+      subscriptionsPagination: {
+        page,
+        limit,
+        total: paidSubsCount,
+        totalPages: Math.ceil(paidSubsCount / limit),
+      },
     });
   } catch (error) {
     console.error("[api/admin/billing]", error);

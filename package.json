@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node --dns-result-order=ipv4first ./node_modules/next/dist/bin/next dev",
     "build": "prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",

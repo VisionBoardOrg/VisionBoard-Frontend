@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import DataTable, { Column } from "@/components/admin/DataTable";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 
 interface AdminWorkspace {
   id: string;
@@ -99,19 +100,34 @@ export default function WorkspacesPage() {
   const [workspaces, setWorkspaces] = useState<AdminWorkspace[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchWorkspaces = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
     try {
-      const res = await fetch("/api/admin/workspaces?limit=100");
-      if (!res.ok) return;
+      const params = new URLSearchParams({ page: String(page), limit: "50" });
+      const res = await fetch(`/api/admin/workspaces?${params}`);
+      if (res.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      if (!res.ok) {
+        setError(
+          `Failed to load workspaces (HTTP ${res.status}). Please try again in a moment.`
+        );
+        return;
+      }
       const data = await res.json();
       setWorkspaces(data.workspaces);
       setTotal(data.pagination.total);
+    } catch {
+      setError("Network error while loading workspaces. Check your connection and retry.");
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, router]);
 
   useEffect(() => {
     fetchWorkspaces();
@@ -119,6 +135,22 @@ export default function WorkspacesPage() {
 
   return (
     <div className="space-y-6 max-w-7xl">
+      {error && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-warning/30 bg-warning/5 text-warning text-sm font-medium">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Could not load workspaces</p>
+            <p className="text-xs text-slate mt-0.5">{error}</p>
+          </div>
+          <button
+            onClick={fetchWorkspaces}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-warning hover:bg-warning/80 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
       <div>
         <h1 className="text-2xl font-bold text-ink tracking-tight">Workspace Fleet</h1>
         <p className="text-sm text-slate font-medium mt-1">
@@ -133,9 +165,14 @@ export default function WorkspacesPage() {
         isLoading={isLoading}
         searchable
         searchPlaceholder="Search by name or slug…"
-        pageSize={50}
         onRowClick={(ws) => router.push(`/admin/workspaces/${ws.id}`)}
         emptyMessage="No workspaces found."
+        serverPagination={{
+          page,
+          totalItems: total,
+          pageSize: 50,
+          onPageChange: setPage,
+        }}
       />
     </div>
   );
