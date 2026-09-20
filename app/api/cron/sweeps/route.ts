@@ -106,12 +106,14 @@ function authorizeCron(request: NextRequest): boolean {
   return true;
 }
 
+export const maxDuration = 60;
+
 // ── Per-run caps — prevents a single cron invocation from holding the DB
 // connection pool hostage on a large platform.
 const TASK_CAP        = 1000;
 const MILESTONE_CAP   = 1000;
 const WORKSPACE_CAP   = 500; // max workspaces checked for quota in one run
-const NOTIF_CHUNK     = 10;  // parallel notification dispatches per batch
+const NOTIF_CHUNK     = 3;   // parallel notification dispatches per batch (kept small for serverless pooler)
 
 /**
  * GET /api/cron/sweeps
@@ -197,7 +199,7 @@ export async function GET(request: NextRequest) {
       recentTaskNotifs.map((n) => `${n.userId}:${n.entityId}:${n.type}`)
     );
 
-    const taskAlerts = [
+    const tasksToAlert = [
       ...overdueTasks
         .filter((t) => {
           if (!t.assigneeId || !t.dueDate) return false;
@@ -206,12 +208,7 @@ export async function GET(request: NextRequest) {
           recentNotifSet.add(key);
           return true;
         })
-        .map((t) =>
-          dispatchTaskDueAlert({
-            taskId: t.id, taskTitle: t.title, dueDate: t.dueDate!,
-            assigneeId: t.assigneeId!, workspaceId: t.milestone.goal.workspaceId, isOverdue: true,
-          }).catch((err) => console.error("[cron/sweeps] Overdue task notification failed:", err))
-        ),
+        .map((t) => ({ ...t, isOverdue: true })),
       ...dueSoon24hTasks
         .filter((t) => {
           if (!t.assigneeId || !t.dueDate) return false;
@@ -220,17 +217,24 @@ export async function GET(request: NextRequest) {
           recentNotifSet.add(key);
           return true;
         })
-        .map((t) =>
-          dispatchTaskDueAlert({
-            taskId: t.id, taskTitle: t.title, dueDate: t.dueDate!,
-            assigneeId: t.assigneeId!, workspaceId: t.milestone.goal.workspaceId, isOverdue: false,
-          }).catch((err) => console.error("[cron/sweeps] Due-soon task notification failed:", err))
-        ),
+        .map((t) => ({ ...t, isOverdue: false })),
     ];
 
-    // Fire in chunks to avoid saturating the connection pool
-    for (let i = 0; i < taskAlerts.length; i += NOTIF_CHUNK) {
-      await Promise.allSettled(taskAlerts.slice(i, i + NOTIF_CHUNK));
+    // Fire in controlled sequential chunks of NOTIF_CHUNK to avoid saturating the connection pool
+    for (let i = 0; i < tasksToAlert.length; i += NOTIF_CHUNK) {
+      const batch = tasksToAlert.slice(i, i + NOTIF_CHUNK);
+      await Promise.allSettled(
+        batch.map((t) =>
+          dispatchTaskDueAlert({
+            taskId: t.id,
+            taskTitle: t.title,
+            dueDate: t.dueDate!,
+            assigneeId: t.assigneeId!,
+            workspaceId: t.milestone.goal.workspaceId,
+            isOverdue: t.isOverdue,
+          }).catch((err) => console.error("[cron/sweeps] Task notification failed:", err))
+        )
+      );
     }
 
     results.taskSweep = {
@@ -301,31 +305,52 @@ export async function GET(request: NextRequest) {
         wsAdminMap.set(a.workspaceId, arr);
       }
 
-      const milestoneNotifs = slippingMilestones.map((m) => {
+      const milestoneAlerts: Array<{
+        userId: string;
+        workspaceId: string;
+        milestoneId: string;
+        milestoneTitle: string;
+        targetDate?: Date | null;
+        goalId: string;
+      }> = [];
+
+      for (const m of slippingMilestones) {
         const recipients = new Set<string>();
         const ownerId = goalOwnerMap.get(m.goal.id);
         if (ownerId) recipients.add(ownerId);
         (wsAdminMap.get(m.goal.workspaceId) ?? []).forEach((id) => recipients.add(id));
 
-        return Array.from(recipients).map((userId) =>
-          prisma.notification.create({
-            data: {
-              userId,
-              workspaceId: m.goal.workspaceId,
-              actorId: null,
-              type: "milestone_delayed",
-              title: `Milestone Delayed: ${m.title}`,
-              message: `"${m.title}" elapsed without completion${m.targetDate ? ` (target was ${m.targetDate.toLocaleDateString()})` : ""}.`,
-              entityType: "milestone",
-              entityId: m.id,
-              link: `/workspace/${m.goal.workspaceId}/goals?goalId=${m.goal.id}`,
-            },
-          }).catch((err) => console.error("[cron/sweeps] Milestone notif failed:", err))
-        );
-      }).flat();
+        for (const userId of recipients) {
+          milestoneAlerts.push({
+            userId,
+            workspaceId: m.goal.workspaceId,
+            milestoneId: m.id,
+            milestoneTitle: m.title,
+            targetDate: m.targetDate,
+            goalId: m.goal.id,
+          });
+        }
+      }
 
-      for (let i = 0; i < milestoneNotifs.length; i += NOTIF_CHUNK) {
-        await Promise.allSettled(milestoneNotifs.slice(i, i + NOTIF_CHUNK));
+      for (let i = 0; i < milestoneAlerts.length; i += NOTIF_CHUNK) {
+        const batch = milestoneAlerts.slice(i, i + NOTIF_CHUNK);
+        await Promise.allSettled(
+          batch.map((item) =>
+            prisma.notification.create({
+              data: {
+                userId: item.userId,
+                workspaceId: item.workspaceId,
+                actorId: null,
+                type: "milestone_delayed",
+                title: `Milestone Delayed: ${item.milestoneTitle}`,
+                message: `"${item.milestoneTitle}" elapsed without completion${item.targetDate ? ` (target was ${item.targetDate.toLocaleDateString()})` : ""}.`,
+                entityType: "milestone",
+                entityId: item.milestoneId,
+                link: `/workspace/${item.workspaceId}/goals?goalId=${item.goalId}`,
+              },
+            }).catch((err) => console.error("[cron/sweeps] Milestone notif failed:", err))
+          )
+        );
       }
     }
 
