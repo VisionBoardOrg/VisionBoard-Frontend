@@ -385,20 +385,38 @@ export async function GET(request: NextRequest) {
       const recentAlertedGoalIds = new Set(recentGoalNotifs.map((n) => n.entityId));
       const goalMap = new Map(goalOwners.map((g) => [g.id, g]));
 
-      const healthAlerts = atRiskGoals
+      const goalsToAlert = atRiskGoals
         .filter((g) => !recentAlertedGoalIds.has(g.goalId))
         .map((g) => {
           const goal = goalMap.get(g.goalId);
           if (!goal) return null;
-          return dispatchGoalHealthNotification({
-            goalId: g.goalId, goalTitle: g.goalTitle, healthScore: g.healthScore,
-            workspaceId: goal.workspaceId, ownerId: goal.ownerId, degraded: g.degraded,
-          }).catch((err) => console.error("[cron/sweeps] Goal health alert failed:", err));
+          return {
+            goalId: g.goalId,
+            goalTitle: g.goalTitle,
+            healthScore: g.healthScore,
+            workspaceId: goal.workspaceId,
+            ownerId: goal.ownerId,
+            degraded: g.degraded,
+          };
         })
-        .filter(Boolean) as Promise<unknown>[];
+        .filter(Boolean) as Array<{
+          goalId: string;
+          goalTitle: string;
+          healthScore: number;
+          workspaceId: string;
+          ownerId: string;
+          degraded: boolean;
+        }>;
 
-      for (let i = 0; i < healthAlerts.length; i += NOTIF_CHUNK) {
-        await Promise.allSettled(healthAlerts.slice(i, i + NOTIF_CHUNK));
+      for (let i = 0; i < goalsToAlert.length; i += NOTIF_CHUNK) {
+        const batch = goalsToAlert.slice(i, i + NOTIF_CHUNK);
+        await Promise.allSettled(
+          batch.map((g) =>
+            dispatchGoalHealthNotification(g).catch((err) =>
+              console.error("[cron/sweeps] Goal health alert failed:", err)
+            )
+          )
+        );
       }
     }
 

@@ -49,6 +49,41 @@ export interface NotificationResponseItem {
   } | null;
 }
 
+interface CacheEntry<T> {
+  data: T;
+  expires: number;
+}
+
+const recipientCache = new Map<string, CacheEntry<{ id: string; name: string | null; email: string } | null>>();
+const workspaceNameCache = new Map<string, CacheEntry<string | null>>();
+
+async function getCachedRecipient(userId: string) {
+  const now = Date.now();
+  const cached = recipientCache.get(userId);
+  if (cached && cached.expires > now) return cached.data;
+
+  const recipient = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, email: true },
+  });
+  recipientCache.set(userId, { data: recipient, expires: now + 60_000 });
+  return recipient;
+}
+
+async function getCachedWorkspaceName(workspaceId: string) {
+  const now = Date.now();
+  const cached = workspaceNameCache.get(workspaceId);
+  if (cached && cached.expires > now) return cached.data;
+
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { name: true },
+  });
+  const name = ws?.name ?? null;
+  workspaceNameCache.set(workspaceId, { data: name, expires: now + 60_000 });
+  return name;
+}
+
 /**
  * Asynchronously dispatch an email notification if the recipient has enabled emails.
  * Fire-and-forget; never blocks the in-app notification pipeline.
@@ -68,18 +103,10 @@ export async function dispatchNotificationEmailAsync(notification: {
   actor?: { id: string; name: string | null; image: string | null; email: string | null } | null;
 }): Promise<void> {
   try {
-    // 1. Fetch recipient and workspace details in parallel
-    const [recipient, workspace] = await Promise.all([
-      prisma.user.findUnique({
-        where: { id: notification.userId },
-        select: { id: true, name: true, email: true },
-      }),
-      notification.workspaceId
-        ? prisma.workspace.findUnique({
-            where: { id: notification.workspaceId },
-            select: { name: true },
-          })
-        : null,
+    // 1. Fetch recipient and workspace details (cached to avoid pooler exhaustion)
+    const [recipient, workspaceName] = await Promise.all([
+      getCachedRecipient(notification.userId),
+      notification.workspaceId ? getCachedWorkspaceName(notification.workspaceId) : null,
     ]);
 
     if (!recipient || !recipient.email) {
@@ -127,7 +154,7 @@ export async function dispatchNotificationEmailAsync(notification: {
       actor: notification.actor
         ? { name: notification.actor.name, email: notification.actor.email }
         : null,
-      workspaceName: workspace?.name,
+      workspaceName: workspaceName ?? undefined,
       unsubscribeUrl,
       preferencesUrl,
       appUrl,
