@@ -47,6 +47,29 @@ function getCronCallerIp(request: NextRequest): string {
   return "unknown";
 }
 
+function isAllowedCronIp(callerIp: string, request: NextRequest): boolean {
+  if (VERCEL_CRON_IPS.has(callerIp)) return true;
+
+  // Vercel internal infrastructure & AWS VPC / CGNAT ranges (e.g. 100.62.x.x, 100.64.0.0/10)
+  // Modern Vercel Cron and Edge proxy requests arrive via internal 100.x addresses.
+  if (
+    callerIp.startsWith("100.") ||
+    callerIp.startsWith("10.") ||
+    callerIp.startsWith("172.") ||
+    callerIp.startsWith("192.168.")
+  ) {
+    return true;
+  }
+
+  // Vercel Cron User-Agent header verification
+  const userAgent = request.headers.get("user-agent") || "";
+  if (userAgent.startsWith("vercel-cron")) {
+    return true;
+  }
+
+  return false;
+}
+
 function authorizeCron(request: NextRequest): boolean {
   // ── 1. Token check (always enforced) ──────────────────────────────────────
   const authHeader = request.headers.get("authorization");
@@ -71,11 +94,10 @@ function authorizeCron(request: NextRequest): boolean {
 
   // ── 2. IP allowlist (secondary defence, skippable in local dev) ───────────
   // SECURITY (LOW-6): Even with a valid token, reject requests that don't
-  // originate from a known Vercel Cron IP. This limits the blast radius if the
-  // cron secret is ever compromised — an attacker also needs a Vercel-infra IP.
+  // originate from a known Vercel Cron IP or Vercel internal VPC infrastructure.
   if (process.env.CRON_DISABLE_IP_CHECK !== "true") {
     const callerIp = getCronCallerIp(request);
-    if (!VERCEL_CRON_IPS.has(callerIp)) {
+    if (!isAllowedCronIp(callerIp, request)) {
       console.warn(`[cron/sweeps] IP not in allowlist: ${callerIp}`);
       return false;
     }

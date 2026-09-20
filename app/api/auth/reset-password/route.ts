@@ -107,10 +107,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, message: "If that email exists, a reset link has been sent." });
   }
 
-  // OAuth-only users have no password to reset
-  if (!user.hashedPassword) {
-    return NextResponse.json({ success: true, message: "If that email exists, a reset link has been sent." });
-  }
+  // If the user signed up via OAuth, they can still set a password to enable credentials login.
+  const hasExistingPassword = Boolean(user.hashedPassword);
 
   // Delete any existing reset token for this email
   await prisma.verificationToken.deleteMany({
@@ -135,20 +133,26 @@ export async function POST(request: NextRequest) {
   const resendApiKey = process.env.RESEND_API_KEY;
   const fromEmail = process.env.EMAIL_FROM || "VisionBoard <onboarding@resend.dev>";
 
+  const headingText = hasExistingPassword ? "Reset your password" : "Set your password";
+  const bodyText = hasExistingPassword
+    ? "We received a request to reset the password for your VisionBoard account. Click the button below to choose a new password. This link expires in <strong>1 hour</strong>."
+    : "We received a request to set a password for your VisionBoard account. Click the button below to choose a password so you can also sign in with your email and password. This link expires in <strong>1 hour</strong>.";
+  const buttonText = hasExistingPassword ? "Reset Password →" : "Set Password →";
+
   const html = `
     <!DOCTYPE html>
     <html>
-      <head><meta charset="utf-8"><title>Reset your VisionBoard password</title></head>
+      <head><meta charset="utf-8"><title>${headingText}</title></head>
       <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8faff; margin: 0; padding: 0;">
         <div style="max-width: 520px; margin: 40px auto; background: #fff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07);">
           <div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%); padding: 28px 32px; text-align: center;">
             <h1 style="margin: 0; color: #fff; font-size: 22px; font-weight: 800;">VisionBoard</h1>
           </div>
           <div style="padding: 32px;">
-            <h2 style="margin-top: 0; color: #0f172a; font-size: 20px;">Reset your password</h2>
-            <p style="color: #475569; line-height: 1.6;">We received a request to reset the password for your VisionBoard account. Click the button below to choose a new password. This link expires in <strong>1 hour</strong>.</p>
+            <h2 style="margin-top: 0; color: #0f172a; font-size: 20px;">${headingText}</h2>
+            <p style="color: #475569; line-height: 1.6;">${bodyText}</p>
             <div style="text-align: center; margin: 28px 0;">
-              <a href="${resetUrl}" style="display: inline-block; background: #2563eb; color: #fff; text-decoration: none; font-weight: 700; font-size: 15px; padding: 13px 30px; border-radius: 10px;">Reset Password →</a>
+              <a href="${resetUrl}" style="display: inline-block; background: #2563eb; color: #fff; text-decoration: none; font-weight: 700; font-size: 15px; padding: 13px 30px; border-radius: 10px;">${buttonText}</a>
             </div>
             <p style="color: #94a3b8; font-size: 12px; margin-bottom: 0;">If you didn't request this, you can safely ignore this email. Your password won't change.</p>
             <p style="color: #94a3b8; font-size: 12px; word-break: break-all;">Or copy this link: ${resetUrl}</p>
@@ -161,14 +165,20 @@ export async function POST(request: NextRequest) {
   if (resendApiKey?.trim()) {
     try {
       const resend = new Resend(resendApiKey.trim());
-      await resend.emails.send({
+      const response = await resend.emails.send({
         from: fromEmail,
         to: email,
-        subject: "Reset your VisionBoard password",
+        subject: hasExistingPassword ? "Reset your VisionBoard password" : "Set your VisionBoard password",
         html,
       });
+
+      if (response.error) {
+        console.error("[reset-password] Resend API error:", response.error);
+      } else {
+        console.log(`[reset-password] Email successfully delivered to ${email} (Resend ID: ${response.data?.id})`);
+      }
     } catch (err) {
-      console.error("[reset-password] Resend error:", err);
+      console.error("[reset-password] Resend exception:", err);
     }
   } else {
     // In development without Resend configured, log only that a reset was
