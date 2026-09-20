@@ -29,6 +29,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.3",
+    "@vercel/analytics": "^2.0.1",
     "bcryptjs": "3.0.3",
     "clsx": "2.1.1",
     "exceljs": "4.4.0",
