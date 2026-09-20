@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
+import { Analytics } from "@vercel/analytics/react";
 import { auth } from "@/lib/auth";
 import "./globals.css";
 
@@ -232,6 +233,7 @@ export default async function RootLayout({
       <body className="h-full bg-offwhite text-ink">
         <SessionProvider session={session} refetchOnWindowFocus={false}>
           {children}
+          <Analytics />
         </SessionProvider>
       </body>
     </html>
