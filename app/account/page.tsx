@@ -27,6 +27,7 @@ export default async function AccountPage() {
         name: true,
         email: true,
         image: true,
+        hashedPassword: true,
         createdAt: true,
         plan: true,
         aiCreditsUsed: true,
@@ -81,6 +82,7 @@ export default async function AccountPage() {
           initialName={user.name}
           initialEmail={user.email}
           initialImage={user.image}
+          isOAuthUser={user.hashedPassword === null}
         />
 
         {/* ── Plan & Billing ── */}

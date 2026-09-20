@@ -63,33 +63,37 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
 
-    // Block OAuth-only users from changing email here — their email is
-    // managed by the OAuth provider (Google, GitHub, etc.).
-    if (!currentUser.hashedPassword) {
-      return NextResponse.json(
-        { error: "Your email address is managed by your OAuth provider and cannot be changed here." },
-        { status: 400 }
-      );
-    }
-
-    // Require current password confirmation to prevent session-hijack takeover.
-    if (!currentPassword) {
-      return NextResponse.json(
-        { error: "Current password is required to change your email address." },
-        { status: 400 }
-      );
-    }
-
-    const passwordValid = await bcrypt.compare(currentPassword, currentUser.hashedPassword);
-    if (!passwordValid) {
-      return NextResponse.json(
-        { error: "Incorrect password. Please re-enter your current password to change your email." },
-        { status: 403 }
-      );
-    }
-
-    // Reject if the new address is already in use by another account.
+    // Only enforce OAuth-block, password, and duplicate checks when the
+    // submitted email is actually different from the current one. If the
+    // client re-sends the same address (e.g. only the name changed), fall
+    // through to the generic name/image update path below.
     if (email !== currentUser.email) {
+      // Block OAuth-only users from changing email here — their email is
+      // managed by the OAuth provider (Google, GitHub, etc.).
+      if (!currentUser.hashedPassword) {
+        return NextResponse.json(
+          { error: "Your email address is managed by your OAuth provider and cannot be changed here." },
+          { status: 400 }
+        );
+      }
+
+      // Require current password confirmation to prevent session-hijack takeover.
+      if (!currentPassword) {
+        return NextResponse.json(
+          { error: "Current password is required to change your email address." },
+          { status: 400 }
+        );
+      }
+
+      const passwordValid = await bcrypt.compare(currentPassword, currentUser.hashedPassword);
+      if (!passwordValid) {
+        return NextResponse.json(
+          { error: "Incorrect password. Please re-enter your current password to change your email." },
+          { status: 403 }
+        );
+      }
+
+      // Reject if the new address is already in use by another account.
       const existing = await prisma.user.findUnique({ where: { email } });
       if (existing && existing.id !== session.user.id) {
         return NextResponse.json(

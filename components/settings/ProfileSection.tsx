@@ -13,9 +13,10 @@ interface ProfileSectionProps {
   initialName:  string | null;
   initialEmail: string;
   initialImage?: string | null;
+  isOAuthUser?: boolean;
 }
 
-export function ProfileSection({ initialName, initialEmail }: ProfileSectionProps) {
+export function ProfileSection({ initialName, initialEmail, isOAuthUser = false }: ProfileSectionProps) {
   const router = useRouter();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -40,13 +41,19 @@ export function ProfileSection({ initialName, initialEmail }: ProfileSectionProp
     setLoading(true);
 
     try {
+      const trimmedName = name.trim();
+      const trimmedEmail = email.trim();
+      const payload: Record<string, string | undefined> = {};
+      if (trimmedName !== (initialName ?? "")) {
+        payload.name = trimmedName || undefined;
+      }
+      if (trimmedEmail !== initialEmail) {
+        payload.email = trimmedEmail || undefined;
+      }
       const res = await fetch("/api/user/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim() || undefined,
-          email: email.trim() || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -121,21 +128,30 @@ export function ProfileSection({ initialName, initialEmail }: ProfileSectionProp
           <input
             type="email"
             value={email}
-            disabled={!isEditing}
+            disabled={!isEditing || isOAuthUser}
             maxLength={255}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             className={`w-full px-3.5 py-2.5 rounded-xl border text-sm transition-colors ${
-              isEditing
+              isEditing && !isOAuthUser
                 ? "border-border text-ink bg-white focus:outline-none focus:border-blue focus:ring-1 focus:ring-blue"
                 : "border-transparent bg-offwhite/80 text-slate cursor-not-allowed"
             }`}
           />
-          {isEditing && (
+          {isEditing && isOAuthUser ? (
+            <div className="flex items-start gap-2 mt-2 p-2.5 rounded-lg bg-amber-50 border border-amber-200">
+              <AlertCircle size={14} className="shrink-0 mt-0.5 text-amber-600" />
+              <p className="text-[11px] text-amber-800 leading-snug">
+                Your email address is managed by your OAuth provider (Google, GitHub, etc.)
+                and cannot be changed here. To update it, change it directly in your provider&apos;s
+                account settings.
+              </p>
+            </div>
+          ) : isEditing ? (
             <p className="text-[11px] text-muted mt-1">
               Changing your email will update your sign-in address. You&apos;ll need to sign in again.
             </p>
-          )}
+          ) : null}
         </div>
 
         {/* ── Form Actions ── */}
