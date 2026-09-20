@@ -1,9 +1,11 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
-import type { PlanTier } from "@prisma/client";
+import {
+  getSlimWorkspaceMembership,
+  getUserPlanAndCredits,
+} from "@/lib/workspace-data";
 
 interface WorkspaceLayoutProps {
   params: Promise<{ id: string }>;
@@ -17,23 +19,21 @@ export default async function WorkspaceLayout({
   const session = await auth();
   if (!session) redirect("/auth/login");
   const { id } = await params;
+  const userId = session.user.id;
 
-  // Single parallel fetch for membership and current user details
+  // Two parallel queries, each deduped (React.cache within request,
+  // process-level inflight+TTL across requests). If workspace sub-page also
+  // calls getUserPlanAndCredits or getSlimWorkspaceMembership below, it gets
+  // the already-computed value — zero extra DB round-trips.
   const [member, currentUser] = await Promise.all([
-    prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-      include: { workspace: { select: { name: true, ownerId: true } } },
-    }),
-    prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { plan: true, aiCreditsUsed: true },
-    }),
+    getSlimWorkspaceMembership(id, userId),
+    getUserPlanAndCredits(userId),
   ]);
 
   if (!member || !currentUser) redirect("/dashboard");
 
   const plan = currentUser.plan;
-  const isOwner = member.workspace.ownerId === session.user.id;
+  const isOwner = member.workspace.ownerId === userId;
 
   return (
     <AppShell
@@ -42,7 +42,7 @@ export default async function WorkspaceLayout({
       plan={plan}
       aiCreditsUsed={currentUser.aiCreditsUsed}
       aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
-      userId={session.user.id}
+      userId={userId}
       isOwner={isOwner}
     >
       {children}

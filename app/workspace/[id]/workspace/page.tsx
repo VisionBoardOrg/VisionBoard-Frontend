@@ -13,6 +13,10 @@ import { PMDashboard } from "@/components/dashboard/PMDashboard";
 import { ExecDashboard } from "@/components/dashboard/ExecDashboard";
 import { EngDashboard } from "@/components/dashboard/EngDashboard";
 import { MarketingDashboard } from "@/components/dashboard/MarketingDashboard";
+import {
+  getWorkspaceName,
+  getUserPlanAndCredits,
+} from "@/lib/workspace-data";
 
 interface WorkspacePageProps {
   params: Promise<{ id: string }>;
@@ -43,41 +47,41 @@ const ROLE_META: Record<
   admin: { label: "Admin", color: "bg-emerald-50 text-emerald-600" },
 };
 
-/**
- * React.cache() deduplicates this query within a single request so both
- * generateMetadata and the page component share the same DB call.
- */
-const getWorkspaceName = cache((id: string) =>
-  prisma.workspace.findUnique({ where: { id }, select: { name: true } })
-);
-
 export async function generateMetadata({ params }: WorkspacePageProps) {
   const { id } = await params;
+  // generateMetadata runs BEFORE the page component, and Next.js may run them
+  // concurrently. Using the shared React.cached + process-level cached
+  // getWorkspaceName() means at most one DB round-trip per request regardless
+  // of the concurrent schedule.
   const workspace = await getWorkspaceName(id);
   return { title: `Workspace — ${workspace?.name ?? "VisionBoard"}` };
 }
 
-export default async function WorkspacePage({ params }: WorkspacePageProps) {
-  const session = await auth();
-  if (!session) redirect("/auth/login");
-
-  const { id } = await params;
-
-  // Member lookup with full workspace graph for the role dashboard + current user plan
-  const [member, currentUser] = await Promise.all([
+/**
+ * The dashboard page needs the full workspace graph (members + goals +
+ * milestones + task counts) so we CANNOT share the slim layout query.
+ * But we do share:
+ *   - getUserPlanAndCredits → was already fetched by WorkspaceLayout above,
+ *     so React.cache returns the same Promise and we save 1 DB call.
+ */
+const getFullDashboardMember = cache(
+  async (workspaceId: string, userId: string) =>
     prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
+      where: {
+        workspaceId_userId: { workspaceId, userId },
+      },
       include: {
         workspace: {
           include: {
             owner: { select: { id: true, name: true, email: true, plan: true } },
             members: {
-              // Safe user shape only — never leak hashedPassword / Stripe fields to the client
-              include: { user: { select: { id: true, name: true, email: true, image: true } } },
+              include: {
+                user: {
+                  select: { id: true, name: true, email: true, image: true },
+                },
+              },
               orderBy: { joinedAt: "asc" },
             },
-            // Slim projections for the role dashboards — persisted healthScore
-            // instead of full task rows (descriptions, blockedReason, dates…)
             goals: {
               select: {
                 id: true,
@@ -91,21 +95,32 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
                     title: true,
                     status: true,
                     targetDate: true,
-                    tasks: { select: { id: true, status: true, assigneeId: true } },
+                    tasks: {
+                      select: { id: true, status: true, assigneeId: true },
+                    },
                   },
                 },
               },
             },
-
             _count: { select: { goals: true, documents: true, members: true } },
           },
         },
       },
-    }),
-    prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { plan: true, aiCreditsUsed: true },
-    }),
+    })
+);
+
+export default async function WorkspacePage({ params }: WorkspacePageProps) {
+  const session = await auth();
+  if (!session) redirect("/auth/login");
+
+  const { id } = await params;
+  const userId = session.user.id;
+
+  // getUserPlanAndCredits is already populated by WorkspaceLayout (React.cache
+  // within same request → 0 extra DB work).
+  const [member, currentUser] = await Promise.all([
+    getFullDashboardMember(id, userId),
+    getUserPlanAndCredits(userId),
   ]);
 
   if (!member || !currentUser) redirect("/dashboard");
