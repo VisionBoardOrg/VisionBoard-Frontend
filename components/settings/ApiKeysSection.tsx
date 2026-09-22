@@ -219,7 +219,7 @@ export function ApiKeysSection() {
         /* ── Key list ── */
         <div className="space-y-2">
           {keys.map((key) => {
-            const isRevoked = key.revokedAt !== null;
+            const isRevoked = key.revokedAt != null;
             const isTargeted = revokeTarget === key.id;
 
             return (

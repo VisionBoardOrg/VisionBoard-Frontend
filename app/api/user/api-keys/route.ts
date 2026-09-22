@@ -87,6 +87,9 @@ export async function POST(request: NextRequest) {
       name: true,
       keyPrefix: true,
       createdAt: true,
+      lastUsedAt: true,
+      expiresAt: true,
+      revokedAt: true,
     },
   });
 
