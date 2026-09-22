@@ -20,6 +20,9 @@ import {
   ThumbsDown,
   Layers,
   FileCheck,
+  Rocket,
+  ExternalLink,
+  AlertCircle,
 } from "lucide-react";
 import { CitationBadge } from "./CitationBadge";
 import { MarkdownContent } from "./MarkdownContent";
@@ -60,7 +63,22 @@ interface IndexStats {
   lastIndexedAt: string | null;
 }
 
-type CopilotTab = "chat" | "executive" | "standup" | "knowledge";
+type CopilotTab = "chat" | "executive" | "standup" | "knowledge" | "roadmap";
+
+interface GoalOption {
+  id: string;
+  title: string;
+}
+
+interface RoadmapMilestone {
+  title: string;
+  description: string;
+  targetDate: string;
+  suggestedTasks?: string[];
+  tasks?: unknown[];
+  suggested_tasks?: unknown[];
+  dependsOn?: number[];
+}
 
 export function AICopilotDrawer({
   workspaceId,
@@ -121,6 +139,25 @@ export function AICopilotDrawer({
   const [indexStats, setIndexStats] = useState<IndexStats | null>(null);
   const [isSyncingKnowledge, setIsSyncingKnowledge] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
+
+  // Roadmap Generator State
+  const [roadmapInput, setRoadmapInput] = useState("");
+  const [roadmapLoading, setRoadmapLoading] = useState(false);
+  const [roadmapError, setRoadmapError] = useState("");
+  const [roadmapResult, setRoadmapResult] = useState<{
+    goalTitle?: string;
+    goalObjective?: string;
+    milestones: RoadmapMilestone[];
+    generationId: string;
+  } | null>(null);
+  const [roadmapCommitGoalId, setRoadmapCommitGoalId] = useState<string | null>(null);
+  const [roadmapCommitLoading, setRoadmapCommitLoading] = useState(false);
+  const [roadmapAppliedGoal, setRoadmapAppliedGoal] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [workspaceGoals, setWorkspaceGoals] = useState<GoalOption[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(false);
 
   // Credits
   const [creditsUsed, setCreditsUsed] = useState(aiCreditsUsed);
@@ -381,6 +418,128 @@ export function AICopilotDrawer({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // ── Roadmap Generator Handlers ──
+
+  const fetchWorkspaceGoals = useCallback(async () => {
+    setGoalsLoading(true);
+    try {
+      const res = await fetch(`/api/goals?workspaceId=${workspaceId}`);
+      if (res.ok) {
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : data.goals ?? [];
+        setWorkspaceGoals(
+          list
+            .filter((g: { id?: string; title?: string }) => g.id && g.title)
+            .map((g: { id: string; title: string }) => ({ id: g.id, title: g.title }))
+        );
+      }
+    } catch {
+    } finally {
+      setGoalsLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (isOpen && activeTab === "roadmap") {
+      fetchWorkspaceGoals();
+    }
+  }, [isOpen, activeTab, fetchWorkspaceGoals]);
+
+  const handleGenerateRoadmap = async () => {
+    const description = roadmapInput.trim();
+    if (!description || roadmapLoading) return;
+
+    setRoadmapLoading(true);
+    setRoadmapError("");
+    setRoadmapAppliedGoal(null);
+    setRoadmapResult(null);
+
+    try {
+      const res = await fetch("/api/ai/roadmap-generator", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, text: description }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRoadmapError(data.error ?? "Failed to generate roadmap.");
+      } else {
+        setRoadmapResult({
+          goalTitle: data.goalTitle,
+          goalObjective: data.goalObjective,
+          milestones: data.milestones ?? [],
+          generationId: data.generationId,
+        });
+        setCreditsUsed((c) => c + 1);
+      }
+    } catch {
+      setRoadmapError("Network error while generating roadmap.");
+    } finally {
+      setRoadmapLoading(false);
+    }
+  };
+
+  const handleCommitRoadmap = async (opts?: { resume?: boolean }) => {
+    if (!roadmapResult || roadmapCommitLoading) return;
+    setRoadmapCommitLoading(true);
+    setRoadmapError("");
+    const resume = Boolean(opts?.resume);
+    try {
+      const payload: Record<string, unknown> = {
+        generationId: roadmapResult.generationId,
+        milestones: roadmapResult.milestones,
+      };
+      if (resume) {
+        payload.resume = true;
+      } else if (roadmapCommitGoalId && roadmapCommitGoalId !== "new") {
+        payload.goalId = roadmapCommitGoalId;
+      } else {
+        payload.newGoal = {
+          title: roadmapResult.goalTitle ?? "New Roadmap Goal",
+          objective: roadmapResult.goalObjective,
+          status: "active",
+        };
+      }
+
+      const res = await fetch("/api/ai/roadmap-generator/commit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 409 && data.resumable && !resume) {
+          setRoadmapError(
+            data.error +
+              ` (${data.appliedCount ?? 0}/${data.totalMilestones} milestones applied). You can resume to add the remaining ones.`
+          );
+          if (data.existingGoalId) setRoadmapCommitGoalId(data.existingGoalId);
+        } else if (res.status === 409 && data.skippedAll) {
+          setRoadmapError(data.error);
+          if (data.goal) {
+            setRoadmapAppliedGoal({ id: data.goal.id, title: data.goal.title });
+          }
+        } else {
+          setRoadmapError(data.error ?? "Failed to apply roadmap to board.");
+        }
+      } else {
+        setRoadmapAppliedGoal({
+          id: data.goal.id,
+          title: data.goal.title,
+        });
+        if (data.resumed) {
+          router.refresh();
+        } else {
+          router.refresh();
+        }
+      }
+    } catch {
+      setRoadmapError("Network error while applying roadmap.");
+    } finally {
+      setRoadmapCommitLoading(false);
+    }
+  };
+
   const QUICK_PROMPTS = [
     "What are our most critical open blockers?",
     "Summarize all active OKRs & goals",
@@ -495,6 +654,16 @@ export function AICopilotDrawer({
               }`}
             >
               <Database size={13} /> Sync
+            </button>
+            <button
+              onClick={() => setActiveTab("roadmap")}
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+                activeTab === "roadmap"
+                  ? "bg-blue text-white shadow-xs"
+                  : "text-slate hover:text-ink hover:bg-slate-200/60"
+              }`}
+            >
+              <Rocket size={13} /> Roadmap
             </button>
           </div>
 
@@ -931,6 +1100,287 @@ export function AICopilotDrawer({
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2">
                 <Check size={14} className="shrink-0" />
                 <span>Knowledge base synchronized and vectorized successfully!</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: Roadmap Generator */}
+        {activeTab === "roadmap" && (
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
+            {/* Roadmap Header Card */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 flex items-start gap-3">
+              <Rocket size={20} className="text-orange shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-xs font-bold text-ink">AI Roadmap Synthesizer</h3>
+                <p className="text-[11px] text-slate mt-0.5 leading-relaxed">
+                  Describe any project, product idea, or initiative — the AI will generate a structured goal with milestones, tasks, and target dates you can apply directly to your board.
+                </p>
+              </div>
+            </div>
+
+            {/* Generation Input */}
+            {!roadmapResult && (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-1.5 block">
+                    Project / Initiative Description
+                  </label>
+                  <textarea
+                    value={roadmapInput}
+                    onChange={(e) => setRoadmapInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        handleGenerateRoadmap();
+                      }
+                    }}
+                    placeholder="Describe the project or goal you want to plan. Include scope, audience, and rough timeline. e.g. 'Launch a mobile companion app for our SaaS platform with push notifications and offline support by Q1 2026...'"
+                    rows={6}
+                    className="w-full text-xs text-ink placeholder:text-slate-400 p-3 border border-border rounded-xl bg-white shadow-2xs focus:outline-none focus:border-orange focus:ring-1 focus:ring-orange/40 resize-none"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 px-1">
+                    {roadmapInput.length}/2000 characters · Ctrl+Enter to generate
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleGenerateRoadmap}
+                  disabled={roadmapLoading || roadmapInput.trim().length < 20}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-semibold py-3 px-4 rounded-xl hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                >
+                  {roadmapLoading ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={14} />
+                  )}
+                  {roadmapLoading
+                    ? "Synthesizing Roadmap with AI…"
+                    : "Generate Structured Roadmap"}
+                </button>
+
+                {roadmapError && !roadmapResult && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start gap-2">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                    <span>{roadmapError}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Generated Roadmap Preview */}
+            {roadmapResult && (
+              <div className="space-y-4">
+                {/* Goal Preview Card */}
+                <div className="p-3.5 rounded-2xl border border-border bg-offwhite/60 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 flex items-center gap-1">
+                      <FileCheck size={11} />
+                      Proposed Goal
+                    </div>
+                    <button
+                      onClick={() => {
+                        setRoadmapResult(null);
+                        setRoadmapError("");
+                        setRoadmapAppliedGoal(null);
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-red-500 transition-colors cursor-pointer"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  <input
+                    value={roadmapResult.goalTitle ?? ""}
+                    onChange={(e) =>
+                      setRoadmapResult((prev) =>
+                        prev ? { ...prev, goalTitle: e.target.value } : prev
+                      )
+                    }
+                    className="w-full text-sm font-bold text-ink p-2 border border-border/70 rounded-lg bg-white focus:outline-none focus:border-blue/60"
+                  />
+                  <textarea
+                    value={roadmapResult.goalObjective ?? ""}
+                    onChange={(e) =>
+                      setRoadmapResult((prev) =>
+                        prev ? { ...prev, goalObjective: e.target.value } : prev
+                      )
+                    }
+                    rows={2}
+                    className="w-full text-xs text-slate-700 p-2 border border-border/70 rounded-lg bg-white focus:outline-none focus:border-blue/60 resize-none"
+                  />
+                </div>
+
+                {/* Milestones List */}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Layers size={11} />
+                      Milestones & Breakdown
+                    </span>
+                    <span className="text-slate-400 font-normal normal-case">
+                      {roadmapResult.milestones.length} milestones
+                    </span>
+                  </div>
+                  {roadmapResult.milestones.map((ms, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-xl border border-border bg-white hover:border-blue/40 transition-colors space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="shrink-0 w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <input
+                            value={ms.title}
+                            onChange={(e) =>
+                              setRoadmapResult((prev) => {
+                                if (!prev) return prev;
+                                const next = [...prev.milestones];
+                                next[idx] = { ...next[idx], title: e.target.value };
+                                return { ...prev, milestones: next };
+                              })
+                            }
+                            className="min-w-0 flex-1 text-xs font-semibold text-ink p-1 border border-transparent hover:border-border/70 focus:border-blue/50 rounded focus:outline-none bg-transparent"
+                          />
+                        </div>
+                        <input
+                          type="date"
+                          value={ms.targetDate ? ms.targetDate.slice(0, 10) : ""}
+                          onChange={(e) =>
+                            setRoadmapResult((prev) => {
+                              if (!prev) return prev;
+                              const next = [...prev.milestones];
+                              next[idx] = { ...next[idx], targetDate: e.target.value };
+                              return { ...prev, milestones: next };
+                            })
+                          }
+                          className="shrink-0 text-[10px] text-slate-600 p-1 border border-border/70 rounded bg-white focus:outline-none focus:border-blue/50"
+                        />
+                      </div>
+                      <textarea
+                        value={ms.description ?? ""}
+                        onChange={(e) =>
+                          setRoadmapResult((prev) => {
+                            if (!prev) return prev;
+                            const next = [...prev.milestones];
+                            next[idx] = { ...next[idx], description: e.target.value };
+                            return { ...prev, milestones: next };
+                          })
+                        }
+                        rows={1}
+                        className="w-full text-[11px] text-slate-600 p-1 border border-transparent hover:border-border/70 focus:border-blue/50 rounded focus:outline-none bg-transparent resize-none"
+                      />
+                      {ms.suggestedTasks && ms.suggestedTasks.length > 0 && (
+                        <div className="pt-1 flex flex-wrap gap-1">
+                          {ms.suggestedTasks.map((t, ti) => (
+                            <span
+                              key={ti}
+                              className="text-[10px] px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-full"
+                            >
+                              ✓ {t}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Goal Target */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 px-1 flex items-center gap-1">
+                    <FileText size={11} />
+                    Apply to Goal
+                  </label>
+                  <select
+                    value={roadmapCommitGoalId ?? "new"}
+                    onChange={(e) => setRoadmapCommitGoalId(e.target.value)}
+                    disabled={roadmapCommitLoading}
+                    className="w-full text-xs p-2.5 border border-border rounded-xl bg-white focus:outline-none focus:border-blue/50 disabled:opacity-60 cursor-pointer"
+                  >
+                    <option value="new">✨ Create a new Goal from the proposal above</option>
+                    <optgroup label="Existing Goals">
+                      {goalsLoading && (
+                        <option disabled>Loading goals…</option>
+                      )}
+                      {!goalsLoading && workspaceGoals.length === 0 && (
+                        <option disabled>No existing goals</option>
+                      )}
+                      {workspaceGoals.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          📎 {g.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+
+                {/* Success Banner */}
+                {roadmapAppliedGoal && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs space-y-1.5">
+                    <div className="flex items-center gap-2 text-emerald-700 font-semibold">
+                      <Check size={14} />
+                      Roadmap applied to board successfully
+                    </div>
+                    <Link
+                      href={`/goals/${roadmapAppliedGoal.id}`}
+                      className="text-emerald-700 hover:text-emerald-800 underline underline-offset-2 flex items-center gap-1"
+                    >
+                      Open Goal: {roadmapAppliedGoal.title}
+                      <ExternalLink size={11} />
+                    </Link>
+                  </div>
+                )}
+
+                {/* Error Banner */}
+                {roadmapError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                      <span className="flex-1">{roadmapError}</span>
+                    </div>
+                    {roadmapError.includes("You can resume") && (
+                      <button
+                        onClick={() => handleCommitRoadmap({ resume: true })}
+                        disabled={roadmapCommitLoading}
+                        className="w-full flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-[11px] font-semibold py-2 px-3 rounded-lg hover:from-emerald-600 hover:to-teal-600 transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        <RefreshCw size={12} />
+                        Continue from where stopped (apply remaining milestones)
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="space-y-2 pt-2">
+                  <button
+                    onClick={() => handleCommitRoadmap()}
+                    disabled={roadmapCommitLoading}
+                    className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-600 text-white text-xs font-semibold py-3 px-4 rounded-xl hover:from-indigo-700 hover:to-blue-700 transition-all disabled:opacity-50 cursor-pointer shadow-xs"
+                  >
+                    {roadmapCommitLoading ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Rocket size={14} />
+                    )}
+                    {roadmapCommitLoading
+                      ? "Populating the board…"
+                      : "Populate Board with this Roadmap"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRoadmapResult(null);
+                      setRoadmapError("");
+                      setRoadmapAppliedGoal(null);
+                    }}
+                    disabled={roadmapCommitLoading}
+                    className="w-full text-xs text-slate-500 hover:text-ink py-2 transition-colors cursor-pointer disabled:opacity-40"
+                  >
+                    ← Generate a different roadmap
+                  </button>
+                </div>
               </div>
             )}
           </div>
