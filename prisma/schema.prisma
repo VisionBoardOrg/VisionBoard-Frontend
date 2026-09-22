@@ -517,7 +517,8 @@ model ApiKey {
   id          String    @id @default(cuid())
   userId      String
   name        String    @db.VarChar(100)
-  keyPrefix   String    @db.VarChar(12)   // first 9 chars of raw key ("vsn_live_"), for display
+  keyPrefix   String    @db.VarChar(20)   // first ~17 chars of raw key ("vsn_live_" + 8 hex), for masked display
+  keySuffix   String    @db.VarChar(4) @default("") // last 3-4 chars of raw key, for masked display
   keyHash     String    @unique           // SHA-256(rawKey), hex-encoded (64 chars)
   createdAt   DateTime  @default(now())
   lastUsedAt  DateTime?

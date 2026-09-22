@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { Key, Copy, Check, Loader2, AlertCircle, Trash2, X, Plus, Eye } from "lucide-react";
+import { Key, Copy, Check, Loader2, AlertCircle, Trash2, X, Plus, Eye, Calendar, Clock } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,6 +17,7 @@ interface ApiKeyRow {
   id: string;
   name: string;
   keyPrefix: string;
+  keySuffix: string;
   createdAt: string;
   lastUsedAt: string | null;
   expiresAt: string | null;
@@ -41,6 +42,13 @@ function relativeTime(dateStr: string): string {
   if (hours < 24) return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
   const days = Math.floor(hours / 24);
   return `${days} day${days !== 1 ? "s" : ""} ago`;
+}
+
+function formatMaskedKey(prefix: string, suffix: string): string {
+  if (suffix) {
+    return `${prefix}\u2022\u2022\u2022\u2022${suffix}`;
+  }
+  return `${prefix}\u2026`;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -217,7 +225,7 @@ export function ApiKeysSection() {
         </div>
       ) : (
         /* ── Key list ── */
-        <div className="space-y-2">
+        <div className="space-y-3">
           {keys.map((key) => {
             const isRevoked = key.revokedAt != null;
             const isTargeted = revokeTarget === key.id;
@@ -225,72 +233,99 @@ export function ApiKeysSection() {
             return (
               <div
                 key={key.id}
-                className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-xl border transition-colors ${
+                className={`group rounded-2xl border transition-all duration-200 ${
                   isRevoked
-                    ? "bg-offwhite/60 border-border opacity-60"
-                    : "bg-offwhite border-border hover:border-blue/30"
+                    ? "bg-slate-50/50 border-slate-200 opacity-70"
+                    : "bg-white border-slate-200 hover:border-blue/40 hover:shadow-[0_1px_2px_rgba(0,0,0,0.04),0_4px_16px_-6px_rgba(59,130,246,0.15)]"
                 }`}
               >
-                {/* ── Key info ── */}
-                <div className="flex-1 min-w-0 space-y-0.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <code className="text-xs font-mono bg-white border border-border px-2 py-0.5 rounded-lg text-ink">
-                      {key.keyPrefix}…
-                    </code>
-                    <span className="text-sm font-medium text-ink truncate">{key.name}</span>
-                    {isRevoked && (
-                      <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">
-                        Revoked
-                      </span>
+                <div className="p-5">
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                    {/* ── Key info / left side ── */}
+                    <div className="flex-1 min-w-0 space-y-3">
+                      {/* ── Top row: name + badges ── */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold text-ink tracking-tight">
+                          {key.name}
+                        </h3>
+                        {isRevoked && (
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-100 text-red-600 border border-red-200">
+                            Revoked
+                          </span>
+                        )}
+                      </div>
+
+                      {/* ── Masked key pill ── */}
+                      <div className="inline-flex items-center max-w-full">
+                        <div className="inline-flex items-center bg-gradient-to-r from-slate-50 to-slate-100/80 border border-slate-200 rounded-xl px-3 py-1.5 group-hover:from-blue-50/40 group-hover:to-indigo-50/40 group-hover:border-blue-200/60 transition-colors">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2.5 shrink-0 ring-2 ring-emerald-500/15" />
+                          <code className="text-[12.5px] font-mono text-slate-700 tracking-wide truncate">
+                            {formatMaskedKey(key.keyPrefix, key.keySuffix)}
+                          </code>
+                        </div>
+                      </div>
+
+                      {/* ── Meta row ── */}
+                      <div className="flex items-center gap-x-4 gap-y-1.5 text-[11.5px] text-muted flex-wrap">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Calendar size={12.5} className="text-slate-400 shrink-0" />
+                          <span>Created {formatDate(key.createdAt)}</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Clock size={12.5} className="text-slate-400 shrink-0" />
+                          <span>
+                            Last used:&nbsp;
+                            <span className={key.lastUsedAt ? "text-slate-600 font-medium" : ""}>
+                              {key.lastUsedAt ? relativeTime(key.lastUsedAt) : "Never"}
+                            </span>
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* ── Revoke controls / right side ── */}
+                    {!isRevoked && (
+                      <div className="shrink-0 sm:pt-0.5">
+                        {isTargeted ? (
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                            <span className="text-xs text-slate-600 font-medium text-right sm:text-left">
+                              Revoke this key?
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={handleRevoke}
+                                disabled={isRevoking}
+                                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors disabled:opacity-50 shadow-sm"
+                              >
+                                {isRevoking ? (
+                                  <Loader2 size={11} className="animate-spin" />
+                                ) : (
+                                  <Trash2 size={11} />
+                                )}
+                                {isRevoking ? "Revoking…" : "Confirm"}
+                              </button>
+                              <button
+                                onClick={() => setRevokeTarget(null)}
+                                disabled={isRevoking}
+                                className="px-3.5 py-2 text-xs font-semibold text-slate hover:text-ink hover:bg-slate-50 rounded-xl border border-slate-200 transition-colors disabled:opacity-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setRevokeTarget(key.id)}
+                            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 hover:border-red-200 rounded-xl border border-slate-200 transition-colors"
+                          >
+                            <Trash2 size={12.5} />
+                            Revoke
+                          </button>
+                        )}
+                      </div>
                     )}
-                  </div>
-                  <div className="flex items-center gap-3 text-[11px] text-muted flex-wrap">
-                    <span>Created {formatDate(key.createdAt)}</span>
-                    <span className="text-border">·</span>
-                    <span>
-                      Last used:{" "}
-                      {key.lastUsedAt ? relativeTime(key.lastUsedAt) : "Never"}
-                    </span>
                   </div>
                 </div>
-
-                {/* ── Revoke controls ── */}
-                {!isRevoked && (
-                  <div className="shrink-0">
-                    {isTargeted ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate font-medium">Revoke this key?</span>
-                        <button
-                          onClick={handleRevoke}
-                          disabled={isRevoking}
-                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          {isRevoking ? (
-                            <Loader2 size={11} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={11} />
-                          )}
-                          {isRevoking ? "Revoking…" : "Confirm"}
-                        </button>
-                        <button
-                          onClick={() => setRevokeTarget(null)}
-                          disabled={isRevoking}
-                          className="px-3 py-1.5 text-xs font-semibold text-slate hover:text-ink hover:bg-white rounded-lg border border-border transition-colors disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setRevokeTarget(key.id)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate hover:text-red-600 hover:bg-red-50 hover:border-red-200 rounded-lg border border-border transition-colors"
-                      >
-                        <Trash2 size={12} />
-                        Revoke
-                      </button>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
