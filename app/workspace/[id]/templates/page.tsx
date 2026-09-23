@@ -33,10 +33,12 @@ export default async function TemplatesPage({ params }: TemplatesPageProps) {
     member.role === "admin" ||
     member.role === "pm";
 
-  const templateList = Object.entries(TEMPLATES).map(([key, value]) => ({
-    id: key as TemplateName,
-    ...value,
-  }));
+  const templateList = Object.entries(TEMPLATES)
+    .filter(([key]) => key !== "blank")
+    .map(([key, value]) => ({
+      id: key as TemplateName,
+      ...value,
+    }));
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">

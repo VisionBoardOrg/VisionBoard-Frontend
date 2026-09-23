@@ -5,7 +5,7 @@ import { TEMPLATES, TemplateName } from "@/lib/templates";
 import { z } from "zod";
 
 const schema = z.object({
-  template: z.enum(["okr_board", "product_roadmap", "quarterly_plan"] as const),
+  template: z.enum(["blank", "okr_board", "product_roadmap", "quarterly_plan"] as const),
 });
 
 export async function POST(
