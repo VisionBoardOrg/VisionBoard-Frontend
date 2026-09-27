@@ -26,6 +26,9 @@ import {
 } from "lucide-react";
 import { CitationBadge } from "./CitationBadge";
 import { MarkdownContent } from "./MarkdownContent";
+import { BoardActionReceipts } from "./BoardActionReceipts";
+import type { ExecutedBoardAction } from "@/lib/ai/board-action-executor";
+import { useBoardStore } from "@/store/board-store";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -51,6 +54,7 @@ interface Message {
     snippet?: string;
     url?: string;
   }>;
+  boardActions?: ExecutedBoardAction[];
   createdAt?: string;
 }
 
@@ -78,6 +82,122 @@ interface RoadmapMilestone {
   tasks?: unknown[];
   suggested_tasks?: unknown[];
   dependsOn?: number[];
+}
+
+function ProgressiveStepIndicator({
+  steps,
+  intervalMs = 1800,
+}: {
+  steps: string[];
+  intervalMs?: number;
+}) {
+  const [currentStep, setCurrentStep] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentStep((prev) => (prev < steps.length - 1 ? prev + 1 : prev));
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [steps.length, intervalMs]);
+
+  return (
+    <div className="py-8 flex flex-col items-center justify-center text-center space-y-3.5 animate-in fade-in duration-200">
+      <div className="w-10 h-10 rounded-2xl bg-blue/10 flex items-center justify-center text-blue">
+        <Sparkles size={20} className="animate-spin text-blue" style={{ animationDuration: "3s" }} />
+      </div>
+      <div className="space-y-1.5 max-w-70">
+        <p className="text-xs font-medium text-slate-700 transition-all duration-300">
+          {steps[currentStep]}
+        </p>
+        <div className="flex justify-center gap-1.5 pt-1">
+          {steps.map((_, i) => (
+            <div
+              key={i}
+              className={`h-1 rounded-full transition-all duration-500 ${
+                i === currentStep
+                  ? "w-6 bg-blue"
+                  : i < currentStep
+                  ? "w-2 bg-blue/50"
+                  : "w-2 bg-slate-200"
+              }`}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function applyBoardActionsToStore(actions: ExecutedBoardAction[]) {
+  try {
+    const store = useBoardStore.getState();
+    for (const act of actions) {
+      if (!act.success) continue;
+
+      if (act.action === "delete_milestone") {
+        const milestoneId = act.entityId;
+        const items = store.getAllItems();
+        const linkedItem = items.find(
+          (i) => i.linkedMilestoneId === milestoneId || i.linkedMilestone?.id === milestoneId
+        );
+        if (linkedItem) {
+          store.removeItem(linkedItem.id);
+        }
+      } else if (act.action === "delete_task") {
+        const taskId = act.entityId;
+        const items = store.getAllItems();
+        for (const item of items) {
+          if (item.linkedMilestone?.tasks?.some((t) => t.id === taskId)) {
+            store.removeTaskFromMilestone(item.linkedMilestone.id, taskId);
+          }
+        }
+      } else if (act.action === "assign_task") {
+        const taskId = act.entityId;
+        const milestoneId = String(act.details?.milestoneId || "");
+        const assigneeId = (act.details?.assigneeId as string | null) || null;
+        if (milestoneId) {
+          store.updateTaskInMilestone(milestoneId, taskId, { assigneeId });
+        } else {
+          const items = store.getAllItems();
+          for (const item of items) {
+            if (item.linkedMilestone?.tasks?.some((t) => t.id === taskId)) {
+              store.updateTaskInMilestone(item.linkedMilestone.id, taskId, { assigneeId });
+            }
+          }
+        }
+      } else if (act.action === "update_task") {
+        const taskId = act.entityId;
+        const milestoneId = String(act.details?.milestoneId || "");
+        const updates = (act.details?.updates as Record<string, unknown>) || {};
+        if (milestoneId) {
+          store.updateTaskInMilestone(milestoneId, taskId, updates as never);
+        } else {
+          const items = store.getAllItems();
+          for (const item of items) {
+            if (item.linkedMilestone?.tasks?.some((t) => t.id === taskId)) {
+              store.updateTaskInMilestone(item.linkedMilestone.id, taskId, updates as never);
+            }
+          }
+        }
+      } else if (act.action === "create_task") {
+        const taskId = act.entityId;
+        const milestoneId = String(act.details?.milestoneId || "");
+        if (milestoneId && taskId) {
+          store.addTaskToMilestone(milestoneId, {
+            id: taskId,
+            title: act.entityTitle,
+            status: "todo",
+            priority: String(act.details?.priority || "medium"),
+            storyPoints: null,
+            assigneeId: (act.details?.assigneeId as string | null) || null,
+            dueDate: null,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[applyBoardActionsToStore] Failed to update board store:", err);
+  }
 }
 
 export function AICopilotDrawer({
@@ -117,6 +237,18 @@ export function AICopilotDrawer({
       handleOpen();
     }
   }, [isOpen, handleClose, handleOpen]);
+
+  const handleUndoSuccess = useCallback(
+    (action: ExecutedBoardAction) => {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("visionboard:board-updated", { detail: { action, undone: true } })
+        );
+      }
+      router.refresh();
+    },
+    [router]
+  );
 
   const [activeTab, setActiveTab] = useState<CopilotTab>("chat");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -290,6 +422,7 @@ export function AICopilotDrawer({
         snippet?: string;
         url?: string;
       }> = [];
+      let activeBoardActions: ExecutedBoardAction[] = [];
 
       setCreditsUsed((c) => c + 1);
 
@@ -322,8 +455,41 @@ export function AICopilotDrawer({
                       : m
                   )
                 );
+              } else if (data.type === "board_actions") {
+                activeBoardActions = data.actions || [];
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, boardActions: activeBoardActions }
+                      : m
+                  )
+                );
+                applyBoardActionsToStore(activeBoardActions);
+                if (typeof window !== "undefined") {
+                  window.dispatchEvent(
+                    new CustomEvent("visionboard:board-updated", { detail: { actions: activeBoardActions } })
+                  );
+                }
+                router.refresh();
               } else if (data.type === "done") {
                 if (data.conversationId) setConversationId(data.conversationId);
+                if (data.boardActions && data.boardActions.length > 0) {
+                  activeBoardActions = data.boardActions;
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantMsgId
+                        ? { ...m, boardActions: activeBoardActions }
+                        : m
+                    )
+                  );
+                  applyBoardActionsToStore(activeBoardActions);
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(
+                      new CustomEvent("visionboard:board-updated", { detail: { actions: activeBoardActions } })
+                    );
+                  }
+                  router.refresh();
+                }
               } else if (data.type === "error") {
                 accumulatedText += `\n\n⚠️ ${data.error}`;
                 setMessages((prev) =>
@@ -612,12 +778,19 @@ export function AICopilotDrawer({
         </div>
 
         {/* ── Context & Navigation Sub-header ── */}
-        <div className="px-4 py-2 bg-offwhite border-b border-border/80 flex items-center justify-between text-xs shrink-0">
+        <div className="px-4 py-2 bg-offwhite border-b border-border/80 flex items-center justify-between text-xs shrink-0 gap-2">
           {/* Tabs */}
-          <div className="flex items-center gap-1">
+          <div
+            className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0 flex-1 py-0.5"
+            onWheel={(e) => {
+              if (e.deltaY !== 0 && e.deltaX === 0) {
+                e.currentTarget.scrollLeft += e.deltaY;
+              }
+            }}
+          >
             <button
               onClick={() => setActiveTab("chat")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === "chat"
                   ? "bg-blue text-white shadow-xs"
                   : "text-slate hover:text-ink hover:bg-slate-200/60"
@@ -627,7 +800,7 @@ export function AICopilotDrawer({
             </button>
             <button
               onClick={() => setActiveTab("executive")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === "executive"
                   ? "bg-blue text-white shadow-xs"
                   : "text-slate hover:text-ink hover:bg-slate-200/60"
@@ -637,7 +810,7 @@ export function AICopilotDrawer({
             </button>
             <button
               onClick={() => setActiveTab("standup")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === "standup"
                   ? "bg-blue text-white shadow-xs"
                   : "text-slate hover:text-ink hover:bg-slate-200/60"
@@ -647,7 +820,7 @@ export function AICopilotDrawer({
             </button>
             <button
               onClick={() => setActiveTab("knowledge")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === "knowledge"
                   ? "bg-blue text-white shadow-xs"
                   : "text-slate hover:text-ink hover:bg-slate-200/60"
@@ -657,7 +830,7 @@ export function AICopilotDrawer({
             </button>
             <button
               onClick={() => setActiveTab("roadmap")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                 activeTab === "roadmap"
                   ? "bg-blue text-white shadow-xs"
                   : "text-slate hover:text-ink hover:bg-slate-200/60"
@@ -668,7 +841,7 @@ export function AICopilotDrawer({
           </div>
 
           {/* Credits Counter */}
-          <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium shrink-0 pl-1">
             <Zap size={11} className="text-amber-500" />
             <span>
               {aiCreditsMax < 0 ? "Unlimited" : `${creditsUsed}/${aiCreditsMax}`}
@@ -741,10 +914,31 @@ export function AICopilotDrawer({
                         {msg.content ? (
                           <MarkdownContent content={msg.content} workspaceId={workspaceId} />
                         ) : (
-                          <div className="flex items-center gap-2 text-slate-500 py-1">
-                            <Loader2 size={13} className="animate-spin text-blue" />
-                            <span>Thinking and analyzing workspace knowledge…</span>
+                          <div className="flex flex-col gap-2 py-1 min-w-[200px]">
+                            <div className="flex items-center gap-2 text-slate-600">
+                              <div className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue animate-pulse" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue animate-pulse [animation-delay:150ms]" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-blue animate-pulse [animation-delay:300ms]" />
+                              </div>
+                              <span className="text-[11px] font-medium text-slate-500">
+                                Thinking and synthesizing…
+                              </span>
+                            </div>
+                            <div className="space-y-1.5 pt-0.5">
+                              <div className="h-2 w-3/4 bg-slate-200/70 rounded-full animate-pulse" />
+                              <div className="h-2 w-1/2 bg-slate-200/50 rounded-full animate-pulse [animation-delay:200ms]" />
+                            </div>
                           </div>
+                        )}
+
+                        {/* Board Action Receipts */}
+                        {msg.boardActions && msg.boardActions.length > 0 && (
+                          <BoardActionReceipts
+                            actions={msg.boardActions}
+                            workspaceId={workspaceId}
+                            onUndoSuccess={handleUndoSuccess}
+                          />
                         )}
 
                         {/* Citations Footer */}
@@ -911,10 +1105,14 @@ export function AICopilotDrawer({
             </div>
 
             {execLoading && (
-              <div className="py-12 flex flex-col items-center justify-center text-center space-y-3 text-slate-500">
-                <Loader2 size={24} className="animate-spin text-blue" />
-                <p className="text-xs">Analyzing goals, velocity, and milestones…</p>
-              </div>
+              <ProgressiveStepIndicator
+                steps={[
+                  "Gathering active OKRs and recent milestones…",
+                  "Analyzing milestone delivery forecasts & velocity…",
+                  "Evaluating blocker radar & risk factors…",
+                  "Synthesizing executive briefing…",
+                ]}
+              />
             )}
 
             {execSummary && !execLoading && (
@@ -956,7 +1154,7 @@ export function AICopilotDrawer({
         {/* TAB 3: Daily Standup */}
         {activeTab === "standup" && (
           <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
-            <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 flex items-start gap-3">
+            <div className="p-4 rounded-2xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-100 flex items-start gap-3">
               <ListTodo size={20} className="text-emerald-600 shrink-0 mt-0.5" />
               <div>
                 <h3 className="text-xs font-bold text-ink">Daily Team Standup & Blocker Digest</h3>
@@ -996,10 +1194,13 @@ export function AICopilotDrawer({
             </div>
 
             {standupLoading && (
-              <div className="py-12 flex flex-col items-center justify-center text-center space-y-3 text-slate-500">
-                <Loader2 size={24} className="animate-spin text-emerald-600" />
-                <p className="text-xs">Gathering recent task updates and blockers…</p>
-              </div>
+              <ProgressiveStepIndicator
+                steps={[
+                  "Scanning today's completed and in-progress tasks…",
+                  "Identifying blocked items and missing updates…",
+                  "Structuring team daily digest…",
+                ]}
+              />
             )}
 
             {standupText && !standupLoading && (
@@ -1158,6 +1359,17 @@ export function AICopilotDrawer({
                     ? "Synthesizing Roadmap with AI…"
                     : "Generate Structured Roadmap"}
                 </button>
+
+                {roadmapLoading && (
+                  <ProgressiveStepIndicator
+                    steps={[
+                      "Parsing project objectives and scope…",
+                      "Structuring sequential milestones & dependencies…",
+                      "Estimating story points and target dates…",
+                      "Finalizing roadmap proposal…",
+                    ]}
+                  />
+                )}
 
                 {roadmapError && !roadmapResult && (
                   <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start gap-2">

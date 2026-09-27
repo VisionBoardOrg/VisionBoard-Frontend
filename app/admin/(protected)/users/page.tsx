@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import DataTable, { Column } from "@/components/admin/DataTable";
-import { CheckCircle2, XCircle, Trash2, AlertTriangle, RefreshCw } from "lucide-react";
+import { CheckCircle2, XCircle, Trash2, AlertTriangle, RefreshCw, Mail } from "lucide-react";
 
 interface AdminUser {
   id: string;
@@ -102,6 +102,34 @@ export default function UsersPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [isSyncingResend, setIsSyncingResend] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ message: string; type: "success" | "error" } | null>(null);
+
+  const handleSyncResend = async () => {
+    setIsSyncingResend(true);
+    setSyncFeedback(null);
+    try {
+      const res = await fetch("/api/admin/users/sync-resend", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.details || data.error || "Sync request failed");
+      }
+      const { synced, skipped, failed, total: syncTotal } = data.summary;
+      setSyncFeedback({
+        type: "success",
+        message: `Resend Sync Complete: ${synced} synced, ${skipped} skipped, ${failed} failed (of ${syncTotal} total).`,
+      });
+      setTimeout(() => setSyncFeedback(null), 6000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSyncFeedback({
+        type: "error",
+        message: `Sync failed: ${msg}`,
+      });
+    } finally {
+      setIsSyncingResend(false);
+    }
+  };
 
   const fetchUsers = useCallback(async () => {
     setIsLoading(true);
@@ -152,6 +180,24 @@ export default function UsersPage() {
           </button>
         </div>
       )}
+      {syncFeedback && (
+        <div
+          className={`flex items-start gap-3 p-4 rounded-xl border text-sm font-medium transition-all ${
+            syncFeedback.type === "success"
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-danger/30 bg-danger/10 text-danger"
+          }`}
+        >
+          {syncFeedback.type === "success" ? (
+            <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5 text-success" />
+          ) : (
+            <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-danger" />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">{syncFeedback.message}</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-ink tracking-tight">Users</h1>
@@ -159,24 +205,39 @@ export default function UsersPage() {
             {total.toLocaleString()} registered accounts
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-bold text-slate uppercase tracking-wide">
-            Plan
-          </label>
-          <select
-            value={planFilter}
-            onChange={(e) => {
-              setPlanFilter(e.target.value);
-              setPage(1);
-            }}
-            className="bg-white border border-border rounded-xl px-3 py-2 text-xs font-medium text-ink cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSyncResend}
+            disabled={isSyncingResend}
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-blue hover:bg-blue-hover text-white text-xs font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <option value="">All plans</option>
-            <option value="free">Free</option>
-            <option value="startup">Startup</option>
-            <option value="growth">Growth</option>
-            <option value="enterprise">Enterprise</option>
-          </select>
+            {isSyncingResend ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Mail className="w-3.5 h-3.5" />
+            )}
+            {isSyncingResend ? "Syncing to Resend..." : "Sync to Resend"}
+          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-bold text-slate uppercase tracking-wide">
+              Plan
+            </label>
+            <select
+              value={planFilter}
+              onChange={(e) => {
+                setPlanFilter(e.target.value);
+                setPage(1);
+              }}
+              className="bg-white border border-border rounded-xl px-3 py-2 text-xs font-medium text-ink cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
+            >
+              <option value="">All plans</option>
+              <option value="free">Free</option>
+              <option value="startup">Startup</option>
+              <option value="growth">Growth</option>
+              <option value="enterprise">Enterprise</option>
+            </select>
+          </div>
         </div>
       </div>
 

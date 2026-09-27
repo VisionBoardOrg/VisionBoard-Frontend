@@ -42,38 +42,20 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
     onSelect(item.id);
   }, [onSelect, item.id]);
 
-  const [isReadyToMove, setIsReadyToMove] = useState(false);
   const [isPressing, setIsPressing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const holdTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    // Call dnd-kit pointer listeners if any
     listeners?.onPointerDown?.(e as never);
     setIsPressing(true);
-
-    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = setTimeout(() => {
-      setIsReadyToMove(true);
-      if (typeof window !== "undefined" && "vibrate" in navigator) {
-        try {
-          navigator.vibrate(35);
-        } catch {}
-      }
-    }, 240);
   }, [listeners]);
 
   const handlePointerUpOrCancel = useCallback(() => {
     setIsPressing(false);
-    setIsReadyToMove(false);
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
   }, []);
 
   const primaryViewer = remoteViewers[0];
-  const activeMove = isDragging || isReadyToMove;
+  const activeMove = isDragging;
 
   const style: React.CSSProperties = {
     position: "absolute",
@@ -83,8 +65,9 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
     minHeight: item.height,
     transform: CSS.Translate.toString(transform),
     zIndex: activeMove ? 100 : isSelected ? 10 : remoteViewers.length > 0 ? 5 : 1,
-    opacity: isDragging ? 0.92 : 1,
-    transition: isDragging ? "none" : "box-shadow 0.15s, border-color 0.2s, transform 0.15s",
+    opacity: isDragging ? 0.94 : 1,
+    transition: isDragging ? "none" : "box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s, transform 0.12s cubic-bezier(0.16, 1, 0.3, 1)",
+    willChange: isDragging ? "transform" : "auto",
     touchAction: "none",
     borderColor: primaryViewer ? primaryViewer.userColor : undefined,
   };
@@ -141,8 +124,8 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
     >
       {/* Draggable Active Indicator Badge */}
       {activeMove && (
-        <div className="absolute -top-3.5 left-2 z-30 flex items-center gap-1 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg border border-white animate-bounce pointer-events-none">
-          <GripVertical size={12} /> Ready to move
+        <div className="absolute -top-3.5 left-2 z-30 flex items-center gap-1 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg border border-white pointer-events-none">
+          <GripVertical size={12} /> Moving
         </div>
       )}
 

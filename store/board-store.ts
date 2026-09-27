@@ -10,9 +10,11 @@ interface BoardState {
   moveItem: (id: string, x: number, y: number) => void;
   addItem: (item: BoardItemFull) => void;
   removeItem: (id: string) => void;
+  replaceItemId: (tempId: string, realItem: BoardItemFull) => void;
   updateBoardItem: (id: string, updates: Partial<BoardItemFull>) => void;
   updateTaskInMilestone: (milestoneId: string, taskId: string, updates: Partial<TaskSimple>) => void;
   removeTaskFromMilestone: (milestoneId: string, taskId: string) => void;
+  addTaskToMilestone: (milestoneId: string, task: TaskSimple) => void;
   getAllItems: () => BoardItemFull[];
   getItem: (id: string) => BoardItemFull | undefined;
 }
@@ -88,6 +90,24 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       };
     }),
 
+  replaceItemId: (tempId, realItem) =>
+    set((state) => {
+      const nextItemsById = { ...state.itemsById };
+      delete nextItemsById[tempId];
+      nextItemsById[realItem.id] = realItem;
+      const nextItemOrder = state.itemOrder.map((id) => (id === tempId ? realItem.id : id));
+      if (!state.itemsById[tempId]) {
+        // In case tempId wasn't in order, ensure realItem.id is appended
+        if (!nextItemOrder.includes(realItem.id)) {
+          nextItemOrder.push(realItem.id);
+        }
+      }
+      return {
+        itemsById: nextItemsById,
+        itemOrder: nextItemOrder,
+      };
+    }),
+
   updateBoardItem: (id, updates) =>
     set((state) => {
       const existing = state.itemsById[id];
@@ -149,6 +169,31 @@ export const useBoardStore = create<BoardState>((set, get) => ({
             nextItemsById[id] = {
               ...item,
               linkedMilestone: { ...item.linkedMilestone, tasks: updatedTasks },
+            };
+            break;
+          }
+        }
+      }
+      return changed ? { itemsById: nextItemsById } : {};
+    }),
+
+  addTaskToMilestone: (milestoneId, task) =>
+    set((state) => {
+      let changed = false;
+      const nextItemsById: Record<string, BoardItemFull> = { ...state.itemsById };
+      for (const id of state.itemOrder) {
+        const item = nextItemsById[id];
+        if (
+          item.linkedMilestoneId === milestoneId ||
+          item.linkedMilestone?.id === milestoneId
+        ) {
+          if (!item.linkedMilestone) continue;
+          const tasks = item.linkedMilestone.tasks ?? [];
+          if (!tasks.some((t) => t.id === task.id)) {
+            changed = true;
+            nextItemsById[id] = {
+              ...item,
+              linkedMilestone: { ...item.linkedMilestone, tasks: [...tasks, task] },
             };
             break;
           }
@@ -218,9 +263,11 @@ export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
     moveItem,
     addItem,
     removeItem,
+    replaceItemId,
     updateBoardItem,
     updateTaskInMilestone,
     removeTaskFromMilestone,
+    addTaskToMilestone,
     getAllItems,
     getItem,
   } = useBoardStore.getState();
@@ -231,9 +278,11 @@ export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
     moveItem,
     addItem,
     removeItem,
+    replaceItemId,
     updateBoardItem,
     updateTaskInMilestone,
     removeTaskFromMilestone,
+    addTaskToMilestone,
     getAllItems,
     getItem,
     workspaceId: storeWorkspaceId,

@@ -25,6 +25,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { sendVerificationEmail } from "@/lib/email-verification";
 import { sendEmailChangeAlertEmail } from "@/lib/email-change-alert";
+import { syncUserToResend, removeUserFromResend } from "@/lib/resend-sync";
 
 const patchSchema = z.object({
   name:            z.string().min(1).max(100).trim().optional(),
@@ -118,14 +119,16 @@ export async function PATCH(request: NextRequest) {
         select: { id: true, name: true, email: true, image: true },
       });
 
-      // Fire-and-forget: alert old address + send verification to new address.
+      // Fire-and-forget: alert old address + send verification to new address + update Resend.
       // Neither failure should block the response — the DB update already succeeded.
       const origin = new URL(request.url).origin;
       Promise.all([
         sendEmailChangeAlertEmail({ oldEmail, newEmail: email, name: updated.name }),
         sendVerificationEmail({ userId: session.user.id, email, name: updated.name, origin }),
+        removeUserFromResend(oldEmail),
+        syncUserToResend({ id: updated.id, email: updated.email, name: updated.name }),
       ]).catch((err) =>
-        console.error("[profile PATCH] Post-email-change email dispatch failed:", err)
+        console.error("[profile PATCH] Post-email-change background dispatch failed:", err)
       );
 
       return NextResponse.json({ user: updated, emailVerificationSent: true });
@@ -148,6 +151,12 @@ export async function PATCH(request: NextRequest) {
     data: updateData,
     select: { id: true, name: true, email: true, image: true },
   });
+
+  if (name !== undefined) {
+    syncUserToResend({ id: updated.id, email: updated.email, name: updated.name }).catch((err) =>
+      console.error("[profile PATCH] Post-name-change Resend sync failed:", err)
+    );
+  }
 
   return NextResponse.json({ user: updated });
 }

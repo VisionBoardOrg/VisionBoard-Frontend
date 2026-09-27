@@ -1,12 +1,14 @@
 "use client";
 
-import { ZoomIn, ZoomOut, Plus, Terminal, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw, LayoutGrid, Kanban, SlidersHorizontal } from "lucide-react";
+import { ZoomIn, ZoomOut, Plus, Target, Milestone, StickyNote, ChevronDown, X, Check, RefreshCw, LayoutGrid, Kanban, SlidersHorizontal } from "lucide-react";
 import type { GoalSimple, MilestoneWithTasks, BoardItemFull } from "@/types/board";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
 import { useModalA11y } from "@/hooks/useModalA11y";
+import { useBoardStore } from "@/store/board-store";
+import { useToast } from "@/context/ToastContext";
 
 // ── Layout constants for the Goal → Milestone → Task hierarchy ──────────────
 const COL_GOAL_X = 80;
@@ -36,7 +38,6 @@ interface BoardToolbarProps {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomReset: () => void;
-  onCommandOpen: () => void;
   workspaceId: string;
   goals: GoalSimple[];
   milestones: MilestoneWithTasks[];
@@ -57,12 +58,13 @@ interface BoardToolbarProps {
 }
 
 export function BoardToolbar({
-  zoom, onZoomIn, onZoomOut, onZoomReset, onCommandOpen,
+  zoom, onZoomIn, onZoomOut, onZoomReset,
   workspaceId, goals, milestones, onItemAdded, onGoalCreated, onMilestoneCreated, currentItems,
   onItemsSynced, activeCollaborators = [], sendEvent,
   layoutMode = "canvas",
   onToggleLayoutSidePanel,
 }: BoardToolbarProps) {
+  const { toast } = useToast();
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerType, setPickerType] = useState<"goal" | "milestone" | null>(null);
   const [adding, setAdding] = useState(false);
@@ -204,23 +206,66 @@ export function BoardToolbar({
     }
     if (entityType === "note") body.label = label ?? "New note";
 
-    const res = await fetch(`/api/board-items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      onItemAdded(data.boardItem);
-      if (sendEvent) {
-        sendEvent({
-          type: "CARD_CREATED",
-          workspaceId,
-          boardItem: data.boardItem,
+    // ── Optimistic creation: append provisional card immediately (0ms perceived latency) ──
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const linkedGoal = entityType === "goal" && linkedId ? (goals.find((g) => g.id === linkedId) ?? null) : null;
+    const linkedMilestone = entityType === "milestone" && linkedId ? (milestones.find((m) => m.id === linkedId) ?? null) : null;
+
+    const optimisticItem: BoardItemFull = {
+      id: tempId,
+      workspaceId,
+      x: targetX,
+      y: targetY,
+      width: cardWidth,
+      height: cardHeight,
+      entityType,
+      color: null,
+      label: entityType === "note" ? (label ?? "New note") : null,
+      linkedGoalId: entityType === "goal" ? (linkedId ?? null) : null,
+      linkedMilestoneId: entityType === "milestone" ? (linkedId ?? null) : null,
+      linkedTaskId: null,
+      linkedGoal,
+      linkedMilestone,
+    };
+
+    onItemAdded(optimisticItem);
+
+    try {
+      const res = await fetch(`/api/board-items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        // Reconcile optimistic ID with server item in the central store
+        useBoardStore.getState().replaceItemId(tempId, data.boardItem);
+        if (sendEvent) {
+          sendEvent({
+            type: "CARD_CREATED",
+            workspaceId,
+            boardItem: data.boardItem,
+          });
+        }
+      } else {
+        useBoardStore.getState().removeItem(tempId);
+        toast({
+          title: "Failed to create card",
+          description: "Could not save card to the server. Please try again.",
+          type: "error",
         });
       }
+    } catch {
+      useBoardStore.getState().removeItem(tempId);
+      toast({
+        title: "Connection error",
+        description: "Failed to save card. Please check your network.",
+        type: "error",
+      });
+    } finally {
+      setAdding(false);
     }
-    setAdding(false);
   }
 
   async function handleCreateMilestone(e: React.FormEvent) {
@@ -415,11 +460,10 @@ export function BoardToolbar({
           <SlidersHorizontal size={12} className="text-slate-400 ml-0.5" />
         </button>
 
-        <div className="w-px h-5 bg-border mx-1" />
-
         {/* Sync missing cards — only shown when some milestones/goals lack board items */}
         {hasMissingCards && (
           <>
+            <div className="w-px h-5 bg-border mx-1" />
             <button
               onClick={syncMissingCards}
               disabled={syncing}
@@ -429,20 +473,8 @@ export function BoardToolbar({
               <RefreshCw size={13} className={syncing ? "animate-spin" : ""} />
               <span>{syncing ? "Syncing…" : "Sync missing cards"}</span>
             </button>
-            <div className="w-px h-5 bg-border mx-1" />
           </>
         )}
-
-        {/* AI command bar */}
-        <button
-          onClick={onCommandOpen}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue hover:bg-blue-faint rounded-lg transition-colors"
-          title="Open AI command bar (⌘/)"
-        >
-          <Terminal size={13} />
-          <span>AI Edit</span>
-          <kbd className="text-[10px] text-muted bg-offwhite border border-border rounded px-1 font-mono">⌘/</kbd>
-        </button>
 
         {/* Live Collaborators Stack */}
         {activeCollaborators.length > 0 && (

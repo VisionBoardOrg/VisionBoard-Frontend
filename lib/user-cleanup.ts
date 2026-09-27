@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendFinalDeletionWarningEmail } from "@/lib/account-deletion-email";
 import { signCancelDeletionToken } from "@/lib/deletion-token";
+import { removeUserFromResend } from "@/lib/resend-sync";
 
 export interface UserCleanupResult {
   warningsSent: number;
@@ -102,6 +103,9 @@ export async function runUserCleanup(): Promise<UserCleanupResult> {
       // the user row is removed.
       await prisma.workspace.deleteMany({ where: { ownerId: user.id } });
       await prisma.user.delete({ where: { id: user.id } });
+
+      // Clean up user from Resend audience
+      await removeUserFromResend(user.email);
 
       purgedUserIds.push(user.id);
       console.log(`[cron] Permanently purged user ${user.email} (${user.id}).`);

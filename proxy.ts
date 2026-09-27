@@ -45,8 +45,8 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  // ── 1b. Stripe Webhook — bypass all auth, must receive raw body ──────────────
-  if (pathname === "/api/stripe/webhook") {
+  // ── 1b. Webhooks — bypass all session auth, verified by cryptographic signatures/secrets
+  if (pathname === "/api/stripe/webhook" || pathname.startsWith("/api/webhooks")) {
     return NextResponse.next();
   }
 

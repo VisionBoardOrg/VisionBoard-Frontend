@@ -5,7 +5,6 @@ import { useSession } from "next-auth/react";
 import { DndContext, DragEndEvent, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { BoardCard } from "./BoardCard";
 import { BoardToolbar } from "./BoardToolbar";
-import { NLCommandBar } from "./NLCommandBar";
 import { CardDetailPanel } from "./CardDetailPanel";
 import { LiveCursorsCanvas } from "./LiveCursorsCanvas";
 import { BoardLayoutSidePanel, type BoardLayoutMode } from "./BoardLayoutSidePanel";
@@ -84,7 +83,7 @@ interface BoardCanvasProps {
 }
 
 export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, milestones: initialMilestones, members }: BoardCanvasProps) {
-  const { items, moveItem, setItems, updateBoardItem, removeItem } = useBoard(workspaceId, initialItems);
+  const { items, moveItem, setItems, updateBoardItem, removeItem, addItem } = useBoard(workspaceId, initialItems);
   const { toast } = useToast();
 
   // Read current logged-in user session for presence broadcasting
@@ -103,7 +102,6 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
 
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [commandOpen, setCommandOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [layoutMode, setLayoutMode] = useState<BoardLayoutMode>("canvas");
   const [layoutSidePanelOpen, setLayoutSidePanelOpen] = useState(false);
@@ -134,6 +132,41 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   // Goals and milestones are kept in state so newly created ones appear immediately
   const [goals, setGoals] = useState<GoalSimple[]>(initialGoals);
   const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
+
+  // Sync state when props change (e.g. after router.refresh() from AI board actions)
+  useEffect(() => {
+    setGoals(initialGoals);
+  }, [initialGoals]);
+
+  useEffect(() => {
+    setMilestones(initialMilestones);
+  }, [initialMilestones]);
+
+  useEffect(() => {
+    setItems(initialItems);
+  }, [initialItems, setItems]);
+
+  // Listen to real-time visionboard:board-updated custom events
+  useEffect(() => {
+    function handleBoardUpdated(e: Event) {
+      const customEvent = e as CustomEvent<{
+        actions?: Array<{ action: string; entityId: string }>;
+        action?: { action: string; entityId: string };
+        undone?: boolean;
+      }>;
+      const actions = customEvent.detail?.actions || (customEvent.detail?.action ? [customEvent.detail.action] : []);
+      for (const act of actions) {
+        if (act.action === "delete_milestone") {
+          setMilestones((prev) => prev.filter((m) => m.id !== act.entityId));
+        } else if (act.action === "delete_goal") {
+          setGoals((prev) => prev.filter((g) => g.id !== act.entityId));
+        }
+      }
+    }
+    window.addEventListener("visionboard:board-updated", handleBoardUpdated);
+    return () => window.removeEventListener("visionboard:board-updated", handleBoardUpdated);
+  }, []);
+
   const [undoStack, setUndoStack] = useState<{ item: BoardItemFull; deletedAt: number }[]>([]);
   const [showUndoToast, setShowUndoToast] = useState(false);
   const [pendingResetConfirmation, setPendingResetConfirmation] = useState<{
@@ -269,17 +302,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     setZoom((prev) => Math.min(2, Math.max(0.3, prev - e.deltaY * 0.001)));
   }
 
-  // Keyboard shortcut for the AI command bar + Escape to close panel.
-  // ⌘/ opens the board AI command bar — ⌘K is reserved app-wide for the
-  // global command palette in AppShell (both used to fire at once here).
+  // Escape to close panel
   function onKeyDown(e: React.KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && (e.key === "/" || e.key === "?")) {
-      e.preventDefault();
-      setCommandOpen(true);
-    }
     if (e.key === "Escape") {
       setSelectedId(null);
-      setCommandOpen(false);
     }
   }
 
@@ -877,12 +903,11 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         onZoomIn={() => setZoom((z) => Math.min(2, z + 0.1))}
         onZoomOut={() => setZoom((z) => Math.max(0.3, z - 0.1))}
         onZoomReset={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-        onCommandOpen={() => setCommandOpen(true)}
         workspaceId={workspaceId}
         goals={goals}
         milestones={milestones}
         currentItems={items}
-        onItemAdded={(item) => setItems([...items, item])}
+        onItemAdded={addItem}
         onGoalCreated={(goal) => setGoals((prev) => [...prev, goal])}
         onMilestoneCreated={(ms) => setMilestones((prev) => [...prev, ms])}
         onItemsSynced={(newItems) => {
@@ -919,7 +944,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
             members={members}
             selectedId={selectedId}
             onSelectCard={(id) => setSelectedId(selectedId === id ? null : id)}
-            onItemAdded={(item) => setItems([...items, item])}
+            onItemAdded={addItem}
             onItemStatusChange={handleItemStatusChange}
             onDeleteCard={handleDeleteCard}
             onTaskToggle={handleTaskToggle}
@@ -1029,58 +1054,6 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         />
       )}
 
-      {/* Command bar overlay */}
-      {commandOpen && (
-        <NLCommandBar
-          workspaceId={workspaceId}
-          onClose={() => setCommandOpen(false)}
-          onAction={async (action) => {
-            if (!action.id) return;
-
-            // Apply the AI-parsed action immediately after user confirmation
-            if (action.entity === "milestone" || action.entity === "task") {
-              if (action.action === "update" || action.action === "assign" || action.action === "move") {
-                // Optimistically update the board store
-                setItems(
-                  items.map((item) => {
-                    if (
-                      (item.entityType === "milestone" && item.linkedMilestoneId === action.id) ||
-                      (item.entityType === "goal" && item.linkedGoalId === action.id)
-                    ) {
-                      return { ...item, ...(action.changes as Partial<typeof item>) };
-                    }
-                    return item;
-                  })
-                );
-
-                // Persist to API
-                const endpoint =
-                  action.entity === "task"
-                    ? `/api/tasks/${action.id}`
-                    : `/api/milestones/${action.id}`;
-
-                fetch(endpoint, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(action.changes),
-                }).catch((err) =>
-                  console.error("[NL Board Edit] Failed to persist action:", err)
-                );
-              }
-            }
-
-            if (action.entity === "goal" && action.id) {
-              fetch(`/api/board-items/${action.id}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(action.changes),
-              }).catch((err) =>
-                console.error("[NL Board Edit] Failed to persist goal action:", err)
-              );
-            }
-          }}
-        />
-      )}
 
       {/* Empty state — only displayed in Canvas mode */}
       {layoutMode === "canvas" && items.length === 0 && (

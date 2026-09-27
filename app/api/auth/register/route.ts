@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { sendVerificationEmail } from "@/lib/email-verification";
+import { syncUserToResend } from "@/lib/resend-sync";
 
 const registerSchema = z.object({
   name: z.string().min(1).max(100),
@@ -65,6 +66,13 @@ export async function POST(request: NextRequest) {
       name: user.name,
       origin,
     }).catch((err) => console.error("[register] Failed to dispatch verification email:", err));
+
+    // Sync user to Resend audience in background
+    syncUserToResend({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+    }).catch((err) => console.error("[register] Failed to sync user to Resend:", err));
 
     return NextResponse.json({ user }, { status: 201 });
   } catch (err) {

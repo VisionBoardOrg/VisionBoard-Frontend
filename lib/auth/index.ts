@@ -31,6 +31,7 @@ import type {
 } from "@prisma/client";
 
 import { checkRateLimitByKey, getClientIp } from "@/lib/rate-limit";
+import { syncUserToResend } from "@/lib/resend-sync";
 
 /* ─── Cross-request auth-lookup cache + in-flight deduplication ──────────
  *
@@ -554,7 +555,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   events: {
-    async signIn({ user, account }) {
+    async createUser({ user }) {
+      if (user?.email) {
+        syncUserToResend({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        }).catch((err) => console.error("[auth] Failed to sync new OAuth user to Resend:", err));
+      }
+    },
+    async signIn({ user, account, isNewUser }) {
       if (account?.provider && account.provider !== "credentials" && user?.id) {
         try {
           await prisma.user.update({
@@ -564,6 +574,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         } catch (err) {
           console.error("[auth] Event signIn OAuth auto-verify error:", err);
         }
+      }
+      if (isNewUser && user?.email) {
+        syncUserToResend({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        }).catch((err) => console.error("[auth] Event signIn sync user to Resend error:", err));
       }
     },
   },
