@@ -35,7 +35,7 @@ import "server-only";
  *   failures.
  */
 
-const PRODUCTION_CONNECTION_LIMIT = 5;
+const PRODUCTION_CONNECTION_LIMIT = 1;
 const DEV_CONNECTION_LIMIT        = 3;
 const POOL_TIMEOUT_SECONDS        = 5;
 const CONNECT_TIMEOUT_SECONDS     = 10;
