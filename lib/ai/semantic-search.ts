@@ -115,14 +115,14 @@ export async function searchWorkspaceKnowledge(
   }
 
   // ── Fallback: fetch top-N chunks and rank in JavaScript ──────────────────
-  // Hard cap at 2000 rows — avoids loading the entire embedding table into
-  // memory. For workspaces larger than this, apply the pgvector migration to
-  // use the fast ANN path instead (see instrumentation.ts startup warning).
-  const FALLBACK_LIMIT = 2000;
+  // Hard cap at 150 rows to prevent heap exhaustion and OOM on 500 MB RAM Node processes.
+  // When pgvector migration is applied, the fast path above is used instead.
+  const FALLBACK_LIMIT = 150;
   const embeddings = await prisma.workspaceEmbedding.findMany({
     where: {
       workspaceId,
       ...(options.entityTypes?.length ? { entityType: { in: options.entityTypes } } : {}),
+      NOT: { embedding: { equals: [] } },
     },
     select: {
       id: true,
@@ -144,8 +144,9 @@ export async function searchWorkspaceKnowledge(
     return [];
   }
 
-  // Rank by cosine similarity
+  // Rank by cosine similarity (guard against empty/malformed arrays)
   const scored = embeddings
+    .filter((item) => Array.isArray(item.embedding) && item.embedding.length === 1536)
     .map((item) => {
       const sim = cosineSimilarity(queryVector, item.embedding as number[]);
       return {

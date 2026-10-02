@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { Analytics } from "@vercel/analytics/react";
-import { auth } from "@/lib/auth";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -136,30 +135,11 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  let session = null;
-  try {
-    session = await auth();
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // Next.js prerender analysis deliberately throws "Dynamic server usage:
-    // headers/cookies" to bail out of static generation. That is NOT an error
-    // — it marks the route as dynamic. Only log genuinely unexpected throws.
-    const isPrerenderBailout =
-      /Dynamic server usage|cookies|headers|searchParams/.test(msg);
-    if (!isPrerenderBailout) {
-      console.warn(
-        "[layout] auth() threw during RootLayout — treating session as null.",
-        msg
-      );
-    }
-    throw err;
-  }
-
   // Structured Data (JSON-LD) for Search Engine Rich Snippets
   const jsonLd = {
     "@context": "https://schema.org",
@@ -231,7 +211,7 @@ export default async function RootLayout({
         )}
       </head>
       <body className="h-full bg-offwhite text-ink">
-        <SessionProvider session={session} refetchOnWindowFocus={false}>
+        <SessionProvider refetchOnWindowFocus={false}>
           {children}
           <Analytics />
         </SessionProvider>

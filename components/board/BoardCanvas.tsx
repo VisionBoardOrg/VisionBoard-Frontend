@@ -178,6 +178,8 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   } | null>(null);
   const lastDeleted = undoStack[undoStack.length - 1];
   const canvasRef = useRef<HTMLDivElement>(null);
+  const canvasTransformRef = useRef<HTMLDivElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   // dnd-kit sensors
   const sensors = useSensors(
@@ -185,33 +187,40 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
 
-  // Panning with mouse drag on canvas background
+  // Panning with mouse drag on canvas background — direct DOM transforms during drag
+  // to achieve smooth 60-120fps without React reconciler overhead on every frame
   const isPanning = useRef(false);
   const lastPos = useRef({ x: 0, y: 0 });
   const lastCursorEmitRef = useRef<number>(0);
+  const panRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    panRef.current = pan;
+  }, [pan]);
+
   // Identity is sent on the first cursor packet after connect and then every
   // 25th (~1/sec) — keeps 40ms position packets minimal while letting
   // newcomers learn who is who without a presence-join protocol.
   const cursorPacketCountRef = useRef(0);
-  // rAF coalescing for pan updates — one setState per frame max instead of
-  // one per mousemove event
+  // rAF coalescing for pan updates — applies direct DOM transform on animation frame
   const panRafRef = useRef<number | null>(null);
-  const pendingPanRef = useRef({ x: 0, y: 0 });
 
   const applyPan = useCallback((dx: number, dy: number) => {
-    pendingPanRef.current = {
-      x: pendingPanRef.current.x + dx,
-      y: pendingPanRef.current.y + dy,
-    };
+    panRef.current.x += dx;
+    panRef.current.y += dy;
+
     if (panRafRef.current === null) {
       panRafRef.current = requestAnimationFrame(() => {
         panRafRef.current = null;
-        const delta = pendingPanRef.current;
-        pendingPanRef.current = { x: 0, y: 0 };
-        setPan((prev) => ({ x: prev.x + delta.x, y: prev.y + delta.y }));
+        if (canvasTransformRef.current) {
+          canvasTransformRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${zoom})`;
+        }
+        if (gridRef.current) {
+          gridRef.current.style.backgroundPosition = `${panRef.current.x % (20 * zoom)}px ${panRef.current.y % (20 * zoom)}px`;
+        }
       });
     }
-  }, []);
+  }, [zoom]);
 
   useEffect(() => {
     return () => {
@@ -242,8 +251,8 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         cursorPacketCountRef.current += 1;
         const includeIdentity = cursorPacketCountRef.current % 25 === 1;
         const rect = canvasRef.current.getBoundingClientRect();
-        const canvasX = (e.clientX - rect.left - pan.x) / zoom;
-        const canvasY = (e.clientY - rect.top - pan.y) / zoom;
+        const canvasX = (e.clientX - rect.left - panRef.current.x) / zoom;
+        const canvasY = (e.clientY - rect.top - panRef.current.y) / zoom;
 
         sendEvent({
           type: "CURSOR_MOVED",
@@ -265,7 +274,10 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   }
 
   function onMouseUp(e: React.MouseEvent) {
-    isPanning.current = false;
+    if (isPanning.current) {
+      isPanning.current = false;
+      setPan({ x: panRef.current.x, y: panRef.current.y });
+    }
     (e.currentTarget as HTMLDivElement).style.cursor = "grab";
   }
 
@@ -292,14 +304,23 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   }
 
   function onTouchEnd() {
-    isPanning.current = false;
+    if (isPanning.current) {
+      isPanning.current = false;
+      setPan({ x: panRef.current.x, y: panRef.current.y });
+    }
     touchOnCard.current = false;
   }
 
   // Wheel to zoom
   function onWheel(e: React.WheelEvent) {
     e.preventDefault();
-    setZoom((prev) => Math.min(2, Math.max(0.3, prev - e.deltaY * 0.001)));
+    setZoom((prev) => {
+      const nextZoom = Math.min(2, Math.max(0.3, prev - e.deltaY * 0.001));
+      if (canvasTransformRef.current) {
+        canvasTransformRef.current.style.transform = `translate(${panRef.current.x}px, ${panRef.current.y}px) scale(${nextZoom})`;
+      }
+      return nextZoom;
+    });
   }
 
   // Escape to close panel
@@ -309,8 +330,16 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
     }
   }
 
-  // Persist drag — debounced 400 ms
-  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Persist drag — debounced 400 ms per individual card to prevent race condition drops
+  const persistTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    const timers = persistTimers.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -332,17 +361,22 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         boardItem: { ...item, x: newX, y: newY },
       });
 
-      // Debounce DB write
-      if (persistTimer.current) clearTimeout(persistTimer.current);
-      persistTimer.current = setTimeout(() => {
+      // Debounce DB write per card (individual timer per card prevents rapid multi-drag cancellation)
+      const existingTimer = persistTimers.current.get(itemId);
+      if (existingTimer) clearTimeout(existingTimer);
+
+      const timer = setTimeout(() => {
+        persistTimers.current.delete(itemId);
         fetch(`/api/board-items/${itemId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ x: newX, y: newY }),
         });
       }, 400);
+
+      persistTimers.current.set(itemId, timer);
     },
-    [items, zoom, moveItem, sendEvent, workspaceId]
+    [zoom, moveItem, sendEvent, workspaceId]
   );
 
   const handleDragStart = useCallback(() => {
@@ -902,7 +936,13 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
         zoom={zoom}
         onZoomIn={() => setZoom((z) => Math.min(2, z + 0.1))}
         onZoomOut={() => setZoom((z) => Math.max(0.3, z - 0.1))}
-        onZoomReset={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+        onZoomReset={() => {
+          setZoom(1);
+          setPan({ x: 0, y: 0 });
+          panRef.current = { x: 0, y: 0 };
+          if (canvasTransformRef.current) canvasTransformRef.current.style.transform = `translate(0px, 0px) scale(1)`;
+          if (gridRef.current) gridRef.current.style.backgroundPosition = `0px 0px`;
+        }}
         workspaceId={workspaceId}
         goals={goals}
         milestones={milestones}
@@ -965,11 +1005,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
           onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
         >
-          {/* F-12: Dot grid via CSS radial-gradient — no React re-renders on pan/zoom.
-               The background-position is updated via a CSS custom property set once
-               by the transformed child, so the browser handles it on the compositor
-               thread without touching React's reconciler. */}
+          {/* F-12: Dot grid via CSS radial-gradient — direct ref manipulation during drag avoids React reconciler thrashing */}
           <div
+            ref={gridRef}
             className="absolute inset-0 pointer-events-none"
             aria-hidden
             style={{
@@ -979,9 +1017,9 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
             }}
           />
 
-          {/* F-15: Transformed canvas — dynamically sized to item bounding box
-               + generous padding instead of a fixed 4000×3000 GPU allocation. */}
+          {/* F-15: Transformed canvas — dynamically sized to item bounding box, direct DOM transform during pan */}
           <div
+            ref={canvasTransformRef}
             style={{
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: "0 0",

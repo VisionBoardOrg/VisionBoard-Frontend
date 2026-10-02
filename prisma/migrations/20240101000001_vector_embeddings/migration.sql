@@ -44,3 +44,11 @@ WHERE "embeddingVec" IS NULL
 --    low-traffic hours, or swap to CREATE INDEX CONCURRENTLY in a non-transactional session.
 CREATE INDEX IF NOT EXISTS "WorkspaceEmbedding_embeddingVec_hnsw"
   ON "WorkspaceEmbedding" USING hnsw ("embeddingVec" vector_cosine_ops);
+
+-- 5. Reclaim storage by clearing legacy float[] for rows where vector column is populated
+--    (saves ~12.3 KB per row on Supabase's 500 MB disk limit).
+UPDATE "WorkspaceEmbedding"
+SET "embedding" = ARRAY[]::double precision[]
+WHERE "embeddingVec" IS NOT NULL
+  AND cardinality("embedding") > 0;
+

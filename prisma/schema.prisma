@@ -425,6 +425,7 @@ model WorkspaceEmbedding {
   @@index([workspaceId])
   @@index([workspaceId, entityType])
   @@index([workspaceId, entityId])
+  @@index([workspaceId, updatedAt])
 }
 
 model CopilotConversation {
@@ -478,6 +479,7 @@ model Notification {
   @@index([userId, read, createdAt])
   @@index([userId, createdAt])
   @@index([userId, workspaceId, read, createdAt])
+  @@index([userId, type, createdAt])
   @@index([workspaceId])
   @@index([createdAt])
   @@index([entityId, createdAt])

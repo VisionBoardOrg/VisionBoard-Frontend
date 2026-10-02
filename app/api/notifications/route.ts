@@ -72,19 +72,21 @@ export async function GET(request: NextRequest) {
         take: limit + 1,
         cursor: cursor ? { id: cursor } : undefined,
         skip: cursor ? 1 : 0,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         include: {
           actor: { select: { id: true, name: true, image: true, email: true } },
           workspace: { select: { id: true, name: true, slug: true } },
         },
       }),
-      prisma.notification.count({
-        where: {
-          userId: session.user.id,
-          read: false,
-          ...(workspaceId ? { workspaceId } : {}),
-        },
-      }),
+      cursor
+        ? Promise.resolve(null)
+        : prisma.notification.count({
+            where: {
+              userId: session.user.id,
+              read: false,
+              ...(workspaceId ? { workspaceId } : {}),
+            },
+          }),
     ]);
 
     let nextCursor: string | null = null;

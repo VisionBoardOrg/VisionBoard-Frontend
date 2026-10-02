@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
@@ -36,30 +36,45 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
 
+  const userIdsToCheck = [session.user.id];
+  if (parsed.data.assigneeId) userIdsToCheck.push(parsed.data.assigneeId);
+
+  // Single consolidated query: fetch task, milestone goal, and workspace memberships in 1 SQL round-trip
   const task = await prisma.task.findUnique({
     where: { id },
-    include: { milestone: { select: { goalId: true, goal: { select: { workspaceId: true } } } } },
+    include: {
+      milestone: {
+        select: {
+          id: true,
+          status: true,
+          goalId: true,
+          goal: { select: { workspaceId: true } },
+        },
+      },
+      workspace: {
+        select: {
+          id: true,
+          members: {
+            where: { userId: { in: userIdsToCheck } },
+            select: { userId: true, role: true },
+          },
+        },
+      },
+    },
   });
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const workspaceId = task.milestone.goal.workspaceId;
+  const workspaceId = task.workspaceId || task.milestone.goal.workspaceId;
   const goalId = task.milestone.goalId;
 
-  // Run membership check + optional assignee check in parallel
-  const [member, assigneeMember] = await Promise.all([
-    prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
-    }),
-    parsed.data.assigneeId
-      ? prisma.workspaceMember.findUnique({
-          where: { workspaceId_userId: { workspaceId, userId: parsed.data.assigneeId } },
-        })
-      : Promise.resolve(null),
-  ]);
+  const currentMember = task.workspace?.members.find((m) => m.userId === session.user.id);
+  if (!currentMember) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (parsed.data.assigneeId && !assigneeMember) {
-    return NextResponse.json({ error: "Assignee is not a member of this workspace" }, { status: 400 });
+  if (parsed.data.assigneeId) {
+    const hasAssignee = task.workspace?.members.some((m) => m.userId === parsed.data.assigneeId);
+    if (!hasAssignee) {
+      return NextResponse.json({ error: "Assignee is not a member of this workspace" }, { status: 400 });
+    }
   }
 
   const updateData: Record<string, unknown> = { ...parsed.data };
@@ -77,61 +92,58 @@ export async function PATCH(
 
   const updated = await prisma.task.update({ where: { id }, data: updateData as never });
 
-  // Auto-sync parent milestone status based on task completion status
-  if (parsed.data.status && task.milestoneId) {
-    syncMilestoneStatus(task.milestoneId)
-      .then((target) => {
-        if (target && goalId) {
-          calculateGoalHealth(goalId).catch((err) =>
-            console.error("[tasks/[id] PATCH] Auto goal health calculation failed:", err)
-          );
+  // Offload auxiliary updates to Next.js after() — response is returned immediately to client,
+  // and tasks are guaranteed to complete without serverless process freezing
+  after(async () => {
+    // 1. Auto-sync milestone status; only recalculate full goal health if milestone status actually changed
+    if (parsed.data.status && task.milestoneId) {
+      try {
+        const newMilestoneStatus = await syncMilestoneStatus(task.milestoneId);
+        if (newMilestoneStatus && newMilestoneStatus !== task.milestone.status && goalId) {
+          await calculateGoalHealth(goalId).catch(() => {});
         }
-      })
-      .catch((err: unknown) => console.error("[tasks/[id] PATCH] Auto milestone update failed:", err));
-  } else if (goalId && (parsed.data.status || parsed.data.priority)) {
-    calculateGoalHealth(goalId).catch((err) =>
-      console.error("[tasks/[id] PATCH] Auto goal health calculation failed:", err)
-    );
-  }
+      } catch (err) {
+        console.error("[tasks/[id] PATCH] Auto milestone update failed:", err);
+      }
+    }
 
-  // Fire-and-forget audit log — non-blocking
-  prisma.activityLog.create({
-    data: {
-      workspaceId,
-      userId: session.user.id,
-      entityType: "task",
-      entityId: id,
-      action: "updated",
-      diff: parsed.data as never,
-    },
-  }).catch((err: unknown) => console.error("[tasks/[id] PATCH] Activity log failed:", err));
+    // 2. Audit log
+    prisma.activityLog.create({
+      data: {
+        workspaceId,
+        userId: session.user.id,
+        entityType: "task",
+        entityId: id,
+        action: "updated",
+        diff: parsed.data as never,
+      },
+    }).catch((err: unknown) => console.error("[tasks/[id] PATCH] Activity log failed:", err));
 
-  // Dispatch real-time & persistent notifications
-  const userName = session.user.name || "A team member";
+    // 3. Dispatch notifications
+    const userName = session.user.name || "A team member";
 
-  // 1. Task assignment notification
-  if (parsed.data.assigneeId && parsed.data.assigneeId !== task.assigneeId) {
-    dispatchTaskAssignmentNotification({
-      assigneeId: parsed.data.assigneeId,
-      assignerId: session.user.id,
-      assignerName: userName,
-      taskId: id,
-      taskTitle: updated.title,
-      workspaceId,
-    }).catch((err) => console.error("[tasks/[id] PATCH] Task assignment notification failed:", err));
-  }
+    if (parsed.data.assigneeId && parsed.data.assigneeId !== task.assigneeId) {
+      dispatchTaskAssignmentNotification({
+        assigneeId: parsed.data.assigneeId,
+        assignerId: session.user.id,
+        assignerName: userName,
+        taskId: id,
+        taskTitle: updated.title,
+        workspaceId,
+      }).catch((err) => console.error("[tasks/[id] PATCH] Task assignment notification failed:", err));
+    }
 
-  // 2. Task blocked notification to PMs/admins
-  if (parsed.data.status === "blocked" && task.status !== "blocked") {
-    dispatchTaskBlockedNotification({
-      taskId: id,
-      taskTitle: updated.title,
-      blockedReason: parsed.data.blockedReason,
-      workspaceId,
-      updaterId: session.user.id,
-      updaterName: userName,
-    }).catch((err) => console.error("[tasks/[id] PATCH] Task blocked notification failed:", err));
-  }
+    if (parsed.data.status === "blocked" && task.status !== "blocked") {
+      dispatchTaskBlockedNotification({
+        taskId: id,
+        taskTitle: updated.title,
+        blockedReason: parsed.data.blockedReason,
+        workspaceId,
+        updaterId: session.user.id,
+        updaterName: userName,
+      }).catch((err) => console.error("[tasks/[id] PATCH] Task blocked notification failed:", err));
+    }
+  });
 
   return NextResponse.json({ task: updated });
 }

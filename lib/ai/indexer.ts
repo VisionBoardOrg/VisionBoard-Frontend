@@ -104,7 +104,8 @@ async function syncVectorColumns(ids: string[], embeddings: number[][]): Promise
     const vecTexts = embeddings.map((v) => JSON.stringify(v));
     await prisma.$executeRaw`
       UPDATE "WorkspaceEmbedding" e
-      SET "embeddingVec" = x.vec::vector
+      SET "embeddingVec" = x.vec::vector,
+          "embedding" = ARRAY[]::double precision[]
       FROM unnest(${ids}::text[], ${vecTexts}::text[]) AS x(id, vec)
       WHERE e.id = x.id
     `;

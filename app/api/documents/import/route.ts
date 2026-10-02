@@ -2,12 +2,8 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import mammoth from "mammoth";
-// SECURITY (HIGH-9): Replaced pdf-parse (unmaintained, ReDoS vulnerabilities) with pdfjs-dist.
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import sanitizeHtml from "sanitize-html";
-// SECURITY (HIGH-8): Replaced xlsx/SheetJS CE (unmaintained, multiple CVEs) with exceljs.
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
 import { parse as parseHtml } from "node-html-parser";
 
@@ -22,6 +18,7 @@ export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
  * Uses ExcelJS instead of the unmaintained SheetJS CE.
  */
 export async function excelToTiptap(buffer: Buffer): Promise<object> {
+  const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer as any);
   const content: object[] = [];
@@ -519,7 +516,8 @@ export async function POST(request: NextRequest) {
     if (ext === "pdf") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      // SECURITY (HIGH-9): pdfjs-dist replaces pdf-parse (unmaintained).
+      // Heavy pdfjs-dist is dynamically imported on-demand to eliminate serverless cold-start bloat
+      const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
       const loadingTask = getDocument({ data: new Uint8Array(buffer) });
       const pdfDoc = await loadingTask.promise;
       const textParts: string[] = [];
@@ -538,6 +536,8 @@ export async function POST(request: NextRequest) {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       try {
+        // Heavy mammoth parser is dynamically imported on-demand
+        const mammoth = (await import("mammoth")).default;
         const result = await mammoth.convertToHtml({ buffer });
         tiptapContent = htmlToTiptap(result.value);
       } catch (docErr) {
