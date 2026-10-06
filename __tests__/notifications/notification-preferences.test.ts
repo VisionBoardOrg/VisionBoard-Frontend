@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     notificationPreference: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       upsert: vi.fn(),
@@ -54,6 +55,7 @@ describe("notification-preferences", () => {
         systemAlerts: true,
         typeOverrides: null,
         unsubscribeToken: "tok_123",
+        keyHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -76,6 +78,7 @@ describe("notification-preferences", () => {
         systemAlerts: true,
         typeOverrides: null,
         unsubscribeToken: "tok_123",
+        keyHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -98,6 +101,7 @@ describe("notification-preferences", () => {
         systemAlerts: true,
         typeOverrides: null,
         unsubscribeToken: "tok_123",
+        keyHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -121,6 +125,7 @@ describe("notification-preferences", () => {
           task_due_soon: false, // specifically opted out of due soon
         },
         unsubscribeToken: "tok_123",
+        keyHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -133,7 +138,7 @@ describe("notification-preferences", () => {
 
   describe("unsubscribeByToken", () => {
     it("disables email notifications for valid token", async () => {
-      vi.mocked(prisma.notificationPreference.findUnique).mockResolvedValue({
+      vi.mocked(prisma.notificationPreference.findFirst).mockResolvedValue({
         id: "pref_1",
         userId: "user_1",
         emailEnabled: true,
@@ -145,6 +150,7 @@ describe("notification-preferences", () => {
         systemAlerts: true,
         typeOverrides: null,
         unsubscribeToken: "valid_tok",
+        keyHash: "8e8c0b0f0b4a7e4d1e2c2b4a3c3d2e1f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -161,6 +167,7 @@ describe("notification-preferences", () => {
         systemAlerts: true,
         typeOverrides: null,
         unsubscribeToken: "valid_tok",
+        keyHash: "8e8c0b0f0b4a7e4d1e2c2b4a3c3d2e1f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -175,7 +182,7 @@ describe("notification-preferences", () => {
     });
 
     it("returns error for invalid token", async () => {
-      vi.mocked(prisma.notificationPreference.findUnique).mockResolvedValue(null);
+      vi.mocked(prisma.notificationPreference.findFirst).mockResolvedValue(null);
 
       const result = await unsubscribeByToken("invalid_tok");
       expect(result.success).toBe(false);
@@ -197,6 +204,7 @@ describe("notification-preferences", () => {
         systemAlerts: true,
         typeOverrides: null,
         unsubscribeToken: "token_1",
+        keyHash: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -207,25 +215,29 @@ describe("notification-preferences", () => {
         typeOverrides: null,
       });
 
-      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith({
-        where: { userId: "user_1" },
-        update: {
-          emailEnabled: false,
-          tasks: false,
-          typeOverrides: Prisma.JsonNull,
-        },
-        create: {
-          userId: "user_1",
-          emailEnabled: false,
-          tasks: false,
-          mentions: true,
-          comments: true,
-          goalsMilestones: true,
-          quotasBilling: true,
-          systemAlerts: true,
-          typeOverrides: Prisma.JsonNull,
-        },
-      });
+      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: "user_1" },
+          update: {
+            emailEnabled: false,
+            tasks: false,
+            typeOverrides: Prisma.JsonNull,
+          },
+          create: expect.objectContaining({
+            userId: "user_1",
+            emailEnabled: false,
+            tasks: false,
+            mentions: true,
+            comments: true,
+            goalsMilestones: true,
+            quotasBilling: true,
+            systemAlerts: true,
+            typeOverrides: Prisma.JsonNull,
+            keyHash: expect.any(String),
+            unsubscribeToken: expect.any(String),
+          }),
+        })
+      );
 
       expect(result.emailEnabled).toBe(false);
       expect(result.tasks).toBe(false);

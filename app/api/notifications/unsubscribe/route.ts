@@ -74,6 +74,16 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ success: true, message: "Unsubscribed successfully" });
 }
 
+function h(s: unknown): string {
+  const str = String(s ?? "");
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function renderUnsubscribeHtml(title: string, message: string, isSuccess: boolean): string {
   const icon = isSuccess ? "✅" : "⚠️";
   const accentColor = isSuccess ? "#16a34a" : "#dc2626";
@@ -83,7 +93,7 @@ function renderUnsubscribeHtml(title: string, message: string, isSuccess: boolea
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} — VisionBoard</title>
+  <title>${h(title)} — VisionBoard</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -137,8 +147,8 @@ function renderUnsubscribeHtml(title: string, message: string, isSuccess: boolea
 <body>
   <div class="card">
     <div class="icon">${icon}</div>
-    <h1 style="color: ${accentColor};">${title}</h1>
-    <p>${message}</p>
+    <h1 style="color: ${h(accentColor)};">${h(title)}</h1>
+    <p>${h(message)}</p>
     <a href="/account" class="btn">Manage Notification Preferences</a>
   </div>
 </body>

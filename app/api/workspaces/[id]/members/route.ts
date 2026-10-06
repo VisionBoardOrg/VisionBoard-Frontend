@@ -5,9 +5,10 @@ import { checkPlanLimit } from "@/lib/plan-limits";
 import { sendWorkspaceInviteEmail } from "@/lib/workspace-invite-email";
 import { createNotification } from "@/lib/notifications";
 import { z } from "zod";
+import crypto from "crypto";
 
 const inviteSchema = z.object({
-  email: z.string().email("Invalid email address"),
+  email: z.string().trim().toLowerCase().pipe(z.string().email("Invalid email address")),
   role: z.enum(["pm", "exec", "eng", "marketing", "admin"] as const),
 });
 
@@ -118,16 +119,34 @@ export async function POST(
       },
     });
 
+    // SECURITY (HIGH-7): Invite tokens are generated on the server, emailed
+    // once, and NEVER stored raw in Postgres. DB stores only
+    // keyHash = sha256(hex-encoded-rawToken). A raw cuid is retained in the
+    // deprecated `token` column only during the migration window.
+    const rawInviteToken = crypto.randomBytes(24).toString("hex");
+    const inviteKeyHash = crypto
+      .createHash("sha256")
+      .update(rawInviteToken)
+      .digest("hex");
+
+    let activeRawToken = "";
+
     if (invite) {
-      // Refresh role & expiration
+      // Refresh role, expiration, AND rotate the token (old emailed links
+      // become invalid when admin re-invites — prevents reuse of stolen links).
+      activeRawToken = rawInviteToken;
       invite = await prisma.workspaceInvite.update({
         where: { id: invite.id },
         data: {
           role,
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          keyHash: inviteKeyHash,
+          // Deprecated raw-token column; can be dropped after migration.
+          token: rawInviteToken.slice(0, 25),
         },
       });
     } else {
+      activeRawToken = rawInviteToken;
       invite = await prisma.workspaceInvite.create({
         data: {
           workspaceId,
@@ -135,13 +154,16 @@ export async function POST(
           role,
           inviterId: session.user.id,
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          keyHash: inviteKeyHash,
+          // Deprecated raw-token column; can be dropped after migration.
+          token: rawInviteToken.slice(0, 25),
         },
       });
     }
 
     // Build invite URL from server-side env — never trust the client-supplied Origin header
     const appOrigin = process.env.NEXTAUTH_URL || process.env.APP_URL || "http://localhost:3000";
-    const inviteUrl = `${appOrigin}/invite/${invite.token}`;
+    const inviteUrl = `${appOrigin}/invite/${activeRawToken}`;
 
     // Send workspace invitation email via SMTP (if configured) or log to dev console
     const dispatchResult = await sendWorkspaceInviteEmail({
@@ -185,10 +207,9 @@ export async function POST(
           id: invite.id,
           email: invite.email,
           role: invite.role,
-          token: invite.token,
           expiresAt: invite.expiresAt,
         },
-        inviteUrl: appOrigin ? `${appOrigin}/invite/${invite.token}` : undefined,
+        inviteUrl: appOrigin ? `${appOrigin}/invite/${activeRawToken}` : undefined,
         emailDispatch: dispatchResult,
         message: dispatchResult.message,
       },

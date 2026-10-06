@@ -45,16 +45,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
     }
 
-    const { token, password } = parsed.data;
+    const { token: rawToken, password } = parsed.data;
 
-    // Look up the verification token
-    const record = await prisma.verificationToken.findUnique({ where: { token } });
+    // SECURITY (HIGH-7): Hash the incoming reset token BEFORE any DB lookups.
+    // Raw tokens are stored only in the emailed link, never in Postgres.
+    const keyHash = crypto
+      .createHash("sha256")
+      .update(rawToken)
+      .digest("hex");
+
+    // Look up the verification token — support both new keyHash-based rows
+    // and legacy raw-token rows during the migration window.
+    const record = await prisma.verificationToken.findFirst({
+      where: {
+        OR: [{ keyHash }, { token: rawToken }],
+      },
+    });
     if (!record) {
       return NextResponse.json({ error: "Invalid or expired reset link." }, { status: 400 });
     }
 
     if (record.expires < new Date()) {
-      await prisma.verificationToken.delete({ where: { token } });
+      await prisma.verificationToken.deleteMany({
+        where: {
+          OR: [{ keyHash }, { token: rawToken }],
+        },
+      });
       return NextResponse.json({ error: "This reset link has expired. Please request a new one." }, { status: 400 });
     }
 
@@ -67,7 +83,11 @@ export async function POST(request: NextRequest) {
 
     const hashedPassword = await bcrypt.hash(password, 12);
     await prisma.user.update({ where: { email }, data: { hashedPassword } });
-    await prisma.verificationToken.delete({ where: { token } });
+    await prisma.verificationToken.deleteMany({
+      where: {
+        OR: [{ keyHash }, { token: rawToken }],
+      },
+    });
 
     // Invalidate all existing sessions so the attacker cannot retain access
     // after a victim changes their password.
@@ -115,19 +135,29 @@ export async function POST(request: NextRequest) {
     where: { identifier: `password-reset:${email}` },
   });
 
-  const token = crypto.randomBytes(32).toString("hex");
+  const rawToken = crypto.randomBytes(32).toString("hex");
   const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+  // SECURITY (HIGH-7): Hash the token with SHA-256 hex-encoded BEFORE
+  // writing to Postgres. The deprecated `token` column is populated with a
+  // truncated placeholder only during the migration window and can be
+  // dropped once all legacy rows are gone.
+  const tokenKeyHash = crypto
+    .createHash("sha256")
+    .update(rawToken)
+    .digest("hex");
 
   await prisma.verificationToken.create({
     data: {
       identifier: `password-reset:${email}`,
-      token,
+      // Deprecated raw-token column; stores a non-usable stub during migration.
+      token: rawToken.slice(0, 20),
+      keyHash: tokenKeyHash,
       expires,
     },
   });
 
   const origin = process.env.NEXTAUTH_URL || process.env.APP_URL || "http://localhost:3000";
-  const resetUrl = `${origin}/reset-password?token=${token}`;
+  const resetUrl = `${origin}/reset-password?token=${rawToken}`;
 
   // Send email
   const resendApiKey = process.env.RESEND_API_KEY;

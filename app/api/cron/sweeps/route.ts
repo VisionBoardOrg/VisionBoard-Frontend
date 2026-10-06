@@ -9,102 +9,8 @@ import {
   dispatchQuotaNotification,
 } from "@/lib/notifications";
 import { runUserCleanup, UserCleanupResult } from "@/lib/user-cleanup";
-import { safeCompare } from "@/lib/auth/safe-compare";
+import { authorizeCron } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
-
-/**
- * Vercel Cron sends requests from a documented set of IP ranges.
- * Allowing only those IPs as a secondary check makes the cron secret
- * substantially harder to abuse if it ever leaks — an attacker also needs
- * to originate from a Vercel infrastructure IP to trigger the endpoint.
- *
- * Source: https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs
- * The list is intentionally conservative. Add new ranges here as Vercel publishes them.
- *
- * Set CRON_DISABLE_IP_CHECK=true to bypass in local development where
- * requests arrive from 127.0.0.1 or ::1.
- */
-const VERCEL_CRON_IPS = new Set([
-  "76.76.21.21",    // Vercel Cron primary
-  "76.76.21.22",
-  "76.76.21.0",
-  "::1",            // local loopback (IPv6)
-  "127.0.0.1",      // local loopback (IPv4)
-]);
-
-/**
- * Extract the originating IP, preferring Vercel's own header before
- * the generic x-forwarded-for chain (which can be spoofed by clients
- * on deployments that don't strip it).
- */
-function getCronCallerIp(request: NextRequest): string {
-  // x-vercel-forwarded-for is injected by Vercel infrastructure and cannot
-  // be overwritten by the client on Vercel-hosted deployments.
-  const vercelIp = request.headers.get("x-vercel-forwarded-for");
-  if (vercelIp) return vercelIp.split(",")[0].trim();
-  const xfwd = request.headers.get("x-forwarded-for");
-  if (xfwd) return xfwd.split(",")[0].trim();
-  return "unknown";
-}
-
-function isAllowedCronIp(callerIp: string, request: NextRequest): boolean {
-  if (VERCEL_CRON_IPS.has(callerIp)) return true;
-
-  // Vercel internal infrastructure & AWS VPC / CGNAT ranges (e.g. 100.62.x.x, 100.64.0.0/10)
-  // Modern Vercel Cron and Edge proxy requests arrive via internal 100.x addresses.
-  if (
-    callerIp.startsWith("100.") ||
-    callerIp.startsWith("10.") ||
-    callerIp.startsWith("172.") ||
-    callerIp.startsWith("192.168.")
-  ) {
-    return true;
-  }
-
-  // Vercel Cron User-Agent header verification
-  const userAgent = request.headers.get("user-agent") || "";
-  if (userAgent.startsWith("vercel-cron")) {
-    return true;
-  }
-
-  return false;
-}
-
-function authorizeCron(request: NextRequest): boolean {
-  // ── 1. Token check (always enforced) ──────────────────────────────────────
-  const authHeader = request.headers.get("authorization");
-  const cronSecretHeader = request.headers.get("x-cron-secret");
-  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
-  const token = cronSecretHeader || bearerToken;
-  const expectedSecret = process.env.CRON_SECRET;
-
-  // SECURITY: Never fall back to a hardcoded default. validate-env.ts requires
-  // CRON_SECRET to be set (32+ chars) in production; refuse if it is absent.
-  if (!expectedSecret || expectedSecret.length < 16) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("[cron/sweeps] CRON_SECRET not configured — refusing request.");
-      return false;
-    }
-    // Development: accept the well-known dev token but warn loudly.
-    console.warn("[cron/sweeps] CRON_SECRET not set — accepting dev-cron-secret for local use only.");
-    if (!token || !safeCompare(token, "dev-cron-secret")) return false;
-  } else {
-    if (!token || !safeCompare(token, expectedSecret)) return false;
-  }
-
-  // ── 2. IP allowlist (secondary defence, skippable in local dev) ───────────
-  // SECURITY (LOW-6): Even with a valid token, reject requests that don't
-  // originate from a known Vercel Cron IP or Vercel internal VPC infrastructure.
-  if (process.env.CRON_DISABLE_IP_CHECK !== "true") {
-    const callerIp = getCronCallerIp(request);
-    if (!isAllowedCronIp(callerIp, request)) {
-      console.warn(`[cron/sweeps] IP not in allowlist: ${callerIp}`);
-      return false;
-    }
-  }
-
-  return true;
-}
 
 export const maxDuration = 60;
 
@@ -130,7 +36,9 @@ const NOTIF_CHUNK     = 3;   // parallel notification dispatches per batch (kept
  * aborts the remaining phases.
  */
 export async function GET(request: NextRequest) {
-  if (!authorizeCron(request)) {
+  const auth = authorizeCron(request);
+  if (!auth.authorized) {
+    console.warn(`[cron/sweeps] Auth failed: ${auth.error ?? "unknown"}`);
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

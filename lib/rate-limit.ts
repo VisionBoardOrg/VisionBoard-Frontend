@@ -90,11 +90,22 @@ async function getRedisAdapter(
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
   if (!url || !token) {
-    if (process.env.NODE_ENV === "production" && !_warnedMissingRedis) {
+    const inMemoryOk = process.env.RATE_LIMIT_INSECURE_IN_MEMORY_OK === "true";
+    if (process.env.NODE_ENV === "production" && !inMemoryOk) {
+      const errMsg =
+        "[rate-limit] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set in production. " +
+        "Set Upstash credentials to use a distributed store, or explicitly set " +
+        "RATE_LIMIT_INSECURE_IN_MEMORY_OK=true only if running on a SINGLE instance " +
+        "(serverless / multi-instance deployments MUST use Upstash for enforceable limits).";
+      console.error(errMsg);
+      throw new Error(errMsg);
+    }
+    if (!_warnedMissingRedis) {
       console.warn(
         "[rate-limit] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not set. " +
-          "Falling back to in-process store — rate limits ARE BYPASSABLE across serverless instances. " +
-          "Set Upstash credentials to enforce limits across the entire fleet."
+          (inMemoryOk
+            ? "RATE_LIMIT_INSECURE_IN_MEMORY_OK=true — using in-process store; limits are NOT enforceable across serverless instances."
+            : "Falling back to in-process store for development; limits will be BYPASSABLE in multi-instance deployments.")
       );
       _warnedMissingRedis = true;
     }

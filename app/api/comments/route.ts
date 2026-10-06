@@ -12,6 +12,13 @@ import {
 /**
  * SECURITY (HIGH-4): Sanitize comment body before storage to prevent stored XSS.
  * Allow a small allowlist of safe inline formatting tags; strip everything else.
+ *
+ * SECURITY (H-4 / CVE-2026-44990):
+ *   - disallowedTagsMode is set to "escape" to neutralize the default-discard
+ *     path bug in sanitize-html ≤ 2.17.4 where <xmp>/<textarea> disallowed
+ *     tags could leak raw script content into stored HTML.
+ *   - allowedSchemes is explicitly enumerated (already was; kept for clarity).
+ *   - Force all <a> links through noopener + no-referrer (tabnabbing).
  */
 function sanitizeCommentBody(raw: string): string {
   return sanitizeHtml(raw, {
@@ -20,6 +27,7 @@ function sanitizeCommentBody(raw: string): string {
       a: ["href", "target", "rel"],
     },
     allowedSchemes: ["https", "http", "mailto"],
+    disallowedTagsMode: "escape",
     transformTags: {
       // Force all links to open in a new tab with noopener for safety
       a: (_tagName, attribs) => ({

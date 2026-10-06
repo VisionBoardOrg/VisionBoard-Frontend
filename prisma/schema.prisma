@@ -81,10 +81,15 @@ model Session {
 
 model VerificationToken {
   identifier String
+  // SECURITY (HIGH-7): Raw tokens are NEVER stored. The raw 32-byte hex token is
+  // sent via email once. Only its SHA-256 hash (hex-encoded, 64 chars) is stored
+  // here. Comparison: hash incoming param, findFirst by keyHash, safe-compare.
   token      String   @unique
+  keyHash    String?  @unique
   expires    DateTime
 
   @@unique([identifier, token])
+  @@index([keyHash])
 }
 
 model Workspace {
@@ -328,7 +333,11 @@ model WorkspaceInvite {
   workspaceId String
   email       String
   role        String    @default("pm")
+  // SECURITY (HIGH-7): Raw token is generated server-side, sent via email or
+  // returned exactly once at creation, then NEVER stored in the DB. We store
+  // only keyHash = SHA-256(hex(rawToken)). Remove `token` after migration.
   token       String    @unique @default(cuid())
+  keyHash     String?   @unique
   inviterId   String
   status      String    @default("pending")
   createdAt   DateTime  @default(now())
@@ -338,6 +347,7 @@ model WorkspaceInvite {
 
   @@index([workspaceId])
   @@index([email])
+  @@index([keyHash])
 }
 
 enum PlanTier {
@@ -524,7 +534,9 @@ model ApiKey {
   keyHash     String    @unique           // SHA-256(rawKey), hex-encoded (64 chars)
   createdAt   DateTime  @default(now())
   lastUsedAt  DateTime?
-  expiresAt   DateTime?
+  // SECURITY (MEDIUM-9): Non-nullable with default — prevents "never-expire"
+  // backdoor keys. Clients can request 1–365 days; default is 90 days.
+  expiresAt   DateTime
   revokedAt   DateTime?
 
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -544,7 +556,12 @@ model NotificationPreference {
   quotasBilling    Boolean  @default(true)
   systemAlerts     Boolean  @default(true)
   typeOverrides    Json?
+  // SECURITY (HIGH-7): Raw unsubscribe tokens live only in email links.
+  // `keyHash` = SHA-256(hex(rawToken)). DB read path looks up by keyHash only.
+  // The `unsubscribeToken` field is retained temporarily for the migration
+  // (populated as a fallthrough) and will be dropped in a follow-up migration.
   unsubscribeToken String   @unique @default(cuid())
+  keyHash          String?  @unique
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -552,4 +569,5 @@ model NotificationPreference {
 
   @@index([userId])
   @@index([unsubscribeToken])
+  @@index([keyHash])
 }

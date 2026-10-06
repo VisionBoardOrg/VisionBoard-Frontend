@@ -13,6 +13,7 @@
 
 import { Resend } from "resend";
 import nodemailer from "nodemailer";
+import { z } from "zod";
 
 export interface SendEmailOptions {
   to: string;
@@ -116,7 +117,27 @@ async function dispatchSingle(options: SendEmailOptions): Promise<{
 }> {
   const defaultFrom = process.env.EMAIL_FROM || "VisionBoard <notifications@resend.dev>";
   const from = options.from || defaultFrom;
-  const to = options.to;
+
+  // Flatten and validate recipient(s) before dispatching — prevents
+  // nodemailer SMTP-injection / RTF template expansion on the `to` field
+  // and catches obviously malformed addresses without leaking to providers.
+  const rawRecipients = Array.isArray(options.to)
+    ? (options.to as unknown as string[])
+    : typeof options.to === "string"
+    ? [options.to]
+    : [];
+
+  const emailListSchema = z.array(z.string().trim().toLowerCase().pipe(z.string().email())).min(1);
+  const parsed = emailListSchema.safeParse(rawRecipients);
+  if (!parsed.success) {
+    return {
+      success: false,
+      provider: "console",
+      error: new Error(`Invalid recipient email: ${parsed.error.issues[0]?.message ?? "format error"}`),
+    };
+  }
+  const to = parsed.data.join(", ");
+
   const subject = options.subject;
   const html = options.html;
   const text = options.text;
@@ -168,6 +189,11 @@ async function dispatchSingle(options: SendEmailOptions): Promise<{
         user: process.env.SMTP_USER || "",
         pass: process.env.SMTP_PASS || "",
       },
+      // SECURITY (HIGH-3): Disable nodemailer's template features that could
+      // read local files or fetch remote URLs when rendering message content
+      // or error pages. See nodemailer 10.x docs on disableFileAccess.
+      disableFileAccess: true,
+      disableUrlAccess: true,
     });
 
     const info = await transporter.sendMail({

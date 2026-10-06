@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { checkPlanLimit } from "@/lib/plan-limits";
+import { maskEmail } from "@/lib/email/email-service";
+import crypto from "crypto";
 
 // Sentinel used to identify open / workspace-level invite links
 const LINK_SENTINEL = "__invite_link__";
@@ -13,10 +15,21 @@ interface InvitePageProps {
 }
 
 export default async function InvitePage({ params }: InvitePageProps) {
-  const { token } = await params;
+  const { token: rawToken } = await params;
 
-  const invite = await prisma.workspaceInvite.findUnique({
-    where: { token },
+  // SECURITY (HIGH-7): Raw tokens never go into the DB where they'd be
+  // readable by anyone with SELECT. Hash the incoming URL token and look up
+  // by SHA-256 hex digest. A deprecated `token` column is still checked as
+  // a migration fallback for pre-migration invites.
+  const keyHash = crypto
+    .createHash("sha256")
+    .update(rawToken)
+    .digest("hex");
+
+  const invite = await prisma.workspaceInvite.findFirst({
+    where: {
+      OR: [{ keyHash }, { token: rawToken }],
+    },
     include: {
       workspace: { select: { id: true, name: true, ownerId: true, owner: { select: { plan: true } } } },
       inviter: { select: { name: true, email: true } },
@@ -38,7 +51,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
   // ── Open / workspace-level invite link ──────────────────────────────────
   if (invite.email === LINK_SENTINEL) {
     if (!session?.user?.id) {
-      const callbackUrl = encodeURIComponent(`/invite/${token}`);
+      const callbackUrl = encodeURIComponent(`/invite/${rawToken}`);
       redirect(`/auth/register?callbackUrl=${callbackUrl}`);
     }
 
@@ -87,12 +100,12 @@ export default async function InvitePage({ params }: InvitePageProps) {
 
   // ── Per-email invite ─────────────────────────────────────────────────────
   if (!session?.user?.id) {
-    const callbackUrl = encodeURIComponent(`/invite/${token}`);
-    redirect(`/auth/register?callbackUrl=${callbackUrl}&email=${encodeURIComponent(invite.email)}`);
+    const callbackUrl = encodeURIComponent(`/invite/${rawToken}`);
+    redirect(`/auth/register?callbackUrl=${callbackUrl}&email=${encodeURIComponent(invite.email.toLowerCase())}`);
   }
 
   // Enforce that the logged-in user's email matches the invite recipient
-  if (session.user.email !== invite.email) {
+  if (session.user.email?.toLowerCase() !== invite.email.toLowerCase()) {
     return <WrongAccountInvite inviteEmail={invite.email} />;
   }
 
@@ -195,7 +208,7 @@ function WrongAccountInvite({ inviteEmail }: { inviteEmail: string }) {
         </div>
         <h1 className="text-xl font-bold text-ink">Wrong Account</h1>
         <p className="text-sm text-slate">
-          This invitation was sent to <strong>{inviteEmail}</strong>. Please sign in with that email address to accept it.
+          This invitation was sent to <strong>{maskEmail(inviteEmail)}</strong>. Please sign in with that email address to accept it.
         </p>
         <Link
           href="/auth/login"

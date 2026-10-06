@@ -11,72 +11,128 @@ import { parse as parseHtml } from "node-html-parser";
 // via oversized files passed to pdf/spreadsheet parsers.
 export const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
+// SECURITY (C-2 / CRITICAL): Absolute caps on parser output to prevent zip-bomb
+// OOM and billion-laughs XML blowup on untrusted user uploads.
+const MAX_EXCEL_SHEETS = 20;
+const MAX_EXCEL_ROWS_PER_SHEET = 10_000;
+const MAX_PDF_PAGES = 500;
+const MAX_PDF_ITEMS_PER_PAGE = 20_000;
+// Wall-clock cap per parser run. Aborts hung / zip-bombed conversions before
+// the Vercel 15s / 60s max-duration budget is consumed across invocations.
+const PARSER_TIMEOUT_MS = 15_000;
+
 // ── helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Resolves `promise` but rejects with a clear error if `ms` elapse first.
+ * Used to bound every untrusted-parser call.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => {
+        reject(new Error(`${label} exceeded ${ms}ms timeout — aborting parse.`));
+      }, ms)
+    ),
+  ]);
+}
 
 /**
  * Convert Excel / CSV spreadsheet buffer into a structured Tiptap ProseMirror document.
  * Uses ExcelJS instead of the unmaintained SheetJS CE.
+ *
+ * SECURITY (C-2 / CRITICAL):
+ *   - Caps total sheets + rows per sheet (billion-laughs XML / row OOM).
+ *   - Wrapped in withTimeout — prevents hang on malformed sharedStrings.xml.
+ *   - Caller still enforces 10 MB outer file-size cap before we get here.
  */
 export async function excelToTiptap(buffer: Buffer): Promise<object> {
   const ExcelJS = (await import("exceljs")).default;
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(buffer as any);
-  const content: object[] = [];
+  return withTimeout<object>(
+    (async () => {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer as any);
+      const content: object[] = [];
 
-  workbook.eachSheet((sheet: ExcelJS.Worksheet) => {
-    if (workbook.worksheets.length > 1) {
-      content.push({
-        type: "heading",
-        attrs: { level: 2 },
-        content: [{ type: "text", text: `Sheet: ${sheet.name}` }],
-      });
-    }
+      let sheetIndex = 0;
+      const sheetIterator = workbook.worksheets[Symbol.iterator]();
+      for (const sheet of sheetIterator) {
+        sheetIndex += 1;
+        if (sheetIndex > MAX_EXCEL_SHEETS) break;
 
-    const rows: string[][] = [];
-    sheet.eachRow((row: ExcelJS.Row) => {
-      const cells = (row.values as ExcelJS.CellValue[]).slice(1); // index 0 is empty
-      rows.push(cells.map((c) => (c !== null && c !== undefined ? String(c).trim() : "")));
-    });
+        if (workbook.worksheets.length > 1) {
+          content.push({
+            type: "heading",
+            attrs: { level: 2 },
+            content: [{ type: "text", text: `Sheet: ${sheet.name}` }],
+          });
+        }
 
-    if (rows.length === 0) return;
+        const rows: string[][] = [];
+        let rowIndex = 0;
+        // ExcelJS `eachRow` has no early-break API; track externally and
+        // push only up to the cap to bound memory.
+        const maxRowsBound = Math.min(sheet.actualRowCount || 0, MAX_EXCEL_ROWS_PER_SHEET);
+        sheet.eachRow((row: ExcelJS.Row, rowNumber: number) => {
+          if (rowNumber > maxRowsBound) return;
+          rowIndex = rowNumber;
+          const cells = (row.values as ExcelJS.CellValue[]).slice(1); // index 0 is empty
+          rows.push(cells.map((c) => (c !== null && c !== undefined ? String(c).trim() : "")));
+        });
+        void rowIndex;
 
-    const headerRow = rows[0];
-    const dataRows = rows.slice(1).filter((r) => r.some((v) => v !== ""));
+        if (rows.length === 0) continue;
 
-    if (dataRows.length > 0) {
-      content.push({
-        type: "paragraph",
-        content: [{ type: "text", text: `Columns: ${headerRow.join(" | ")}`, marks: [{ type: "bold" }] }],
-      });
+        const headerRow = rows[0];
+        const dataRows = rows.slice(1).filter((r) => r.some((v) => v !== ""));
 
-      const listItems: object[] = dataRows.slice(0, 500).map((row) => {
-        const rowText = row
-          .map((val, idx) => (val ? `${headerRow[idx] || `Col ${idx + 1}`}: ${val}` : null))
-          .filter(Boolean)
-          .join(" • ");
-        return {
-          type: "listItem",
-          content: [{ type: "paragraph", content: [{ type: "text", text: rowText }] }],
-        };
-      });
+        if (dataRows.length > 0) {
+          content.push({
+            type: "paragraph",
+            content: [{ type: "text", text: `Columns: ${headerRow.join(" | ")}`, marks: [{ type: "bold" }] }],
+          });
 
-      if (listItems.length > 0) {
-        content.push({ type: "bulletList", content: listItems });
+          const listItems: object[] = dataRows.slice(0, 500).map((row) => {
+            const rowText = row
+              .map((val, idx) => (val ? `${headerRow[idx] || `Col ${idx + 1}`}: ${val}` : null))
+              .filter(Boolean)
+              .join(" • ");
+            return {
+              type: "listItem",
+              content: [{ type: "paragraph", content: [{ type: "text", text: rowText }] }],
+            };
+          });
+
+          if (listItems.length > 0) {
+            content.push({ type: "bulletList", content: listItems });
+          }
+        } else {
+          content.push({ type: "paragraph", content: [{ type: "text", text: headerRow.join(" | ") }] });
+        }
       }
-    } else {
-      content.push({ type: "paragraph", content: [{ type: "text", text: headerRow.join(" | ") }] });
-    }
-  });
 
-  if (content.length === 0) {
-    content.push({ type: "paragraph", content: [{ type: "text", text: "Empty spreadsheet." }] });
-  }
+      if (content.length === 0) {
+        content.push({ type: "paragraph", content: [{ type: "text", text: "Empty spreadsheet." }] });
+      }
 
-  return { type: "doc", content };
+      return { type: "doc", content };
+    })(),
+    PARSER_TIMEOUT_MS,
+    "excelToTiptap"
+  );
 }
 
 /**
  * Sanitize HTML from mammoth or imported HTML using an allowlist of safe tags.
+ *
+ * SECURITY (H-4 / HIGH):
+ *   - Explicitly set disallowedTagsMode: "escape" to neutralize the
+ *     CVE-2026-44990 default-discard path XSS via <xmp>/<textarea>/</textarea>.
+ *   - Imported DOCX/HTML anchor links are rewritten with target=_blank +
+ *     rel=noopener noreferrer to block reverse tabnabbing.
+ *   - allowedSchemes is explicitly enumerated (not default list) to prevent
+ *     future CVE-2026-53606-style attribute URI scheme bypasses.
  */
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
@@ -86,7 +142,18 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedAttributes: {
     a: ["href", "title"],
   },
-  disallowedTagsMode: "discard",
+  allowedSchemes: ["https", "http", "mailto"],
+  disallowedTagsMode: "escape",
+  transformTags: {
+    a: (tagName, attribs) => ({
+      tagName,
+      attribs: {
+        ...attribs,
+        target: "_blank",
+        rel: "noopener noreferrer",
+      },
+    }),
+  },
 };
 
 export function sanitize(html: string): string {
@@ -516,21 +583,36 @@ export async function POST(request: NextRequest) {
     if (ext === "pdf") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
-      // Heavy pdfjs-dist is dynamically imported on-demand to eliminate serverless cold-start bloat
-      const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      const loadingTask = getDocument({ data: new Uint8Array(buffer) });
-      const pdfDoc = await loadingTask.promise;
-      const textParts: string[] = [];
-      for (let i = 1; i <= pdfDoc.numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const tc = await page.getTextContent();
-        textParts.push(tc.items.map((item: any) => ("str" in item ? (item as { str: string }).str : "")).join(" "));
-      }
-      tiptapContent = textToTiptap(textParts.join("\n\n"));
+      tiptapContent = await withTimeout<object>(
+        (async () => {
+          // Heavy pdfjs-dist is dynamically imported on-demand to eliminate serverless cold-start bloat
+          const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+          const loadingTask = getDocument({ data: new Uint8Array(buffer) });
+          const pdfDoc = await loadingTask.promise;
+          const textParts: string[] = [];
+          // SECURITY (L-6): Cap page count + per-page item count. A 10 MB outer
+          // PDF can still have 10,000 pages; these bounds prevent CPU/RAM burn.
+          const maxPages = Math.min(pdfDoc.numPages, MAX_PDF_PAGES);
+          for (let i = 1; i <= maxPages; i++) {
+            const page = await pdfDoc.getPage(i);
+            const tc = await page.getTextContent();
+            const items = tc.items.slice(0, MAX_PDF_ITEMS_PER_PAGE);
+            textParts.push(
+              items
+                .map((item: any) => ("str" in item ? (item as { str: string }).str : ""))
+                .join(" ")
+            );
+          }
+          return textToTiptap(textParts.join("\n\n"));
+        })(),
+        PARSER_TIMEOUT_MS,
+        "pdfToTiptap"
+      );
     } else if (ext === "xlsx" || ext === "xls" || ext === "csv" || ext === "tsv") {
       const arrayBuffer = await file.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       // SECURITY (HIGH-8): exceljs replaces xlsx/SheetJS CE (unmaintained).
+      // excelToTiptap itself applies C-2 caps + 15s timeout internally.
       tiptapContent = await excelToTiptap(buffer);
     } else if (ext === "docx" || ext === "doc") {
       const arrayBuffer = await file.arrayBuffer();
@@ -538,7 +620,20 @@ export async function POST(request: NextRequest) {
       try {
         // Heavy mammoth parser is dynamically imported on-demand
         const mammoth = (await import("mammoth")).default;
-        const result = await mammoth.convertToHtml({ buffer });
+        // SECURITY (C-1 / CRITICAL):
+        //   - Explicit { externalFileAccess: false } blocks CVE-2025-11849-class
+        //     r:link / image resolves that would otherwise read arbitrary local
+        //     files and embed them base64-encoded into the generated HTML.
+        //   - includeEmbeddedStyleMap disabled to reduce untrusted-reference surface.
+        //   - Parser itself wrapped in 15s timeout to stop zip-bomb OOM hangs.
+        const result = await withTimeout(
+          mammoth.convertToHtml(
+            { buffer },
+            { externalFileAccess: false, includeEmbeddedStyleMap: false }
+          ),
+          PARSER_TIMEOUT_MS,
+          "mammoth.convertToHtml"
+        );
         tiptapContent = htmlToTiptap(result.value);
       } catch (docErr) {
         // Fallback for legacy binary .doc or malformed Word docs: extract ASCII printable text

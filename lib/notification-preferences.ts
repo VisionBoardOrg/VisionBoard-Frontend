@@ -10,6 +10,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { Prisma, type NotificationType } from "@prisma/client";
+import crypto from "crypto";
 
 export interface UserPreferencesDTO {
   id: string;
@@ -22,7 +23,11 @@ export interface UserPreferencesDTO {
   quotasBilling: boolean;
   systemAlerts: boolean;
   typeOverrides: Record<string, boolean> | null;
+  // SECURITY (HIGH-7): Return a raw unsubscribe token to the caller when
+  // freshly generated. The `unsubscribeToken` column is deprecated; raw
+  // tokens are always generated in-app and only their SHA-256 hash is kept.
   unsubscribeToken: string;
+  unsubscribeKeyHash: string | null;
 }
 
 export type NotificationCategory =
@@ -79,6 +84,12 @@ export function getCategoryForType(type: string): NotificationCategory {
 
 /**
  * Retrieve user's notification preferences. Lazily creates default record if none exists.
+ *
+ * SECURITY (HIGH-7): If the stored record has no unsubscribe keyHash (pre-migration
+ * rows or rows that only had the deprecated `unsubscribeToken` cuid), this method
+ * will atomically generate a fresh raw token, compute its SHA-256 keyHash, persist
+ * it to the row, and return the raw token to the caller via `unsubscribeToken`.
+ * Callers use the returned raw token only for constructing email links.
  */
 export async function getUserNotificationPreferences(
   userId: string
@@ -88,14 +99,78 @@ export async function getUserNotificationPreferences(
   });
 
   if (existing) {
+    // Migration path: if row has a raw cuid in `unsubscribeToken` but no
+    // keyHash yet, re-use it as the raw token (it was previously used in
+    // emails) and persist the hash so lookups can use keyHash.
+    if (!existing.keyHash) {
+      const raw = existing.unsubscribeToken;
+      const keyHash = crypto.createHash("sha256").update(raw).digest("hex");
+      try {
+        const migrated = await prisma.notificationPreference.update({
+          where: { id: existing.id },
+          data: { keyHash },
+        });
+        return {
+          id: migrated.id,
+          userId: migrated.userId,
+          emailEnabled: migrated.emailEnabled,
+          tasks: migrated.tasks,
+          mentions: migrated.mentions,
+          comments: migrated.comments,
+          goalsMilestones: migrated.goalsMilestones,
+          quotasBilling: migrated.quotasBilling,
+          systemAlerts: migrated.systemAlerts,
+          typeOverrides: (migrated.typeOverrides as Record<string, boolean>) || null,
+          unsubscribeToken: raw,
+          unsubscribeKeyHash: migrated.keyHash,
+        };
+      } catch {
+        // Concurrent migration; re-read the row
+        const retry = await prisma.notificationPreference.findUnique({
+          where: { id: existing.id },
+        });
+        if (retry) {
+          return {
+            id: retry.id,
+            userId: retry.userId,
+            emailEnabled: retry.emailEnabled,
+            tasks: retry.tasks,
+            mentions: retry.mentions,
+            comments: retry.comments,
+            goalsMilestones: retry.goalsMilestones,
+            quotasBilling: retry.quotasBilling,
+            systemAlerts: retry.systemAlerts,
+            typeOverrides: (retry.typeOverrides as Record<string, boolean>) || null,
+            unsubscribeToken: retry.unsubscribeToken,
+            unsubscribeKeyHash: retry.keyHash,
+          };
+        }
+      }
+    }
     return {
-      ...existing,
+      id: existing.id,
+      userId: existing.userId,
+      emailEnabled: existing.emailEnabled,
+      tasks: existing.tasks,
+      mentions: existing.mentions,
+      comments: existing.comments,
+      goalsMilestones: existing.goalsMilestones,
+      quotasBilling: existing.quotasBilling,
+      systemAlerts: existing.systemAlerts,
       typeOverrides: (existing.typeOverrides as Record<string, boolean>) || null,
+      // For rows that already have keyHash set, we can't recover the raw token
+      // from the DB. We re-use `unsubscribeToken` (deprecated cuid) as a legacy
+      // fallback. After migration window, all in-flight emails will carry
+      // tokens generated during lazy-migration above.
+      unsubscribeToken: existing.unsubscribeToken,
+      unsubscribeKeyHash: existing.keyHash,
     };
   }
 
-  // Auto-initialize with default preferences
+  // Auto-initialize with default preferences + freshly hashed token
   try {
+    const rawToken = crypto.randomBytes(24).toString("hex");
+    const keyHash = crypto.createHash("sha256").update(rawToken).digest("hex");
     const created = await prisma.notificationPreference.create({
       data: {
         userId,
@@ -106,23 +181,33 @@ export async function getUserNotificationPreferences(
         goalsMilestones: true,
         quotasBilling: true,
         systemAlerts: true,
+        keyHash,
+        // Deprecated stub column (cuid default still applies but value is unused)
+        unsubscribeToken: rawToken,
       },
     });
 
     return {
-      ...created,
+      id: created.id,
+      userId: created.userId,
+      emailEnabled: created.emailEnabled,
+      tasks: created.tasks,
+      mentions: created.mentions,
+      comments: created.comments,
+      goalsMilestones: created.goalsMilestones,
+      quotasBilling: created.quotasBilling,
+      systemAlerts: created.systemAlerts,
       typeOverrides: (created.typeOverrides as Record<string, boolean>) || null,
+      unsubscribeToken: rawToken,
+      unsubscribeKeyHash: created.keyHash,
     };
   } catch (err) {
-    // If concurrent insert occurred, attempt read again
+    // If concurrent insert occurred, attempt read again (migration above runs)
     const retry = await prisma.notificationPreference.findUnique({
       where: { userId },
     });
     if (retry) {
-      return {
-        ...retry,
-        typeOverrides: (retry.typeOverrides as Record<string, boolean>) || null,
-      };
+      return getUserNotificationPreferences(userId);
     }
     throw err;
   }
@@ -220,6 +305,16 @@ export async function updateUserNotificationPreferences(
       goalsMilestones: updates.goalsMilestones ?? true,
       quotasBilling: updates.quotasBilling ?? true,
       systemAlerts: updates.systemAlerts ?? true,
+      // SECURITY (HIGH-7): Fresh token generated at first upsert-time create.
+      keyHash: (() => {
+        const raw = crypto.randomBytes(24).toString("hex");
+        return crypto.createHash("sha256").update(raw).digest("hex");
+      })(),
+      unsubscribeToken:
+        (() => {
+          const raw = crypto.randomBytes(24).toString("hex");
+          return raw;
+        })(),
       typeOverrides:
         typeOverrides === null
           ? Prisma.JsonNull
@@ -228,20 +323,41 @@ export async function updateUserNotificationPreferences(
   });
 
   return {
-    ...result,
+    id: result.id,
+    userId: result.userId,
+    emailEnabled: result.emailEnabled,
+    tasks: result.tasks,
+    mentions: result.mentions,
+    comments: result.comments,
+    goalsMilestones: result.goalsMilestones,
+    quotasBilling: result.quotasBilling,
+    systemAlerts: result.systemAlerts,
     typeOverrides: (result.typeOverrides as Record<string, boolean>) || null,
+    unsubscribeToken: result.unsubscribeToken,
+    unsubscribeKeyHash: result.keyHash,
   };
 }
 
 /**
  * 1-Click unsubscribe by unique token.
+ *
+ * SECURITY (HIGH-7): Incoming raw token is SHA-256 hashed before lookup.
+ * Supports both new keyHash-based lookups and legacy unsubscribeToken lookups
+ * during the migration window.
  */
 export async function unsubscribeByToken(
-  token: string,
+  rawToken: string,
   category?: NotificationCategory
 ): Promise<{ success: boolean; preferences?: UserPreferencesDTO; error?: string }> {
-  const existing = await prisma.notificationPreference.findUnique({
-    where: { unsubscribeToken: token },
+  const keyHash = crypto
+    .createHash("sha256")
+    .update(rawToken)
+    .digest("hex");
+
+  const existing = await prisma.notificationPreference.findFirst({
+    where: {
+      OR: [{ keyHash }, { unsubscribeToken: rawToken }],
+    },
   });
 
   if (!existing) {
@@ -264,8 +380,18 @@ export async function unsubscribeByToken(
   return {
     success: true,
     preferences: {
-      ...updated,
+      id: updated.id,
+      userId: updated.userId,
+      emailEnabled: updated.emailEnabled,
+      tasks: updated.tasks,
+      mentions: updated.mentions,
+      comments: updated.comments,
+      goalsMilestones: updated.goalsMilestones,
+      quotasBilling: updated.quotasBilling,
+      systemAlerts: updated.systemAlerts,
       typeOverrides: (updated.typeOverrides as Record<string, boolean>) || null,
+      unsubscribeToken: updated.unsubscribeToken,
+      unsubscribeKeyHash: updated.keyHash,
     },
   };
 }

@@ -4,11 +4,20 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+const MAX_API_KEY_LIFETIME_DAYS = 365;
+const DEFAULT_API_KEY_LIFETIME_DAYS = 90;
+
 const createSchema = z.object({
   name: z
     .string({ required_error: "name is required" })
     .min(1, "name must be at least 1 character")
     .max(64, "name must be at most 64 characters"),
+  durationDays: z
+    .number()
+    .int()
+    .min(1, "durationDays must be at least 1 day")
+    .max(MAX_API_KEY_LIFETIME_DAYS, `durationDays must be at most ${MAX_API_KEY_LIFETIME_DAYS} days`)
+    .optional(),
 });
 
 type ApiKeyListRow = {
@@ -117,14 +126,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { name } = parsed.data;
+  const { name, durationDays } = parsed.data;
   const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() +
+      (durationDays ?? DEFAULT_API_KEY_LIFETIME_DAYS) * 24 * 60 * 60 * 1000
+  );
 
   const activeCount = await prisma.apiKey.count({
     where: {
       userId: session.user.id,
       revokedAt: null,
-      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      OR: [{ expiresAt: { gt: now } }, { expiresAt: null }],
     },
   });
 
@@ -149,6 +162,7 @@ export async function POST(request: NextRequest) {
         keyPrefix,
         keySuffix,
         keyHash,
+        expiresAt,
       },
       select: { id: true },
     });
@@ -157,14 +171,16 @@ export async function POST(request: NextRequest) {
     if (!isUndefinedColumnError(err)) throw err;
     const inserted = (await prisma.$queryRawUnsafe(
       `
-      INSERT INTO "ApiKey" (id, "userId", name, "keyPrefix", "keyHash", "createdAt")
-      VALUES (gen_random_uuid(), $1, $2, $3, $4, CURRENT_TIMESTAMP)
+      INSERT INTO "ApiKey" (id, "userId", name, "keyPrefix", "keySuffix", "keyHash", "createdAt", "expiresAt")
+      VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6)
       RETURNING id;
       `,
       session.user.id,
       name,
       keyPrefix,
-      keyHash
+      keySuffix,
+      keyHash,
+      expiresAt
     )) as { id: string }[];
     createdId = inserted[0].id;
   }

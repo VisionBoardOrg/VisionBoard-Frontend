@@ -90,6 +90,17 @@ const REQUIRED_SECRETS: EnvCheck[] = [
     description:
       "Upstash Redis REST token — required alongside UPSTASH_REDIS_REST_URL.",
   },
+  {
+    // SECURITY: /api/webhooks/supabase/users FAILS CLOSED (500) when unset, but
+    // we still surface it at startup so operators don't deploy with broken Resend sync.
+    // Without this secret set, Supabase→Resend contact sync is disabled entirely.
+    key: "SUPABASE_WEBHOOK_SECRET",
+    minLength: 24,
+    description:
+      "Supabase Database Webhook secret (generate: openssl rand -base64 32). " +
+      "Set as header x-supabase-webhook-secret in Supabase Dashboard → Database Webhooks. " +
+      "/api/webhooks/supabase/users rejects all requests when this is missing.",
+  },
 ];
 
 function fail(message: string): never {

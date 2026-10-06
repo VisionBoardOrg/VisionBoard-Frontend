@@ -158,8 +158,8 @@ export function useWebSocket(workspaceId: string | null) {
     const activeToken = tokenRef.current ?? sessionToken;
     if (!wsUrl || !workspaceId || !activeToken) return;
 
-    if (process.env.NODE_ENV === "production" && !wsUrl.startsWith("wss://")) {
-      console.warn("[useWebSocket] NEXT_PUBLIC_WS_URL must use wss:// in production. Real-time sync disabled.");
+    if (!wsUrl.startsWith("wss://")) {
+      console.warn("[useWebSocket] NEXT_PUBLIC_WS_URL must use wss:// (TLS is required in all environments). Real-time sync disabled. For local development with a self-signed cert, set NODE_TLS_REJECT_UNAUTHORIZED=0 on the server process and use wss:// against your local backend.");
       return;
     }
 

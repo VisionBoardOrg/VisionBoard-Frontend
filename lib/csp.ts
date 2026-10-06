@@ -50,6 +50,28 @@ export function buildCsp(
     .filter(Boolean)
     .join(" ");
 
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "";
+  const wsOrigin = (() => {
+    try {
+      if (!wsUrl) return "";
+      const u = new URL(wsUrl);
+      return `${u.protocol === "wss:" ? "https:" : "http:"}//${u.host}`;
+    } catch {
+      return "";
+    }
+  })();
+
+  const connectSrcOrigins = [
+    "'self'",
+    "https://api.openrouter.ai",
+    "https://openrouter.ai",
+    "https://api.stripe.com",
+    "https://api.resend.com",
+    "https://cloudflareinsights.com",
+    "https://static.cloudflareinsights.com",
+    wsOrigin,
+  ].filter(Boolean);
+
   return [
     "default-src 'self'",
     `script-src ${scriptSrc}`,
@@ -57,8 +79,9 @@ export function buildCsp(
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
     "font-src 'self' data:",
-    // https://api.stripe.com is required for Stripe.js XHR calls.
-    "connect-src 'self' https: wss: https://cloudflareinsights.com https://api.stripe.com",
+    // Explicit origin allowlist — no protocol wildcards. Stripe, OpenRouter,
+    // Resend, Cloudflare Insights, and the WS backend host are enumerated.
+    `connect-src ${connectSrcOrigins.join(" ")}`,
     // FIXED: 'none' must not appear alongside other origins — it is ignored by
     // browsers when combined. List only the two required Stripe iframe origins.
     "frame-src https://js.stripe.com https://hooks.stripe.com",

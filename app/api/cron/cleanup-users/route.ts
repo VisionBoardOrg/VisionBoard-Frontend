@@ -7,36 +7,36 @@
  * 2. Permanently purges user accounts (and their owned workspaces/data) whose 30-day scheduledDeletion period has expired.
  *
  * Can be triggered by Vercel Cron, node-cron, or external HTTP schedulers.
- * Protected by CRON_SECRET token verification.
+ * Protected by CRON_SECRET token verification + Vercel Cron IP allowlist + distributed lock.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { runUserCleanup } from "@/lib/user-cleanup";
+import { authorizeCron } from "@/lib/cron-auth";
+import { acquireCronLock } from "@/lib/cron-lock";
 
 export const maxDuration = 60;
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const cronSecretHeader = request.headers.get("x-cron-secret");
-  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
-  const token = cronSecretHeader || bearerToken;
-
-  // SECURITY: Always enforce the cron secret — never skip auth based on NODE_ENV.
-  // A hardcoded fallback would allow unauthenticated access on staging/preview deployments.
-  const expectedSecret = process.env.CRON_SECRET;
-  if (!expectedSecret) {
-    console.error("[cron/cleanup-users] CRON_SECRET env var is not set — refusing to run.");
-    return NextResponse.json({ error: "Cron not configured" }, { status: 500 });
+  const auth = authorizeCron(request);
+  if (!auth.authorized) {
+    console.warn(`[cron/cleanup-users] Auth failed: ${auth.error ?? "unknown"}`);
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!token || token !== expectedSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { acquired } = await acquireCronLock("cleanup-users", 10 * 60 * 1000);
+  if (!acquired) {
+    console.log(
+      "[cron/cleanup-users] Parallel trigger detected — skipping (lock held by another run)."
+    );
+    return NextResponse.json(
+      { skipped: true, reason: "parallel run in progress" },
+      { status: 409 }
+    );
   }
 
   const result = await runUserCleanup();
 
-  // SECURITY (LOW-4): Log purged user IDs server-side only — never include them
-  // in the HTTP response where a compromised cron token could expose them.
   if (result.purgedUserIds.length > 0) {
     console.log("[cron/cleanup-users] Purged user IDs:", result.purgedUserIds);
   }
@@ -48,3 +48,4 @@ export async function GET(request: NextRequest) {
     purgedCount: result.purgedCount,
   });
 }
+

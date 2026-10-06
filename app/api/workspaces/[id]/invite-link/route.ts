@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import crypto from "crypto";
 
 // Sentinel email used to identify workspace-level (open) invite links
 const LINK_SENTINEL = "__invite_link__";
@@ -42,7 +43,13 @@ export async function GET(_req: NextRequest, { params }: Params) {
     where: { workspaceId, email: LINK_SENTINEL, status: "pending" },
   });
 
+  let activeRawToken = "";
+
   if (!invite) {
+    // SECURITY (HIGH-7): Generate a raw token, return it ONCE in the JSON
+    // response, and store only SHA-256(hex).
+    activeRawToken = crypto.randomBytes(24).toString("hex");
+    const keyHash = crypto.createHash("sha256").update(activeRawToken).digest("hex");
     invite = await prisma.workspaceInvite.create({
       data: {
         workspaceId,
@@ -50,11 +57,30 @@ export async function GET(_req: NextRequest, { params }: Params) {
         role: "eng",
         inviterId: session.user.id,
         expiresAt: thirtyDaysFromNow,
+        keyHash,
+        token: activeRawToken.slice(0, 25), // deprecated stub
       },
+    });
+  } else if (invite.keyHash) {
+    // Existing invite already has keyHash — but we cannot recover the raw token
+    // from the DB. Rotate to a new token to keep UX of GET returning a usable link.
+    activeRawToken = crypto.randomBytes(24).toString("hex");
+    const keyHash = crypto.createHash("sha256").update(activeRawToken).digest("hex");
+    invite = await prisma.workspaceInvite.update({
+      where: { id: invite.id },
+      data: { keyHash, token: activeRawToken.slice(0, 25), expiresAt: thirtyDaysFromNow },
+    });
+  } else {
+    // Legacy pre-migration invite — migrate on read.
+    activeRawToken = crypto.randomBytes(24).toString("hex");
+    const keyHash = crypto.createHash("sha256").update(activeRawToken).digest("hex");
+    invite = await prisma.workspaceInvite.update({
+      where: { id: invite.id },
+      data: { keyHash, token: activeRawToken.slice(0, 25), expiresAt: thirtyDaysFromNow },
     });
   }
 
-  return NextResponse.json({ token: invite.token });
+  return NextResponse.json({ token: activeRawToken });
 }
 
 /** POST — regenerate (rotate) the open invite token */
@@ -78,6 +104,10 @@ export async function POST(_req: NextRequest, { params }: Params) {
     where: { workspaceId, email: LINK_SENTINEL },
   });
 
+  // SECURITY (HIGH-7): New raw token generated, returned ONCE, stored hashed only.
+  const activeRawToken = crypto.randomBytes(24).toString("hex");
+  const keyHash = crypto.createHash("sha256").update(activeRawToken).digest("hex");
+
   const invite = await prisma.workspaceInvite.create({
     data: {
       workspaceId,
@@ -85,10 +115,13 @@ export async function POST(_req: NextRequest, { params }: Params) {
       role: "eng",
       inviterId: session.user.id,
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      keyHash,
+      token: activeRawToken.slice(0, 25), // deprecated stub
     },
   });
+  void invite;
 
-  return NextResponse.json({ token: invite.token });
+  return NextResponse.json({ token: activeRawToken });
 }
 
 /** DELETE — disable (revoke) the open invite link */

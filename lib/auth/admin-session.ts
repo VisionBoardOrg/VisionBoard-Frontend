@@ -25,16 +25,11 @@ const SESSION_TTL_SECONDS = 60 * 60 * 24;
 function getSecret(): string {
   const secret = process.env.ADMIN_SESSION_SECRET;
   if (!secret || secret.length < 32) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(
-        "ADMIN_SESSION_SECRET must be set to at least 32 characters in production."
-      );
-    }
-    console.warn(
-      "[admin-session] ADMIN_SESSION_SECRET is unset or too short. " +
-        "Set a strong secret (32+ chars) before deploying to production."
-    );
-    return "dev_fallback_secret_not_for_production_use_only";
+    const errMsg =
+      "ADMIN_SESSION_SECRET must be set to at least 32 characters in ALL environments. " +
+      "Set a strong 32+ character secret in .env.local for development.";
+    console.error(`[admin-session] FATAL: ${errMsg}`);
+    throw new Error(errMsg);
   }
   return secret;
 }

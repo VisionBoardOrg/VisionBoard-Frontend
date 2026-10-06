@@ -148,8 +148,8 @@ export default function PrivacyPage() {
           </p>
           <ul className="list-disc pl-5 mt-2 space-y-2 text-slate">
             <li>bcrypt hashing for passwords (minimum cost factor 12).</li>
-            <li>HTTP-only, secure, SameSite session cookies.</li>
-            <li>CSRF protection on all state-changing endpoints.</li>
+            <li>HTTP-only, secure, SameSite=Lax session cookies — mitigates CSRF on cross-site requests.</li>
+            <li>CORS preflight enforcement on cross-origin state-changing requests.</li>
             <li>Rate limiting on authentication and AI endpoints.</li>
           </ul>
         </Section>

@@ -42,10 +42,19 @@ describe("18.2: API key management endpoints", () => {
     mockCount.mockResolvedValue(0);
     mockCreate.mockResolvedValue({
       id: "k1",
-      name: "My Agent",
-      keyPrefix: "vsn_live_",
-      createdAt: new Date().toISOString(),
     });
+    mockFindMany.mockResolvedValue([
+      {
+        id: "k1",
+        name: "My Agent",
+        keyPrefix: "vsn_live_",
+        keySuffix: "xyz",
+        createdAt: new Date(),
+        lastUsedAt: null,
+        expiresAt: null,
+        revokedAt: null,
+      },
+    ]);
 
     const req = new NextRequest("http://localhost/api/user/api-keys", {
       method: "POST",
@@ -78,6 +87,32 @@ describe("18.2: API key management endpoints", () => {
       body: JSON.stringify({ name: "Eleventh Key" }),
     });
     expect((await POST(req)).status).toBe(403);
+    expect(mockCount).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        userId: "user1",
+        revokedAt: null,
+        OR: [
+          { expiresAt: { gt: expect.any(Date) } },
+          { expiresAt: null },
+        ],
+      }),
+    });
+  });
+
+  it("POST: 403 when 10 never-expiring keys (expiresAt=null) exist — limit bypass blocked", async () => {
+    mockCount.mockResolvedValue(10);
+    const req = new NextRequest("http://localhost/api/user/api-keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Never-Expiry Bypass Key" }),
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(403);
+    const countWhere = vi.mocked(mockCount).mock.calls[0][0] as { where: { OR: unknown[] } };
+    const hasNullExpiryClause = countWhere.where.OR.some(
+      (clause: unknown) => clause && typeof clause === "object" && (clause as { expiresAt?: unknown }).expiresAt === null
+    );
+    expect(hasNullExpiryClause).toBe(true);
   });
 
   it("POST: 401 when unauthenticated", async () => {

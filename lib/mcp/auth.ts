@@ -47,8 +47,8 @@ export async function apiKeyAuth(
   // Step 5: Revoked
   if (key.revokedAt !== null) return null;
 
-  // Step 6: Expired
-  if (key.expiresAt !== null && key.expiresAt < new Date()) return null;
+  // Step 6: Expired — expiresAt is now non-nullable (default 90 days, max 365)
+  if (key.expiresAt < new Date()) return null;
 
   // Step 7: Fire-and-forget lastUsedAt update — failure must never block the request
   prisma.apiKey
