@@ -2,13 +2,14 @@
   "name": "visionboard",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.9",
   "scripts": {
     "dev": "node --dns-result-order=ipv4first ./node_modules/next/dist/bin/next dev",
     "build": "prisma generate && next build",
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "audit:security": "npm audit --audit-level=high",
+    "audit:security": "pnpm audit --audit-level=high",
     "test": "vitest --run",
     "resend:sync": "node scripts/sync-supabase-to-resend.cjs"
   },
@@ -71,29 +72,31 @@
     "typescript": "5.9.3",
     "vitest": "1.6.0"
   },
-  "trustedDependencies": [
-    "@prisma/client",
-    "@prisma/engines",
-    "prisma",
-    "sharp",
-    "unrs-resolver"
-  ],
-  "overrides": {
-    "js-yaml": "4.3.2",
-    "minimist": "1.2.8",
-    "tar": "6.2.1",
-    "sanitize-html": "2.17.5",
-    "nodemailer": "10.0.9",
-    "mammoth": "1.12.0",
-    "exceljs": "4.4.0",
-    "pdfjs-dist": "4.4.168",
-    "braces": "3.0.3",
-    "micromatch": "4.0.8",
-    "send": "0.19.0",
-    "serve-static": "1.16.2",
-    "path-to-regexp": "8.2.0",
-    "body-parser": "1.20.3",
-    "express": "4.21.2",
-    "cookie": "0.7.1"
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ],
+    "overrides": {
+      "js-yaml": "4.3.2",
+      "minimist": "1.2.8",
+      "tar": "6.2.1",
+      "sanitize-html": "2.17.5",
+      "nodemailer": "10.0.9",
+      "mammoth": "1.12.0",
+      "exceljs": "4.4.0",
+      "pdfjs-dist": "4.4.168",
+      "braces": "3.0.3",
+      "micromatch": "4.0.8",
+      "send": "0.19.0",
+      "serve-static": "1.16.2",
+      "path-to-regexp": "8.2.0",
+      "body-parser": "1.20.3",
+      "express": "4.21.2",
+      "cookie": "0.7.1"
+    }
   }
 }

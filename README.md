@@ -94,7 +94,7 @@ Whether you are setting high-level company OKRs, defining product specs with ric
 
 ### Prerequisites
 - **Node.js**: `>= 18.17.0`
-- **Package Manager**: `npm` (or `yarn`, `pnpm`, `bun`)
+- **Package Manager**: `pnpm`
 - **Database**: PostgreSQL instance (Local PostgreSQL, Supabase, or Neon)
 
 ### Installation & Local Setup
@@ -107,7 +107,7 @@ Whether you are setting high-level company OKRs, defining product specs with ric
 
 2. **Install dependencies:**
    ```bash
-   npm install
+   pnpm install
    ```
 
 3. **Configure Environment Variables:**
@@ -120,12 +120,12 @@ Whether you are setting high-level company OKRs, defining product specs with ric
 4. **Initialize Database Schema:**
    Generate the Prisma Client and sync your PostgreSQL database schema:
    ```bash
-   npx prisma db push
+   pnpm dlx prisma db push
    ```
 
 5. **Start the Development Server:**
    ```bash
-   npm run dev
+   pnpm dev
    ```
    Open [http://localhost:3000](http://localhost:3000) in your browser.
 

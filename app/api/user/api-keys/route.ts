@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
     where: {
       userId: session.user.id,
       revokedAt: null,
-      OR: [{ expiresAt: { gt: now } }, { expiresAt: null }],
+      expiresAt: { gt: now },
     },
   });
 

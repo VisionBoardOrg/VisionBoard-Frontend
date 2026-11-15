@@ -215,29 +215,25 @@ describe("notification-preferences", () => {
         typeOverrides: null,
       });
 
-      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { userId: "user_1" },
-          update: {
-            emailEnabled: false,
-            tasks: false,
-            typeOverrides: Prisma.JsonNull,
-          },
-          create: expect.objectContaining({
-            userId: "user_1",
-            emailEnabled: false,
-            tasks: false,
-            mentions: true,
-            comments: true,
-            goalsMilestones: true,
-            quotasBilling: true,
-            systemAlerts: true,
-            typeOverrides: Prisma.JsonNull,
-            keyHash: expect.any(String),
-            unsubscribeToken: expect.any(String),
-          }),
-        })
-      );
+      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith({
+        where: { userId: "user_1" },
+        update: {
+          emailEnabled: false,
+          tasks: false,
+          typeOverrides: Prisma.JsonNull,
+        },
+        create: {
+          userId: "user_1",
+          emailEnabled: false,
+          tasks: false,
+          mentions: true,
+          comments: true,
+          goalsMilestones: true,
+          quotasBilling: true,
+          systemAlerts: true,
+          typeOverrides: Prisma.JsonNull,
+        },
+      });
 
       expect(result.emailEnabled).toBe(false);
       expect(result.tasks).toBe(false);
