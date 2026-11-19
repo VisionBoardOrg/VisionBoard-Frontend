@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth/require-role";
 import { checkPlanLimit, checkStorageLimit } from "@/lib/plan-limits";
 import { indexSingleEntity } from "@/lib/ai/indexer";
+import { MAX_TASK_ASSIGNEES, normalizeAssignees } from "@/lib/task-assignments";
 import type { AuthenticatedKeyContext } from "../auth";
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
@@ -46,7 +47,15 @@ const createTaskShape = {
   milestoneId: z.string(),
   title: z.string().min(1).max(255),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-  assigneeId: z.string().optional(),
+  assignees: z
+    .array(
+      z.object({
+        userId: z.string(),
+        role: z.enum(["owner", "contributor"]),
+      })
+    )
+    .max(MAX_TASK_ASSIGNEES)
+    .optional(),
   dueDate: z.string().datetime().optional(),
 };
 
@@ -109,7 +118,7 @@ export function registerWriteTools(server: McpServer, ctx: AuthenticatedKeyConte
     "Create a new task within a milestone",
     createTaskShape,
     async (input) => {
-      const { workspaceId, milestoneId, title, priority, assigneeId, dueDate } = input;
+      const { workspaceId, milestoneId, title, priority, assignees, dueDate } = input;
 
       // 1. Workspace access check
       if (!ctx.workspaceIds.includes(workspaceId)) {
@@ -127,15 +136,27 @@ export function registerWriteTools(server: McpServer, ctx: AuthenticatedKeyConte
         return err("Insufficient permissions to create a task.");
       }
 
-      // 3. Create task
+      // 3. Validate assignees through the shared module (owner invariant + membership)
+      const normalized = await normalizeAssignees(assignees, workspaceId);
+      if (!normalized.ok) {
+        return err(normalized.error);
+      }
+
+      // 4. Create task
       const task = await prisma.task.create({
         data: {
           workspaceId,
           milestoneId,
           title,
           priority: priority ?? "medium",
-          assigneeId: assigneeId ?? null,
           dueDate: dueDate ? new Date(dueDate) : null,
+          ...(normalized.assignees.length > 0
+            ? {
+                assignees: {
+                  create: normalized.assignees.map((a) => ({ userId: a.userId, role: a.role })),
+                },
+              }
+            : {}),
         },
         select: { id: true, title: true },
       });

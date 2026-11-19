@@ -167,7 +167,7 @@ export function registerReadTools(
             title: true,
             status: true,
             priority: true,
-            assigneeId: true,
+            assignees: { select: { userId: true, role: true } },
             dueDate: true,
             blockedReason: true,
           },

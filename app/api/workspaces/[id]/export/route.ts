@@ -64,7 +64,7 @@ export async function GET(
                 order:       true,
                 createdAt:   true,
                 updatedAt:   true,
-                assignee:    { select: { id: true, name: true, email: true } },
+                assignees:   { select: { userId: true, role: true, user: { select: { id: true, name: true, email: true } } } },
               },
               orderBy: { order: "asc" },
             },

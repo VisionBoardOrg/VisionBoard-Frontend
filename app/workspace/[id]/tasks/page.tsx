@@ -29,7 +29,7 @@ export default async function TasksPage({ params }: TasksPageProps) {
     }),
     prisma.task.findMany({
       where: {
-        assigneeId: session.user.id,
+        assignees: { some: { userId: session.user.id } },
         milestone: { goal: { workspaceId: id } },
       },
       include: {

@@ -10,7 +10,7 @@ interface EngDashboardProps { workspace: DashboardWorkspace; userId: string; use
 export function EngDashboard({ workspace, userId }: EngDashboardProps) {
   const allTasks = workspace.goals.flatMap((g) => g.milestones.flatMap((m) => m.tasks));
   const counts = taskStatusCounts(allTasks);
-  const myTasks = allTasks.filter((t) => t.assigneeId === userId);
+  const myTasks = allTasks.filter((t) => t.assignees.some((a) => a.userId === userId));
   const blockers = allTasks.filter((t) => t.status === "blocked");
 
   return (

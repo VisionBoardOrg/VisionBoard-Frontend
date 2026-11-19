@@ -18,6 +18,8 @@ interface EnvCheck {
   minLength?: number;
   disallowedValues?: string[];
   description: string;
+  /** Only required in production (e.g. distributed Redis, cron/webhook secrets). */
+  productionOnly?: boolean;
 }
 
 const REQUIRED_SECRETS: EnvCheck[] = [
@@ -71,6 +73,7 @@ const REQUIRED_SECRETS: EnvCheck[] = [
     // Without it the cron routes refuse to run entirely, breaking scheduled maintenance.
     key: "CRON_SECRET",
     minLength: 32,
+    productionOnly: true,
     description:
       "Cron job authentication secret (generate: openssl rand -base64 32). " +
       "Required by /api/cron/sweeps and /api/cron/cleanup-users.",
@@ -80,6 +83,7 @@ const REQUIRED_SECRETS: EnvCheck[] = [
     // making brute-force attacks and double-cron-fire possible on serverless deployments.
     key: "UPSTASH_REDIS_REST_URL",
     minLength: 10,
+    productionOnly: true,
     description:
       "Upstash Redis REST URL — required in production for cross-instance rate limiting and cron locks. " +
       "Without this, rate limits are bypassable on Vercel/serverless deployments.",
@@ -87,6 +91,7 @@ const REQUIRED_SECRETS: EnvCheck[] = [
   {
     key: "UPSTASH_REDIS_REST_TOKEN",
     minLength: 10,
+    productionOnly: true,
     description:
       "Upstash Redis REST token — required alongside UPSTASH_REDIS_REST_URL.",
   },
@@ -96,6 +101,7 @@ const REQUIRED_SECRETS: EnvCheck[] = [
     // Without this secret set, Supabase→Resend contact sync is disabled entirely.
     key: "SUPABASE_WEBHOOK_SECRET",
     minLength: 24,
+    productionOnly: true,
     description:
       "Supabase Database Webhook secret (generate: openssl rand -base64 32). " +
       "Set as header x-supabase-webhook-secret in Supabase Dashboard → Database Webhooks. " +
@@ -116,6 +122,9 @@ export function validateEnv(): void {
   const report = (msg: string) => (isProd ? fail(msg) : warn(msg));
 
   for (const check of REQUIRED_SECRETS) {
+    if (check.productionOnly && !isProd) {
+      continue;
+    }
     const value = process.env[check.key];
 
     if (!value || value.trim() === "") {

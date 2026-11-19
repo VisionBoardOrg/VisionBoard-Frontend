@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
@@ -36,7 +37,7 @@ model User {
   comments        Comment[]
   documents       Document[]        @relation("DocumentAuthor")
   sessions        Session[]
-  assignedTasks   Task[]            @relation("TaskAssignee")
+  taskAssignments TaskAssignment[]
   ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
   invitationsSent WorkspaceInvite[] @relation("InvitationsSent")
   memberships     WorkspaceMember[]
@@ -185,7 +186,6 @@ model Task {
   id          String     @id @default(cuid())
   title       String
   description String?
-  assigneeId  String?
   dueDate     DateTime?  @default(now())
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
@@ -201,18 +201,33 @@ model Task {
   blockedReason String?
   comments      Comment[]  @relation("TaskComments")
   documents   Document[] @relation("TaskDocuments")
-  assignee    User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assignees   TaskAssignment[]
   milestone   Milestone  @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
   workspace   Workspace  @relation("WorkspaceTasks", fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([milestoneId])
-  @@index([assigneeId])
   @@index([status])
   @@index([workspaceId])
   @@index([status, dueDate])
   @@index([milestoneId, order])
   @@index([milestoneId, status])
-  @@index([assigneeId, status, priority, dueDate])
+}
+
+/// Many-to-many link between tasks and users with a per-person role.
+/// `owner` = accountable (a task may have multiple co-owners);
+/// `contributor` = working participant.
+model TaskAssignment {
+  id        String           @id @default(cuid())
+  taskId    String
+  userId    String
+  role      TaskAssigneeRole @default(contributor)
+  createdAt DateTime         @default(now())
+  task      Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([userId, role])
+  @@index([taskId, role])
 }
 
 model Document {
@@ -385,6 +400,11 @@ enum TaskStatus {
   in_review
   blocked
   done
+}
+
+enum TaskAssigneeRole {
+  owner
+  contributor
 }
 
 enum Priority {

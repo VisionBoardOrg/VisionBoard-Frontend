@@ -1,0 +1,182 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+[7m[1m[36m RUN [39m[22m[27m [36mv1.6.1[39m [90mC:/Users/USER/Desktop/vision/visionboard[39m
+
+ [33m❯[39m __tests__/notifications/notification-preferences.test.ts [2m ([22m[2m8 tests[22m [2m|[22m [31m1 failed[39m[2m)[22m[90m 90[2mms[22m[39m
+[31m   [33m❯[31m __tests__/notifications/notification-preferences.test.ts[2m > [22mnotification-preferences[2m > [22mupdateUserNotificationPreferences[2m > [22mupserts preferences with scalar values and converts null typeOverrides to Prisma.JsonNull[39m
+[31m     → expected "spy" to be called with arguments: [ { …(3) } ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[2m  Array [[22m
+[2m    Object {[22m
+[2m      "create": Object {[22m
+[2m        "comments": true,[22m
+[2m        "emailEnabled": false,[22m
+[2m        "goalsMilestones": true,[22m
+[31m+       "keyHash": "130ad554360b3de1397db55c2ff1b03cc68eab5953945b26f85790cd87b57a6f",[90m
+[2m        "mentions": true,[22m
+[2m        "quotasBilling": true,[22m
+[2m        "systemAlerts": true,[22m
+[2m        "tasks": false,[22m
+[2m        "typeOverrides": JsonNull {},[22m
+[31m+       "unsubscribeToken": "281111e67eba30cece063977f370bfbd1f3905c8d2919d8b",[90m
+[2m        "userId": "user_1",[22m
+[2m      },[22m
+[2m      "update": Object {[22m
+[2m        "emailEnabled": false,[22m
+[2m        "tasks": false,[22m
+[2m        "typeOverrides": JsonNull {},[22m
+[2m      },[22m
+[2m      "where": Object {[22m
+[2m        "userId": "user_1",[22m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+[31m[90m
+
+Number of calls: [1m1[22m
+[31m[39m
+ [33m❯[39m __tests__/mcp/api-key-endpoints.test.ts [2m ([22m[2m11 tests[22m [2m|[22m [31m2 failed[39m[2m)[22m[90m 199[2mms[22m[39m
+[31m   [33m❯[31m __tests__/mcp/api-key-endpoints.test.ts[2m > [22m18.2: API key management endpoints[2m > [22mPOST: 403 when 10 active keys exist[39m
+[31m     → expected "spy" to be called with arguments: [ { where: ObjectContaining{…} } ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[2m  Array [[22m
+[2m    Object {[22m
+[32m-     "where": ObjectContaining {[90m
+[32m-       "OR": Array [[90m
+[32m-         Object {[90m
+[31m+     "where": Object {[90m
+[2m        "expiresAt": Object {[22m
+[32m-             "gt": Any<Date>,[90m
+[32m-           },[90m
+[32m-         },[90m
+[32m-         Object {[90m
+[32m-           "expiresAt": null,[90m
+[31m+         "gt": 2026-11-17T17:29:02.528Z,[90m
+[2m        },[22m
+[32m-       ],[90m
+[2m        "revokedAt": null,[22m
+[2m        "userId": "user1",[22m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+[31m[90m
+
+Number of calls: [1m1[22m
+[31m[39m
+[31m   [33m❯[31m __tests__/mcp/api-key-endpoints.test.ts[2m > [22m18.2: API key management endpoints[2m > [22mPOST: 403 when 10 never-expiring keys (expiresAt=null) exist — limit bypass blocked[39m
+[31m     → Cannot read properties of undefined (reading 'some')[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 3 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[31m[1m[7m FAIL [27m[22m[39m __tests__/notifications/notification-preferences.test.ts[2m > [22mnotification-preferences[2m > [22mupdateUserNotificationPreferences[2m > [22mupserts preferences with scalar values and converts null typeOverrides to Prisma.JsonNull
+[31m[1mAssertionError[22m: expected "spy" to be called with arguments: [ { …(3) } ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[2m  Array [[22m
+[2m    Object {[22m
+[2m      "create": Object {[22m
+[2m        "comments": true,[22m
+[2m        "emailEnabled": false,[22m
+[2m        "goalsMilestones": true,[22m
+[31m+       "keyHash": "130ad554360b3de1397db55c2ff1b03cc68eab5953945b26f85790cd87b57a6f",[90m
+[2m        "mentions": true,[22m
+[2m        "quotasBilling": true,[22m
+[2m        "systemAlerts": true,[22m
+[2m        "tasks": false,[22m
+[2m        "typeOverrides": JsonNull {},[22m
+[31m+       "unsubscribeToken": "281111e67eba30cece063977f370bfbd1f3905c8d2919d8b",[90m
+[2m        "userId": "user_1",[22m
+[2m      },[22m
+[2m      "update": Object {[22m
+[2m        "emailEnabled": false,[22m
+[2m        "tasks": false,[22m
+[2m        "typeOverrides": JsonNull {},[22m
+[2m      },[22m
+[2m      "where": Object {[22m
+[2m        "userId": "user_1",[22m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+[31m[90m
+
+Number of calls: [1m1[22m
+[31m[39m
+[36m [2m❯[22m __tests__/notifications/notification-preferences.test.ts:[2m218:52[22m[39m
+    [90m216| [39m      })[33m;[39m
+    [90m217| [39m
+    [90m218| [39m      [34mexpect[39m(prisma[33m.[39mnotificationPreference[33m.[39mupsert)[33m.[39m[34mtoHaveBeenCalledWit[39m…
+    [90m   | [39m                                                   [31m^[39m
+    [90m219| [39m        where[33m:[39m { userId[33m:[39m [32m"user_1"[39m }[33m,[39m
+    [90m220| [39m        update[33m:[39m {
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m __tests__/mcp/api-key-endpoints.test.ts[2m > [22m18.2: API key management endpoints[2m > [22mPOST: 403 when 10 active keys exist
+[31m[1mAssertionError[22m: expected "spy" to be called with arguments: [ { where: ObjectContaining{…} } ][90m
+
+Received: 
+
+[1m  1st spy call:
+
+[22m[2m  Array [[22m
+[2m    Object {[22m
+[32m-     "where": ObjectContaining {[90m
+[32m-       "OR": Array [[90m
+[32m-         Object {[90m
+[31m+     "where": Object {[90m
+[2m        "expiresAt": Object {[22m
+[32m-             "gt": Any<Date>,[90m
+[32m-           },[90m
+[32m-         },[90m
+[32m-         Object {[90m
+[32m-           "expiresAt": null,[90m
+[31m+         "gt": 2026-11-17T17:29:02.528Z,[90m
+[2m        },[22m
+[32m-       ],[90m
+[2m        "revokedAt": null,[22m
+[2m        "userId": "user1",[22m
+[2m      },[22m
+[2m    },[22m
+[2m  ][22m
+[31m[90m
+
+Number of calls: [1m1[22m
+[31m[39m
+[36m [2m❯[22m __tests__/mcp/api-key-endpoints.test.ts:[2m90:23[22m[39m
+    [90m 88| [39m    })[33m;[39m
+    [90m 89| [39m    [34mexpect[39m(([35mawait[39m [33mPOST[39m(req))[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m403[39m)[33m;[39m
+    [90m 90| [39m    [34mexpect[39m(mockCount)[33m.[39m[34mtoHaveBeenCalledWith[39m({
+    [90m   | [39m                      [31m^[39m
+    [90m 91| [39m      where[33m:[39m expect[33m.[39m[34mobjectContaining[39m({
+    [90m 92| [39m        userId[33m:[39m [32m"user1"[39m[33m,[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯[22m[39m
+
+[31m[1m[7m FAIL [27m[22m[39m __tests__/mcp/api-key-endpoints.test.ts[2m > [22m18.2: API key management endpoints[2m > [22mPOST: 403 when 10 never-expiring keys (expiresAt=null) exist — limit bypass blocked
+[31m[1mTypeError[22m: Cannot read properties of undefined (reading 'some')[39m
+[36m [2m❯[22m __tests__/mcp/api-key-endpoints.test.ts:[2m112:53[22m[39m
+    [90m110| [39m    [34mexpect[39m(res[33m.[39mstatus)[33m.[39m[34mtoBe[39m([34m403[39m)[33m;[39m
+    [90m111| [39m    [35mconst[39m countWhere [33m=[39m vi[33m.[39m[34mmocked[39m(mockCount)[33m.[39mmock[33m.[39mcalls[[34m0[39m][[34m0[39m] [35mas[39m { wher…
+    [90m112| [39m    [35mconst[39m hasNullExpiryClause [33m=[39m countWhere[33m.[39mwhere[33m.[39m[33mOR[39m[33m.[39m[34msome[39m(
+    [90m   | [39m                                                    [31m^[39m
+    [90m113| [39m      (clause[33m:[39m unknown) [33m=>[39m clause [33m&&[39m [35mtypeof[39m clause [33m===[39m [32m"object"[39m [33m&&[39m (cl…
+    [90m114| [39m    )[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯[22m[39m
+
+[2m Test Files [22m [1m[31m2 failed[39m[22m[90m (2)[39m
+[2m      Tests [22m [1m[31m3 failed[39m[22m[2m | [22m[1m[32m16 passed[39m[22m[90m (19)[39m
+[2m   Start at [22m 18:28:55
+[2m   Duration [22m 5.56s[2m (transform 801ms, setup 0ms, collect 2.24s, tests 289ms, environment 1ms, prepare 3.36s)[22m
+

@@ -4,13 +4,21 @@ import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { calculateGoalHealth } from "@/lib/goal-health";
 import { syncMilestoneStatus } from "@/lib/milestone-sync";
+import { dispatchTaskBlockedNotification } from "@/lib/notifications";
 import {
-  dispatchTaskAssignmentNotification,
-  dispatchTaskBlockedNotification,
-} from "@/lib/notifications";
+  MAX_TASK_ASSIGNEES,
+  assigneesInclude,
+  normalizeAssignees,
+  setTaskAssignments,
+} from "@/lib/task-assignments";
+
+const assigneeSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(["owner", "contributor"]),
+});
 
 const patchSchema = z.object({
-  assigneeId: z.string().nullable().optional(),
+  assignees: z.array(assigneeSchema).max(MAX_TASK_ASSIGNEES).optional(),
   status: z.enum(["todo", "in_progress", "in_review", "blocked", "done"]).optional(),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   title: z.string().min(1).optional(),
@@ -37,12 +45,12 @@ export async function PATCH(
   if (!parsed.success) return NextResponse.json({ error: "Invalid input" }, { status: 400 });
 
   const userIdsToCheck = [session.user.id];
-  if (parsed.data.assigneeId) userIdsToCheck.push(parsed.data.assigneeId);
 
   // Single consolidated query: fetch task, milestone goal, and workspace memberships in 1 SQL round-trip
   const task = await prisma.task.findUnique({
     where: { id },
     include: {
+      assignees: { select: { userId: true, role: true } },
       milestone: {
         select: {
           id: true,
@@ -70,14 +78,19 @@ export async function PATCH(
   const currentMember = task.workspace?.members.find((m) => m.userId === session.user.id);
   if (!currentMember) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  if (parsed.data.assigneeId) {
-    const hasAssignee = task.workspace?.members.some((m) => m.userId === parsed.data.assigneeId);
-    if (!hasAssignee) {
-      return NextResponse.json({ error: "Assignee is not a member of this workspace" }, { status: 400 });
+  // Full-set replacement: validate only when `assignees` is provided. Omitted
+  // leaves the existing assignment untouched.
+  let normalizedAssignees: { userId: string; role: "owner" | "contributor" }[] | null = null;
+  if (parsed.data.assignees !== undefined) {
+    const normalized = await normalizeAssignees(parsed.data.assignees, workspaceId);
+    if (!normalized.ok) {
+      return NextResponse.json({ error: normalized.error }, { status: 400 });
     }
+    normalizedAssignees = normalized.assignees;
   }
 
   const updateData: Record<string, unknown> = { ...parsed.data };
+  delete updateData.assignees;
   if (parsed.data.dueDate) {
     const parsedDate = new Date(parsed.data.dueDate);
     if (!isNaN(parsedDate.getTime())) {
@@ -91,6 +104,19 @@ export async function PATCH(
   }
 
   const updated = await prisma.task.update({ where: { id }, data: updateData as never });
+
+  // Route the assignment write through the shared module (owner invariant +
+  // notification behaviour live in one place).
+  if (normalizedAssignees !== null) {
+    await setTaskAssignments({
+      taskId: id,
+      workspaceId,
+      taskTitle: updated.title,
+      actorId: session.user.id,
+      actorName: session.user.name || "A team member",
+      assignees: normalizedAssignees,
+    });
+  }
 
   // Offload auxiliary updates to Next.js after() — response is returned immediately to client,
   // and tasks are guaranteed to complete without serverless process freezing
@@ -122,17 +148,6 @@ export async function PATCH(
     // 3. Dispatch notifications
     const userName = session.user.name || "A team member";
 
-    if (parsed.data.assigneeId && parsed.data.assigneeId !== task.assigneeId) {
-      dispatchTaskAssignmentNotification({
-        assigneeId: parsed.data.assigneeId,
-        assignerId: session.user.id,
-        assignerName: userName,
-        taskId: id,
-        taskTitle: updated.title,
-        workspaceId,
-      }).catch((err) => console.error("[tasks/[id] PATCH] Task assignment notification failed:", err));
-    }
-
     if (parsed.data.status === "blocked" && task.status !== "blocked") {
       dispatchTaskBlockedNotification({
         taskId: id,
@@ -145,7 +160,12 @@ export async function PATCH(
     }
   });
 
-  return NextResponse.json({ task: updated });
+  const finalTask = await prisma.task.findUnique({
+    where: { id },
+    include: { ...assigneesInclude },
+  });
+
+  return NextResponse.json({ task: finalTask ?? updated });
 }
 
 export async function DELETE(

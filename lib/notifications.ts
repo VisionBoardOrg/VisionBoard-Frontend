@@ -371,21 +371,34 @@ export async function dispatchTaskAssignmentNotification(params: {
   taskId: string;
   taskTitle: string;
   workspaceId: string;
+  role?: "owner" | "contributor";
 }) {
-  const { assigneeId, assignerId, assignerName, taskId, taskTitle, workspaceId } = params;
+  const {
+    assigneeId,
+    assignerId,
+    assignerName,
+    taskId,
+    taskTitle,
+    workspaceId,
+    role = "owner",
+  } = params;
   if (assigneeId === assignerId) return;
+
+  const isOwner = role !== "contributor";
 
   return createNotification({
     userId: assigneeId,
     workspaceId,
     actorId: assignerId,
     type: "task_assigned",
-    title: "New task assigned to you",
-    message: `${assignerName} assigned you to "${taskTitle}".`,
+    title: isOwner ? "New task assigned to you" : "You were added to a task",
+    message: isOwner
+      ? `${assignerName} assigned you as owner of "${taskTitle}".`
+      : `${assignerName} added you as a contributor to "${taskTitle}".`,
     entityType: "task",
     entityId: taskId,
     link: `/workspace/${workspaceId}/tasks?taskId=${taskId}`,
-    metadata: { taskId, taskTitle },
+    metadata: { taskId, taskTitle, role },
   });
 }
 

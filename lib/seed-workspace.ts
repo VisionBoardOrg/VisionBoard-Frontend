@@ -112,7 +112,7 @@ export async function seedWorkspace({
               storyPoints: taskDef.storyPoints,
               order: taskDef.order,
               dueDate: msDef.targetDate ?? new Date(),
-              assigneeId: userId,
+              assignees: { create: { userId, role: "owner" } },
             },
           });
         }

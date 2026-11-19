@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
+import { getUserPlanAndCredits } from "@/lib/workspace-data";
 import { WorkspacesClient } from "@/components/workspace/WorkspacesClient";
 import { AppShell } from "@/components/layout/AppShell";
 
@@ -14,13 +15,11 @@ export default async function WorkspacesPage() {
   const session = await auth();
   if (!session) redirect("/auth/login");
 
-  // Get user and all workspaces the user is a member of
+  // Get user (shared via cached getUserPlanAndCredits) and all workspaces the user is a member of
   const [user, memberships] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { id: true, plan: true, aiCreditsUsed: true },
-    }),
+    getUserPlanAndCredits(session.user.id),
     prisma.workspaceMember.findMany({
+      relationLoadStrategy: "join",
       where: { userId: session.user.id },
       select: {
         role: true,

@@ -190,8 +190,7 @@ export async function POST(request: NextRequest) {
         title: true,
         status: true,
         priority: true,
-        assigneeId: true,
-        assignee: { select: { name: true, email: true } },
+        assignees: { select: { userId: true, role: true, user: { select: { name: true, email: true } } } },
         milestoneId: true,
         milestone: { select: { title: true } },
       },
@@ -250,7 +249,7 @@ ${liveGoals.map((g) => `- "${sanitizeForPrompt(g.title)}" (id: "${g.id}", status
 ${liveMilestones.map((m) => `- "${sanitizeForPrompt(m.title)}" (id: "${m.id}", status: "${m.status}", goal: "${sanitizeForPrompt(m.goal.title)}")`).join("\n")}
 
 [Tasks]:
-${liveTasks.map((t) => `- "${sanitizeForPrompt(t.title)}" (id: "${t.id}", status: "${t.status}", priority: "${t.priority}", assignee: "${sanitizeForPrompt(t.assignee?.name || "Unassigned")}" [assigneeId: "${t.assigneeId || ""}"], milestone: "${sanitizeForPrompt(t.milestone.title)}")`).join("\n")}
+${liveTasks.map((t) => `- "${sanitizeForPrompt(t.title)}" (id: "${t.id}", status: "${t.status}", priority: "${t.priority}", assignees: "${sanitizeForPrompt(t.assignees.map((a) => `${a.user?.name || a.userId} (${a.role})`).join(", ") || "Unassigned")}", milestone: "${sanitizeForPrompt(t.milestone.title)}")`).join("\n")}
 `;
 
   const systemPrompt = `You are VisionBoard AI Copilot, a brilliant Chief Product Officer (CPO) and Technical Project Lead embedded directly in this workspace.
@@ -276,11 +275,11 @@ Guidelines:
      { "action": "delete_milestone", "milestoneId": "<id>", "title": "<milestone title>" },
      { "action": "delete_task", "taskId": "<id>", "title": "<task title>" },
      { "action": "delete_goal", "goalId": "<id>", "title": "<goal title>" },
-     { "action": "assign_task", "taskId": "<id>", "title": "<task title>", "assigneeId": "<userId>", "assigneeName": "<member name>" },
+     { "action": "assign_task", "taskId": "<id>", "title": "<task title>", "assignees": [{ "userId": "<userId>", "role": "owner" }] },
      { "action": "update_task", "taskId": "<id>", "title": "<task title>", "status": "todo"|"in_progress"|"in_review"|"blocked"|"done", "priority": "low"|"medium"|"high"|"urgent" },
      { "action": "update_milestone", "milestoneId": "<id>", "title": "<milestone title>", "status": "planned"|"in_progress"|"completed"|"delayed" },
      { "action": "create_milestone", "goalId": "<id optional>", "title": "<milestone title>", "description": "<description optional>", "tasks": [{ "title": "<task 1>", "priority": "high" }, { "title": "<task 2>" }] },
-     { "action": "create_task", "milestoneId": "<id or newly created milestone title>", "milestoneTitle": "<milestone title>", "title": "<task title>", "priority": "medium"|"high"|"urgent"|"low", "assigneeId": "<userId optional>" }
+     { "action": "create_task", "milestoneId": "<id or newly created milestone title>", "milestoneTitle": "<milestone title>", "title": "<task title>", "priority": "medium"|"high"|"urgent"|"low", "assignees": [{ "userId": "<userId optional>", "role": "owner"|"contributor" }] }
    ]
    </board_actions>
    - When creating a new milestone with tasks in the same prompt, you can EITHER include the tasks directly in the milestone's "tasks" array, OR set "milestoneTitle": "<same milestone title>" in each "create_task" action.

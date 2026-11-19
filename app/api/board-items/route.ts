@@ -27,7 +27,7 @@ const TASK_SELECT = {
   title: true,
   status: true,
   priority: true,
-  assigneeId: true,
+  assignees: { select: { userId: true, role: true } },
   dueDate: true,
 } as const;
 

@@ -39,7 +39,7 @@ interface GoalDetailProps {
     keyResults: unknown;
     milestones: {
       id: string; title: string; description: string | null; status: string; targetDate: Date | null;
-      tasks: { id: string; title: string; status: string; priority: string; storyPoints: number | null; assigneeId: string | null }[];
+      tasks: { id: string; title: string; status: string; priority: string; storyPoints: number | null; assignees: { userId: string; role: string }[] }[];
     }[];
     documents: { id: string; title: string; author: { name: string | null } | null; updatedAt: Date }[];
     comments: { id: string; body: string; author: { id: string; name: string | null; image: string | null }; createdAt: Date }[];

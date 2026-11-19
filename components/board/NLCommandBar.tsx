@@ -70,8 +70,7 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
   /** Human-readable label for a raw change key (e.g. "dueDate" → "Due date") */
   const CHANGE_LABELS: Record<string, string> = {
     status: "Status",
-    assignee: "Assignee",
-    assigneeId: "Assignee",
+    assignees: "People",
     dueDate: "Due date",
     startDate: "Start date",
     title: "Title",

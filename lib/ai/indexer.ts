@@ -188,7 +188,7 @@ async function fetchAllTasks(workspaceId: string) {
     const batch = await prisma.task.findMany({
       where: { milestone: { goal: { workspaceId } } },
       include: {
-        assignee: { select: { name: true } },
+        assignees: { select: { role: true, user: { select: { name: true } } } },
         milestone: { select: { title: true } },
         comments: {
           include: { author: { select: { name: true } } },
@@ -257,18 +257,32 @@ function chunksForMilestone(m: FetchedMilestone, workspaceId: string): RawChunk[
 }
 
 function chunksForTask(t: FetchedTask, workspaceId: string): RawChunk[] {
+  const assigneeName = assigneeLabel(t.assignees);
   const formatted = formatTaskForEmbedding({
     id: t.id, title: t.title, description: t.description, status: t.status,
     priority: t.priority, storyPoints: t.storyPoints, dueDate: t.dueDate,
-    assigneeName: t.assignee?.name, milestoneTitle: t.milestone?.title,
+    assigneeName, milestoneTitle: t.milestone?.title,
     blockedReason: t.blockedReason,
     comments: t.comments.map((c) => ({ authorName: c.author?.name || undefined, body: c.body })),
   });
   return chunkText(formatted, { headerPrefix: `Task: ${t.title}` }).map((c) => ({
     workspaceId, entityType: "task", entityId: t.id,
     chunkIndex: c.chunkIndex, title: t.title, content: c.content,
-    metadata: { status: t.status, priority: t.priority, assigneeName: t.assignee?.name, blockedReason: t.blockedReason },
+    metadata: { status: t.status, priority: t.priority, assigneeName, blockedReason: t.blockedReason },
   }));
+}
+
+/**
+ * Join every assigned person's display name into a single label (owners and
+ * contributors alike) for embeddings + search metadata.
+ */
+function assigneeLabel(
+  assignees: Array<{ user: { name: string | null } | null }>
+): string | undefined {
+  const names = assignees
+    .map((a) => a.user?.name)
+    .filter((n): n is string => Boolean(n && n.trim()));
+  return names.length > 0 ? names.join(", ") : undefined;
 }
 
 // ── Bulk insert helper ────────────────────────────────────────────────────
@@ -401,7 +415,7 @@ export async function indexSingleEntity(
     const t = await prisma.task.findUnique({
       where: { id: entityId },
       include: {
-        assignee: { select: { name: true } },
+        assignees: { select: { role: true, user: { select: { name: true } } } },
         milestone: { select: { title: true } },
         comments: {
           include: { author: { select: { name: true } } },

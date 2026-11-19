@@ -24,6 +24,17 @@ function hashPrompt(input: string): string {
   return `sha256:${createHash("sha256").update(input).digest("hex")}`;
 }
 
+/** Join every assigned person's display name for prompt labels. */
+function assigneeNames(
+  t: { assignees: Array<{ user: { name: string | null } | null }> },
+  fallback = "Unassigned"
+): string {
+  const names = t.assignees
+    .map((a) => a.user?.name)
+    .filter((n): n is string => Boolean(n && n.trim()));
+  return names.length > 0 ? names.join(", ") : fallback;
+}
+
 export async function POST(request: NextRequest) {
   // Rate limit: AI generation route (LLM call per request)
   const rateLimit = await checkRateLimit(request, "ai-executive-summary", {
@@ -120,7 +131,7 @@ export async function POST(request: NextRequest) {
         status: "done",
         updatedAt: { gte: sevenDaysAgo },
       },
-      select: { id: true, title: true, assignee: { select: { name: true } } },
+      select: { id: true, title: true, assignees: { select: { user: { select: { name: true } } } } },
       orderBy: { createdAt: "asc" },
       take: 100,
     }),
@@ -129,7 +140,7 @@ export async function POST(request: NextRequest) {
         milestone: { goal: { workspaceId } },
         status: "blocked",
       },
-      select: { id: true, title: true, blockedReason: true, assignee: { select: { name: true } } },
+      select: { id: true, title: true, blockedReason: true, assignees: { select: { user: { select: { name: true } } } } },
       orderBy: { createdAt: "asc" },
       take: 100,
     }),
@@ -138,7 +149,7 @@ export async function POST(request: NextRequest) {
         milestone: { goal: { workspaceId } },
         status: { in: ["in_progress", "in_review"] },
       },
-      select: { id: true, title: true, status: true, assignee: { select: { name: true } } },
+      select: { id: true, title: true, status: true, assignees: { select: { user: { select: { name: true } } } } },
       orderBy: { createdAt: "asc" },
       take: 100,
     }),
@@ -165,13 +176,13 @@ Milestones:
 ${milestones.map((m) => `- Milestone: "${sanitizeForPrompt(m.title)}" (Goal: "${sanitizeForPrompt(m.goal.title)}", Status: ${m.status}, Target: ${m.targetDate?.toISOString().split("T")[0] || "N/A"})`).join("\n")}
 
 Tasks Completed This Week (${completedTasks.length} total):
-${completedTasks.slice(0, 15).map((t) => `- "${sanitizeForPrompt(t.title)}" (Completed by ${sanitizeForPrompt(t.assignee?.name ?? "Team")})`).join("\n")}
+${completedTasks.slice(0, 15).map((t) => `- "${sanitizeForPrompt(t.title)}" (Completed by ${sanitizeForPrompt(assigneeNames(t, "Team"))})`).join("\n")}
 
 Blocked Tasks Requiring Attention (${blockedTasks.length} total):
-${blockedTasks.map((t) => `- [BLOCKED] "${sanitizeForPrompt(t.title)}" (Assignee: ${sanitizeForPrompt(t.assignee?.name ?? "Unassigned")}, Reason: ${sanitizeForPrompt(t.blockedReason ?? "No reason given")})`).join("\n")}
+${blockedTasks.map((t) => `- [BLOCKED] "${sanitizeForPrompt(t.title)}" (Assignee: ${sanitizeForPrompt(assigneeNames(t))}, Reason: ${sanitizeForPrompt(t.blockedReason ?? "No reason given")})`).join("\n")}
 
 Tasks Currently In Progress / In Review (${inProgressTasks.length} total):
-${inProgressTasks.slice(0, 10).map((t) => `- "${sanitizeForPrompt(t.title)}" [${t.status}] (${sanitizeForPrompt(t.assignee?.name ?? "Unassigned")})`).join("\n")}
+${inProgressTasks.slice(0, 10).map((t) => `- "${sanitizeForPrompt(t.title)}" [${t.status}] (${sanitizeForPrompt(assigneeNames(t))})`).join("\n")}
 
 Recent Documents / PRDs:
 ${recentDocs.map((d) => `- "${sanitizeForPrompt(d.title)}" (Updated: ${d.updatedAt.toISOString().split("T")[0]})`).join("\n")}

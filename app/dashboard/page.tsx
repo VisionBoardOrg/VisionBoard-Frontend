@@ -16,8 +16,10 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session) redirect("/auth/login");
 
-  // Fetch cross-workspace user stats, memberships, and user plan in parallel
-  const [user, userMemberships, taskStatusGroups] = await Promise.all([
+  // Fetch cross-workspace user stats, memberships, and the user's assignments in parallel.
+  // NOTE: Prisma `groupBy` cannot filter by relations (i.e. `assignees`), so we
+  // resolve the user's assigned task IDs first and aggregate on the plain `id in`.
+  const [user, userMemberships, myAssignments] = await Promise.all([
     prisma.user.findUnique({
       where: { id: session.user.id },
       select: { id: true, plan: true, aiCreditsUsed: true },
@@ -37,12 +39,17 @@ export default async function DashboardPage() {
       },
       orderBy: { joinedAt: "asc" },
     }),
-    prisma.task.groupBy({
-      by: ["status"],
-      where: { assigneeId: session.user.id },
-      _count: { id: true },
+    prisma.taskAssignment.findMany({
+      where: { userId: session.user.id },
+      select: { taskId: true },
     }),
   ]);
+
+  const taskStatusGroups = await prisma.task.groupBy({
+    by: ["status"],
+    where: { id: { in: myAssignments.map((a) => a.taskId) } },
+    _count: { id: true },
+  });
 
   if (userMemberships.length === 0) redirect("/onboarding");
 

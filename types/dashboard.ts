@@ -9,13 +9,13 @@ export type DashboardUser = { id: string; name: string | null; email: string; im
 export type DashboardMember = WorkspaceMember & { user: DashboardUser };
 
 /**
- * Slim task projection — status/assignee everywhere; title/priority/storyPoints
+ * Slim task projection — status/assignees everywhere; title/priority/storyPoints
  * for task list and milestone progress displays.
  */
 export type DashboardTask = {
   id: string;
   status: string;
-  assigneeId: string | null;
+  assignees: { userId: string; role: string }[];
   title?: string;
   priority?: string;
   storyPoints?: number | null;

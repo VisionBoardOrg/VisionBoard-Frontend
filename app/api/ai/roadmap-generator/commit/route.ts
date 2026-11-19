@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
               dueDate:
                 validTargetDate ??
                 new Date(Date.now() + (ti + 1) * 2 * 24 * 60 * 60 * 1000),
-              assigneeId: session.user.id,
+              assignees: { create: { userId: session.user.id, role: "owner" } },
             })),
           },
         },

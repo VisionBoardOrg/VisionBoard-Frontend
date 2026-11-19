@@ -97,7 +97,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
             status: true,
             priority: true,
             storyPoints: true,
-            assigneeId: true,
+            assignees: { select: { userId: true, role: true } },
             dueDate: true,
           },
         },

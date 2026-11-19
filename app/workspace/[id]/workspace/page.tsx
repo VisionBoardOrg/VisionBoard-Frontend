@@ -67,6 +67,7 @@ export async function generateMetadata({ params }: WorkspacePageProps) {
 const getFullDashboardMember = cache(
   async (workspaceId: string, userId: string) =>
     prisma.workspaceMember.findUnique({
+      relationLoadStrategy: "join",
       where: {
         workspaceId_userId: { workspaceId, userId },
       },
@@ -96,7 +97,7 @@ const getFullDashboardMember = cache(
                     status: true,
                     targetDate: true,
                     tasks: {
-                      select: { id: true, status: true, assigneeId: true },
+                      select: { id: true, status: true, assignees: { select: { userId: true, role: true } } },
                     },
                   },
                 },

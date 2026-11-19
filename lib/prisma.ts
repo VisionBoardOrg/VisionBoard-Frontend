@@ -36,9 +36,11 @@ import "server-only";
  */
 
 const PRODUCTION_CONNECTION_LIMIT = 1;
-const DEV_CONNECTION_LIMIT        = 3;
-const POOL_TIMEOUT_SECONDS        = 5;
-const CONNECT_TIMEOUT_SECONDS     = 10;
+const DEV_CONNECTION_LIMIT        = 5;
+const PROD_POOL_TIMEOUT_SECONDS   = 5;
+const DEV_POOL_TIMEOUT_SECONDS    = 30;
+const PROD_CONNECT_TIMEOUT_SECONDS = 10;
+const DEV_CONNECT_TIMEOUT_SECONDS  = 30;
 
 const MAX_TRANSIENT_RETRIES = 3;
 const RETRY_BASE_MS         = 120;
@@ -64,6 +66,8 @@ function sleepMs(ms: number): Promise<void> {
 
 const isProd = process.env.NODE_ENV === "production";
 const targetLimit = isProd ? PRODUCTION_CONNECTION_LIMIT : DEV_CONNECTION_LIMIT;
+const targetPoolTimeout = isProd ? PROD_POOL_TIMEOUT_SECONDS : DEV_POOL_TIMEOUT_SECONDS;
+const targetConnectTimeout = isProd ? PROD_CONNECT_TIMEOUT_SECONDS : DEV_CONNECT_TIMEOUT_SECONDS;
 
 function buildPoolSafeUrl(rawUrl: string | undefined): string {
   if (!rawUrl) {
@@ -74,8 +78,8 @@ function buildPoolSafeUrl(rawUrl: string | undefined): string {
   }
   const u = new URL(rawUrl);
   u.searchParams.set("connection_limit", String(targetLimit));
-  u.searchParams.set("pool_timeout",     String(POOL_TIMEOUT_SECONDS));
-  u.searchParams.set("connect_timeout",  String(CONNECT_TIMEOUT_SECONDS));
+  u.searchParams.set("pool_timeout",     String(targetPoolTimeout));
+  u.searchParams.set("connect_timeout",  String(targetConnectTimeout));
   // Supabase pooler URL already has pgbouncer=true — make sure it stays set
   // for any pooled URL. (DIRECT_URL is NEVER passed through this file).
   if (u.hostname.includes("pooler.supabase.com")) {
@@ -135,16 +139,10 @@ prisma.$use(async (params, next) => {
   }
 });
 
-if (!isProd) {
-  // Warm the pool lazily. On cold start the first query still works because
-  // Prisma lazy-connects — this just moves the latency to module load.
-  prisma.$connect().catch((err) => {
-    console.warn(
-      "[prisma] Initial $connect failed — will lazy-connect on first query.",
-      err instanceof Error ? err.message : String(err)
-    );
-  });
-}
+// Note: We do not call an eager unawaited `prisma.$connect()` at module load
+// because `instrumentation.ts` runs its startup query immediately upon import,
+// and Prisma connects lazily on the first query without competing for the cold
+// pool handshake.
 
 // Graceful teardown: give connections back on process exit so the pooler
 // doesn't keep them pinned for its own idle-reclaim timeout (~60s). This

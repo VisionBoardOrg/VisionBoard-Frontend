@@ -500,7 +500,7 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
                         milestoneId: restoredMilestoneId,
                         title: t.title,
                         priority: t.priority ?? "medium",
-                        assigneeId: t.assigneeId,
+                        assignees: (t.assignees ?? []).map((a) => ({ userId: a.userId, role: a.role })),
                         dueDate: t.dueDate ?? new Date().toISOString(),
                       }),
                     }).catch(console.error)

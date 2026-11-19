@@ -42,9 +42,24 @@ export interface RemoteCursor {
 // ── Message validators ────────────────────────────────────────────────────────
 const VALID_TASK_STATUSES = new Set(["todo", "in_progress", "in_review", "blocked", "done"]);
 const VALID_PRIORITIES    = new Set(["low", "medium", "high", "urgent"]);
+const VALID_ASSIGNEE_ROLES = new Set(["owner", "contributor"]);
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.length > 0 && v.length <= 512;
+}
+
+/** Validate an `assignees` payload: array of `{ userId, role ∈ owner|contributor }`. */
+function validateAssignees(v: unknown): { userId: string; role: string }[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: { userId: string; role: string }[] = [];
+  for (const entry of v) {
+    if (!entry || typeof entry !== "object") return null;
+    const e = entry as Record<string, unknown>;
+    if (!isNonEmptyString(e.userId)) return null;
+    if (!VALID_ASSIGNEE_ROLES.has(e.role as string)) return null;
+    out.push({ userId: e.userId, role: e.role as string });
+  }
+  return out;
 }
 
 function validateTaskUpdated(data: Record<string, unknown>): {
@@ -60,9 +75,13 @@ function validateTaskUpdated(data: Record<string, unknown>): {
     if (!VALID_TASK_STATUSES.has(data.status as string)) return null;
     updates.status = data.status;
   }
-  if (data.assigneeId !== undefined) {
-    if (data.assigneeId !== null && !isNonEmptyString(data.assigneeId)) return null;
-    updates.assigneeId = data.assigneeId;
+  if (data.assignees !== undefined) {
+    const assignees = validateAssignees(data.assignees);
+    if (assignees === null) return null;
+    updates.assignees = assignees;
+  } else if (data.assigneeId !== undefined) {
+    // Legacy scalar field from a mixed-version deployment. Ignore it rather than
+    // rejecting the whole message, so other fields keep syncing.
   }
   if (data.title !== undefined) {
     if (!isNonEmptyString(data.title) || (data.title as string).length > 300) return null;

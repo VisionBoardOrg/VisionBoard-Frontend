@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
   try {
     const [notifications, unreadCount] = await Promise.all([
       prisma.notification.findMany({
+        relationLoadStrategy: "join",
         where,
         take: limit + 1,
         cursor: cursor ? { id: cursor } : undefined,

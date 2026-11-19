@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import type { NotificationResponseItem } from "@/lib/notifications";
 
 export type NotificationCategory = "all" | "mentions" | "tasks" | "system";
@@ -27,6 +27,22 @@ export interface NotificationProviderProps {
   children: React.ReactNode;
 }
 
+type NotificationPayload = {
+  notifications?: NotificationResponseItem[];
+  unreadCount?: number;
+};
+
+// Module-level in-flight deduplication + short 2s cache so React Strict Mode
+// double-mounts or rapid route transitions don't fire duplicate parallel
+// GET /api/notifications requests.
+const inflightNotifications = new Map<string, Promise<NotificationPayload | null>>();
+const recentNotifications = new Map<string, { data: NotificationPayload; ts: number }>();
+const DEDUPE_TTL_MS = 2_000;
+
+function invalidateNotificationCache() {
+  recentNotifications.clear();
+}
+
 export function NotificationProvider({ workspaceId, children }: NotificationProviderProps) {
   const [notifications, setNotifications] = useState<NotificationResponseItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
@@ -34,20 +50,42 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
   const [category, setCategory] = useState<NotificationCategory>("all");
   const [latestLiveEvent, setLatestLiveEvent] = useState<NotificationResponseItem | null>(null);
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Centralized fetch with AbortSignal
+  // Centralized fetch with module-level deduplication
   const fetchNotifications = useCallback(
-    async (signal?: AbortSignal) => {
+    async (force = false) => {
       try {
         const params = new URLSearchParams();
         if (workspaceId) params.set("workspaceId", workspaceId);
         if (category !== "all") params.set("category", category);
         params.set("limit", "40");
+        const queryKey = params.toString();
 
-        const res = await fetch(`/api/notifications?${params.toString()}`, { signal });
-        if (res.ok) {
-          const data = await res.json();
+        if (!force) {
+          const cached = recentNotifications.get(queryKey);
+          if (cached && Date.now() - cached.ts < DEDUPE_TTL_MS) {
+            setNotifications(cached.data.notifications || []);
+            setUnreadCount(cached.data.unreadCount || 0);
+            return;
+          }
+        }
+
+        let promise = inflightNotifications.get(queryKey);
+        if (!promise) {
+          promise = fetch(`/api/notifications?${queryKey}`)
+            .then(async (res) => {
+              if (!res.ok) return null;
+              const data = (await res.json()) as NotificationPayload;
+              recentNotifications.set(queryKey, { data, ts: Date.now() });
+              return data;
+            })
+            .finally(() => {
+              inflightNotifications.delete(queryKey);
+            });
+          inflightNotifications.set(queryKey, promise);
+        }
+
+        const data = await promise;
+        if (data) {
           setNotifications(data.notifications || []);
           setUnreadCount(data.unreadCount || 0);
         }
@@ -63,20 +101,10 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
     [workspaceId, category]
   );
 
-  // Trigger fetch on workspaceId or category change, cancelling any pending in-flight request
+  // Trigger fetch on workspaceId or category change
   useEffect(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
     setIsLoading(true);
-
-    fetchNotifications(controller.signal);
-
-    return () => {
-      controller.abort();
-    };
+    void fetchNotifications();
   }, [fetchNotifications]);
 
   // Tab-visibility-aware interval polling (pauses when browser tab is inactive)
@@ -129,6 +157,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
 
   // Mark single or multiple notifications as read
   const markAsRead = useCallback(async (notificationIds: string[]) => {
+    invalidateNotificationCache();
     // Optimistic local state update
     setNotifications((prev) =>
       prev.map((n) => (notificationIds.includes(n.id) ? { ...n, read: true, readAt: new Date().toISOString() } : n))
@@ -148,6 +177,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
 
   // Mark all as read
   const markAllAsRead = useCallback(async () => {
+    invalidateNotificationCache();
     // Optimistic local state update
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true, readAt: new Date().toISOString() })));
     setUnreadCount(0);
@@ -165,6 +195,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
 
   // Delete/dismiss notification
   const deleteNotification = useCallback(async (id: string) => {
+    invalidateNotificationCache();
     setNotifications((prev) => {
       const target = prev.find((n) => n.id === id);
       if (target && !target.read) {
@@ -184,6 +215,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
 
   // Clear all read notifications
   const clearReadNotifications = useCallback(async () => {
+    invalidateNotificationCache();
     setNotifications((prev) => prev.filter((n) => !n.read));
 
     try {
@@ -200,7 +232,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
   }, []);
 
   const refresh = useCallback(async () => {
-    await fetchNotifications();
+    await fetchNotifications(true);
   }, [fetchNotifications]);
 
   // Memoized context value — every consumer re-renders when this object's

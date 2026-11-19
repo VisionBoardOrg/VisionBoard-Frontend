@@ -28,6 +28,7 @@ import { CitationBadge } from "./CitationBadge";
 import { MarkdownContent } from "./MarkdownContent";
 import { BoardActionReceipts } from "./BoardActionReceipts";
 import type { ExecutedBoardAction } from "@/lib/ai/board-action-executor";
+import type { TaskAssigneeSimple } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -154,14 +155,14 @@ function applyBoardActionsToStore(actions: ExecutedBoardAction[]) {
       } else if (act.action === "assign_task") {
         const taskId = act.entityId;
         const milestoneId = String(act.details?.milestoneId || "");
-        const assigneeId = (act.details?.assigneeId as string | null) || null;
+        const assignees = (act.details?.assignees as TaskAssigneeSimple[] | undefined) ?? [];
         if (milestoneId) {
-          store.updateTaskInMilestone(milestoneId, taskId, { assigneeId });
+          store.updateTaskInMilestone(milestoneId, taskId, { assignees });
         } else {
           const items = store.getAllItems();
           for (const item of items) {
             if (item.linkedMilestone?.tasks?.some((t) => t.id === taskId)) {
-              store.updateTaskInMilestone(item.linkedMilestone.id, taskId, { assigneeId });
+              store.updateTaskInMilestone(item.linkedMilestone.id, taskId, { assignees });
             }
           }
         }
@@ -189,7 +190,7 @@ function applyBoardActionsToStore(actions: ExecutedBoardAction[]) {
             status: "todo",
             priority: String(act.details?.priority || "medium"),
             storyPoints: null,
-            assigneeId: (act.details?.assigneeId as string | null) || null,
+            assignees: (act.details?.assignees as TaskAssigneeSimple[] | undefined) ?? [],
             dueDate: null,
           });
         }

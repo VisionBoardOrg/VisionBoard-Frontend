@@ -3,12 +3,26 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import Image from "next/image";
 import { X, Link2, User, CheckCircle2, Clock, AlertTriangle, Circle, ChevronDown, Check, Plus, Trash2, Calendar } from "lucide-react";
-import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple, WebSocketEvent } from "@/types/board";
+import type { BoardItemFull, GoalSimple, MilestoneWithTasks, UserSimple, TaskSimple, TaskAssigneeSimple, WebSocketEvent } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
 
 // ──────────────────────────────────────────────────
 // Helpers
 // ──────────────────────────────────────────────────
+
+/** Max number of avatars rendered inline before collapsing into a "+N" chip. */
+const MAX_VISIBLE_AVATARS = 3;
+
+/**
+ * Client-side mirror of the server's "≥1 owner" invariant: if the list is
+ * non-empty but has no owner, promote the first entry to owner. This is UX only —
+ * the authoritative check lives in `normalizeAssignees` server-side.
+ */
+function withOwnerInvariant(list: TaskAssigneeSimple[]): TaskAssigneeSimple[] {
+  if (list.length === 0) return list;
+  if (list.some((a) => a.role === "owner")) return list;
+  return list.map((a, i) => (i === 0 ? { ...a, role: "owner" } : a));
+}
 
 const STATUS_LABELS: Record<string, string> = {
   todo: "To Do",
@@ -208,13 +222,16 @@ function TaskRow({
     }
   }
 
-  async function assignMember(assigneeId: string | null) {
-    const prevAssigneeId = task.assigneeId;
+  const taskAssignees = task.assignees ?? [];
+
+  async function updateAssignees(next: TaskAssigneeSimple[]) {
+    const prevAssignees = task.assignees ?? [];
+    const normalized = withOwnerInvariant(next);
 
     // 1. Optimistic UI update locally & in Zustand store
-    onUpdate({ ...task, assigneeId });
+    onUpdate({ ...task, assignees: normalized });
     if (milestoneId) {
-      useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { assigneeId });
+      useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { assignees: normalized });
     }
 
     // 2. Broadcast via WebSocket
@@ -224,7 +241,7 @@ function TaskRow({
         workspaceId,
         milestoneId,
         taskId: task.id,
-        assigneeId,
+        assignees: normalized,
       });
     }
 
@@ -233,24 +250,48 @@ function TaskRow({
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assigneeId }),
+        body: JSON.stringify({
+          assignees: normalized.map((a) => ({ userId: a.userId, role: a.role })),
+        }),
       });
       if (!res.ok) {
         // Revert on failure
-        onUpdate({ ...task, assigneeId: prevAssigneeId });
+        onUpdate({ ...task, assignees: prevAssignees });
         if (milestoneId) {
-          useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { assigneeId: prevAssigneeId });
+          useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { assignees: prevAssignees });
         }
       }
     } catch {
       // Revert on error
-      onUpdate({ ...task, assigneeId: prevAssigneeId });
+      onUpdate({ ...task, assignees: prevAssignees });
       if (milestoneId) {
-        useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { assigneeId: prevAssigneeId });
+        useBoardStore.getState().updateTaskInMilestone(milestoneId, task.id, { assignees: prevAssignees });
       }
     } finally {
       setSaving(false);
     }
+  }
+
+  function toggleAssignee(memberId: string) {
+    const existing = taskAssignees.find((a) => a.userId === memberId);
+    if (existing) {
+      updateAssignees(taskAssignees.filter((a) => a.userId !== memberId));
+      return;
+    }
+    // First person on an empty task becomes the owner; everyone else a contributor.
+    const role: TaskAssigneeSimple["role"] = taskAssignees.length === 0 ? "owner" : "contributor";
+    const member = members.find((m) => m.id === memberId) ?? null;
+    updateAssignees([...taskAssignees, { userId: memberId, role, user: member }]);
+  }
+
+  function cycleRole(memberId: string) {
+    updateAssignees(
+      taskAssignees.map((a) =>
+        a.userId === memberId
+          ? { ...a, role: a.role === "owner" ? "contributor" : "owner" }
+          : a
+      )
+    );
   }
 
   async function setStatus(status: string) {
@@ -412,7 +453,8 @@ function TaskRow({
     return () => document.removeEventListener("mousedown", handle);
   }, [anyMenuOpen]);
 
-  const assignee = members.find((m) => m.id === task.assigneeId);
+  const visibleAssignees = taskAssignees.slice(0, MAX_VISIBLE_AVATARS);
+  const hiddenAssigneeCount = taskAssignees.length - visibleAssignees.length;
 
   return (
     <div className={`flex items-center gap-2 py-2.5 px-2.5 sm:py-2 sm:px-2 rounded-lg hover:bg-slate-50 group transition-colors ${saving ? "opacity-75" : ""}`}>
@@ -575,41 +617,71 @@ function TaskRow({
         )}
       </div>
 
-      {/* Assignee avatar / picker */}
+      {/* Assignees avatar stack / picker */}
       <div className="relative flex-shrink-0" ref={assignRef}>
         <button
           onClick={() => setAssignOpen(!assignOpen)}
-          title="Assign member"
+          title="Assign people"
           className="flex items-center justify-center hover:ring-2 ring-blue-300 rounded-full transition-all min-w-[24px] min-h-[24px]"
         >
-          {assignee ? (
-            <MemberAvatar user={assignee} size={20} />
-          ) : (
+          {taskAssignees.length === 0 ? (
             <div className="w-5 h-5 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center hover:border-slate-400 transition-colors">
               <User size={10} className="text-slate-400" />
+            </div>
+          ) : (
+            <div className="flex items-center -space-x-1.5">
+              {visibleAssignees.map((a) => {
+                const member = members.find((m) => m.id === a.userId) ?? a.user ?? { id: a.userId, name: null, image: null };
+                return (
+                  <div key={a.userId} className="relative">
+                    <MemberAvatar user={member} size={20} />
+                    {a.role === "owner" && (
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 border border-white"
+                        title="Owner"
+                      />
+                    )}
+                  </div>
+                );
+              })}
+              {hiddenAssigneeCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-bold flex items-center justify-center border border-white">
+                  +{hiddenAssigneeCount}
+                </span>
+              )}
             </div>
           )}
         </button>
 
         {assignOpen && (
-          <div className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-44">
-            <button
-              className="w-full text-left px-3 py-2 sm:py-1.5 text-xs text-slate-400 hover:bg-slate-50"
-              onClick={() => { assignMember(null); setAssignOpen(false); }}
-            >
-              Unassign
-            </button>
-            {members.map((m) => (
-              <button
-                key={m.id}
-                className="w-full text-left px-3 py-2 sm:py-1.5 hover:bg-slate-50 flex items-center gap-2"
-                onClick={() => { assignMember(m.id); setAssignOpen(false); }}
-              >
-                <MemberAvatar user={m} size={18} />
-                <span className="text-xs text-slate-700 truncate">{m.name ?? "Unknown"}</span>
-                {m.id === task.assigneeId && <Check size={11} className="text-blue-600 ml-auto" />}
-              </button>
-            ))}
+          <div className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 max-h-72 overflow-y-auto">
+            {members.map((m) => {
+              const assignment = taskAssignees.find((a) => a.userId === m.id);
+              return (
+                <div key={m.id} className="flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-slate-50">
+                  <button
+                    onClick={() => toggleAssignee(m.id)}
+                    className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                  >
+                    <MemberAvatar user={m} size={18} />
+                    <span className="text-xs text-slate-700 truncate">{m.name ?? "Unknown"}</span>
+                  </button>
+                  {assignment && (
+                    <button
+                      onClick={() => cycleRole(m.id)}
+                      title="Toggle owner / contributor"
+                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border transition-colors flex-shrink-0 ${
+                        assignment.role === "owner"
+                          ? "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"
+                          : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      {assignment.role === "owner" ? "Owner" : "Contributor"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -718,7 +790,7 @@ function MilestoneSection({
       status: "todo",
       priority: "medium",
       storyPoints: null,
-      assigneeId: null,
+      assignees: [],
       dueDate: effectiveDueDate,
     };
     setLocalTasks((prev) => [...prev, optimisticTask]);

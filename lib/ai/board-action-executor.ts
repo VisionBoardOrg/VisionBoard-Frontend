@@ -1,7 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { syncMilestoneStatus } from "@/lib/milestone-sync";
 import { calculateGoalHealth } from "@/lib/goal-health";
-import { dispatchTaskAssignmentNotification } from "@/lib/notifications";
+import {
+  normalizeAssignees,
+  setTaskAssignments,
+  type AssigneeInput,
+  type TaskAssigneeRole,
+} from "@/lib/task-assignments";
 import { z } from "zod";
 
 export const BoardActionTypeSchema = z.enum([
@@ -17,6 +22,21 @@ export const BoardActionTypeSchema = z.enum([
 
 export type BoardActionType = z.infer<typeof BoardActionTypeSchema>;
 
+/** Assignee as supplied by an AI/MCP caller — roles default to "owner". */
+export interface RawAssigneeInput {
+  userId?: string;
+  role?: string;
+}
+
+interface RawNestedTask {
+  title?: string;
+  taskTitle?: string;
+  priority?: string;
+  assignees?: RawAssigneeInput[];
+  /** @deprecated legacy single-assignee field, still honoured for backward compat */
+  assigneeId?: string;
+}
+
 export interface RawBoardAction {
   action: BoardActionType | string;
   milestoneId?: string;
@@ -28,9 +48,12 @@ export interface RawBoardAction {
   taskTitle?: string;
   milestoneTitle?: string;
   goalTitle?: string;
-  tasks?: Array<string | { title?: string; taskTitle?: string; priority?: string; assigneeId?: string }>;
-  suggestedTasks?: Array<string | { title?: string; taskTitle?: string; priority?: string; assigneeId?: string }>;
+  tasks?: Array<string | RawNestedTask>;
+  suggestedTasks?: Array<string | RawNestedTask>;
+  assignees?: RawAssigneeInput[];
+  /** @deprecated legacy single-assignee field, still honoured for backward compat */
   assigneeId?: string | null;
+  /** @deprecated legacy display-only name, still honoured for backward compat */
   assigneeName?: string;
   status?: string;
   priority?: string;
@@ -39,6 +62,31 @@ export interface RawBoardAction {
   description?: string;
   blockedReason?: string | null;
   [key: string]: unknown;
+}
+
+/**
+ * Resolve the desired assignee list from a raw action payload.
+ *
+ * Prefers the new `assignees` array (role defaults to "owner"), and otherwise
+ * falls back to the legacy single `assigneeId` as a lone owner. Returns `[]`
+ * when neither is supplied (an explicit "no assignees" set).
+ */
+function resolveRawAssignees(raw: {
+  assignees?: RawAssigneeInput[];
+  assigneeId?: string | null;
+}): AssigneeInput[] {
+  if (Array.isArray(raw.assignees)) {
+    return raw.assignees
+      .filter((a) => a && typeof a.userId === "string" && a.userId.trim().length > 0)
+      .map((a) => ({
+        userId: a.userId as string,
+        role: a.role === "contributor" ? "contributor" : "owner",
+      }));
+  }
+  if (raw.assigneeId) {
+    return [{ userId: raw.assigneeId, role: "owner" }];
+  }
+  return [];
 }
 
 export interface ExecutedBoardAction {
@@ -133,7 +181,7 @@ export async function executeBoardActions(
           where: { id: milestoneId },
           include: {
             goal: { select: { workspaceId: true, title: true } },
-            tasks: true,
+            tasks: { include: { assignees: { select: { userId: true, role: true } } } },
           },
         });
 
@@ -169,7 +217,7 @@ export async function executeBoardActions(
             id: t.id,
             title: t.title,
             description: t.description,
-            assigneeId: t.assigneeId,
+            assignees: t.assignees.map((a) => ({ userId: a.userId, role: a.role })),
             status: t.status,
             priority: t.priority,
             storyPoints: t.storyPoints,
@@ -232,6 +280,7 @@ export async function executeBoardActions(
                 goal: { select: { workspaceId: true } },
               },
             },
+            assignees: { select: { userId: true, role: true } },
           },
         });
 
@@ -257,7 +306,7 @@ export async function executeBoardActions(
             workspaceId: task.workspaceId,
             title: task.title,
             description: task.description,
-            assigneeId: task.assigneeId,
+            assignees: task.assignees.map((a) => ({ userId: a.userId, role: a.role })),
             status: task.status,
             priority: task.priority,
             storyPoints: task.storyPoints,
@@ -356,7 +405,7 @@ export async function executeBoardActions(
         });
       } else if (actionKey === "assign_task") {
         const taskId = raw.taskId || raw.id;
-        const targetAssigneeId = raw.assigneeId;
+        const desiredAssignees = resolveRawAssignees(raw);
 
         if (!taskId) {
           executed.push({
@@ -383,7 +432,7 @@ export async function executeBoardActions(
                 goal: { select: { workspaceId: true } },
               },
             },
-            assignee: { select: { id: true, name: true } },
+            assignees: { select: { userId: true, role: true } },
           },
         });
 
@@ -402,48 +451,52 @@ export async function executeBoardActions(
           continue;
         }
 
-        let resolvedAssigneeName = "Unassigned";
-        if (targetAssigneeId) {
-          const assigneeMember = await prisma.workspaceMember.findUnique({
-            where: { workspaceId_userId: { workspaceId, userId: targetAssigneeId } },
+        // Route through the shared module: single validation entry point for the
+        // "≥1 owner" invariant and workspace-membership rule.
+        const normalized = await normalizeAssignees(desiredAssignees, workspaceId);
+        if (!normalized.ok) {
+          executed.push({
+            id: executionId,
+            action: "assign_task",
+            entityType: "task",
+            entityId: taskId,
+            entityTitle: task.title,
+            success: false,
+            message: normalized.error,
+            canUndo: false,
+            appliedAt: new Date().toISOString(),
+          });
+          continue;
+        }
+
+        const prevAssignees = task.assignees.map((a) => ({
+          userId: a.userId,
+          role: a.role as TaskAssigneeRole,
+        }));
+
+        // Resolve display names for the confirmation message.
+        const nameByUser = new Map<string, string>();
+        if (normalized.assignees.length > 0) {
+          const members = await prisma.workspaceMember.findMany({
+            where: { workspaceId, userId: { in: normalized.assignees.map((a) => a.userId) } },
             include: { user: { select: { id: true, name: true, email: true } } },
           });
-
-          if (!assigneeMember) {
-            executed.push({
-              id: executionId,
-              action: "assign_task",
-              entityType: "task",
-              entityId: taskId,
-              entityTitle: task.title,
-              success: false,
-              message: `Member ${raw.assigneeName || targetAssigneeId} is not in this workspace.`,
-              canUndo: false,
-              appliedAt: new Date().toISOString(),
-            });
-            continue;
+          for (const m of members) {
+            nameByUser.set(m.userId, m.user.name || m.user.email);
           }
-          resolvedAssigneeName = assigneeMember.user.name || assigneeMember.user.email;
         }
+        const assigneeNames = normalized.assignees.map(
+          (a) => nameByUser.get(a.userId) || a.userId
+        );
 
-        const prevAssigneeId = task.assigneeId;
-        const prevAssigneeName = task.assignee?.name || "Unassigned";
-
-        await prisma.task.update({
-          where: { id: taskId },
-          data: { assigneeId: targetAssigneeId || null },
+        await setTaskAssignments({
+          taskId,
+          workspaceId,
+          taskTitle: task.title,
+          actorId: userId,
+          actorName: currentUserName,
+          assignees: normalized.assignees,
         });
-
-        if (targetAssigneeId && targetAssigneeId !== prevAssigneeId) {
-          dispatchTaskAssignmentNotification({
-            assigneeId: targetAssigneeId,
-            assignerId: userId,
-            assignerName: currentUserName,
-            taskId: task.id,
-            taskTitle: task.title,
-            workspaceId,
-          }).catch(() => {});
-        }
 
         prisma.activityLog.create({
           data: {
@@ -453,10 +506,9 @@ export async function executeBoardActions(
             entityId: taskId,
             action: "reassigned",
             diff: {
-              previousAssigneeId: prevAssigneeId,
-              newAssigneeId: targetAssigneeId,
-              newAssigneeName: resolvedAssigneeName,
-            },
+              previousAssignees: prevAssignees,
+              newAssignees: normalized.assignees,
+            } as never,
           },
         }).catch(() => {});
 
@@ -467,19 +519,19 @@ export async function executeBoardActions(
           entityId: taskId,
           entityTitle: task.title,
           success: true,
-          message: targetAssigneeId
-            ? `Assigned ${resolvedAssigneeName} to "${task.title}".`
-            : `Unassigned "${task.title}".`,
+          message:
+            normalized.assignees.length > 0
+              ? `Assigned ${assigneeNames.join(", ")} to "${task.title}".`
+              : `Unassigned "${task.title}".`,
           details: {
-            assigneeId: targetAssigneeId || null,
-            assigneeName: resolvedAssigneeName,
+            assignees: normalized.assignees,
+            assigneeNames,
             milestoneId: task.milestoneId,
             milestoneTitle: task.milestone.title,
           },
           undoData: {
             taskId: task.id,
-            prevAssigneeId: prevAssigneeId || null,
-            prevAssigneeName,
+            prevAssignees,
           },
           canUndo: true,
           appliedAt: new Date().toISOString(),
@@ -851,12 +903,22 @@ export async function executeBoardActions(
           ? (String(raw.priority).toLowerCase() as "low" | "medium" | "high" | "urgent")
           : "medium";
 
-        let assigneeIdToSet: string | null = null;
-        if (raw.assigneeId) {
-          const isMember = await prisma.workspaceMember.findUnique({
-            where: { workspaceId_userId: { workspaceId, userId: raw.assigneeId } },
+        // Resolve + validate the desired assignees through the shared module.
+        const desiredAssignees = resolveRawAssignees(raw);
+        const normalizedAssignees = await normalizeAssignees(desiredAssignees, workspaceId);
+        if (!normalizedAssignees.ok) {
+          executed.push({
+            id: executionId,
+            action: "create_task",
+            entityType: "task",
+            entityId: "",
+            entityTitle: String(taskTitle),
+            success: false,
+            message: normalizedAssignees.error,
+            canUndo: false,
+            appliedAt: new Date().toISOString(),
           });
-          if (isMember) assigneeIdToSet = raw.assigneeId;
+          continue;
         }
 
         const createdTask = await prisma.task.create({
@@ -865,9 +927,18 @@ export async function executeBoardActions(
             milestoneId,
             workspaceId,
             priority: priorityVal,
-            assigneeId: assigneeIdToSet,
             order: nextOrder,
             status: "todo",
+            ...(normalizedAssignees.assignees.length > 0
+              ? {
+                  assignees: {
+                    create: normalizedAssignees.assignees.map((a) => ({
+                      userId: a.userId,
+                      role: a.role,
+                    })),
+                  },
+                }
+              : {}),
           },
         });
 
@@ -895,7 +966,7 @@ export async function executeBoardActions(
             milestoneId,
             milestoneTitle: resolvedMilestone.title,
             priority: createdTask.priority,
-            assigneeId: assigneeIdToSet,
+            assignees: normalizedAssignees.assignees,
           },
           undoData: { taskId: createdTask.id },
           canUndo: true,
@@ -1040,6 +1111,17 @@ export async function executeBoardActions(
               ? (String(nt.priority).toLowerCase() as "low" | "medium" | "high" | "urgent")
               : "medium";
 
+          // Optional per-task assignees on nested tasks — validated via the
+          // shared module; invalid sets are dropped (task still created).
+          let nestedAssignees: AssigneeInput[] = [];
+          if (typeof nt === "object") {
+            const resolved = resolveRawAssignees(nt);
+            if (resolved.length > 0) {
+              const normalizedNested = await normalizeAssignees(resolved, workspaceId);
+              if (normalizedNested.ok) nestedAssignees = normalizedNested.assignees;
+            }
+          }
+
           const createdT = await prisma.task.create({
             data: {
               title: String(ntTitle).trim(),
@@ -1048,6 +1130,13 @@ export async function executeBoardActions(
               priority: ntPriority,
               order: i,
               status: "todo",
+              ...(nestedAssignees.length > 0
+                ? {
+                    assignees: {
+                      create: nestedAssignees.map((a) => ({ userId: a.userId, role: a.role })),
+                    },
+                  }
+                : {}),
             },
           });
 
@@ -1075,6 +1164,7 @@ export async function executeBoardActions(
               milestoneId: createdMilestone.id,
               milestoneTitle: createdMilestone.title,
               priority: createdT.priority,
+              assignees: nestedAssignees,
             },
             undoData: { taskId: createdT.id },
             canUndo: true,
@@ -1136,8 +1226,8 @@ export async function undoBoardAction(
   try {
     if (actionType === "assign_task") {
       const taskId = String(undoData.taskId);
-      const prevAssigneeId = (undoData.prevAssigneeId as string | null) || null;
-      const prevName = String(undoData.prevAssigneeName || "Unassigned");
+      const prevAssignees =
+        (undoData.prevAssignees as Array<{ userId: string; role: TaskAssigneeRole }>) || [];
 
       const task = await prisma.task.findUnique({
         where: { id: taskId },
@@ -1147,14 +1237,24 @@ export async function undoBoardAction(
         return { success: false, message: "Task no longer exists in this workspace." };
       }
 
-      await prisma.task.update({
-        where: { id: taskId },
-        data: { assigneeId: prevAssigneeId },
+      const actor = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      });
+
+      // Restore via the shared module so the invariant + notifications stay central.
+      await setTaskAssignments({
+        taskId,
+        workspaceId,
+        taskTitle: task.title,
+        actorId: userId,
+        actorName: actor?.name || "A team member",
+        assignees: prevAssignees,
       });
 
       return {
         success: true,
-        message: `Reverted assignment on "${task.title}" back to ${prevName}.`,
+        message: `Reverted assignment on "${task.title}".`,
       };
     }
 
@@ -1235,7 +1335,7 @@ export async function undoBoardAction(
         id: string;
         title: string;
         description: string | null;
-        assigneeId: string | null;
+        assignees: Array<{ userId: string; role: TaskAssigneeRole }>;
         status: "todo" | "in_progress" | "in_review" | "blocked" | "done";
         priority: "low" | "medium" | "high" | "urgent";
         storyPoints: number | null;
@@ -1275,12 +1375,18 @@ export async function undoBoardAction(
             workspaceId: t.workspaceId,
             title: t.title,
             description: t.description,
-            assigneeId: t.assigneeId,
             status: t.status,
             priority: t.priority,
             storyPoints: t.storyPoints,
             dueDate: t.dueDate ? new Date(t.dueDate) : null,
             order: t.order,
+            ...(t.assignees && t.assignees.length > 0
+              ? {
+                  assignees: {
+                    create: t.assignees.map((a) => ({ userId: a.userId, role: a.role })),
+                  },
+                }
+              : {}),
           },
         }).catch(() => {});
       }
@@ -1311,7 +1417,7 @@ export async function undoBoardAction(
         workspaceId: string;
         title: string;
         description: string | null;
-        assigneeId: string | null;
+        assignees: Array<{ userId: string; role: TaskAssigneeRole }>;
         status: "todo" | "in_progress" | "in_review" | "blocked" | "done";
         priority: "low" | "medium" | "high" | "urgent";
         storyPoints: number | null;
@@ -1334,12 +1440,18 @@ export async function undoBoardAction(
           workspaceId: t.workspaceId,
           title: t.title,
           description: t.description,
-          assigneeId: t.assigneeId,
           status: t.status,
           priority: t.priority,
           storyPoints: t.storyPoints,
           dueDate: t.dueDate ? new Date(t.dueDate) : null,
           order: t.order,
+          ...(t.assignees && t.assignees.length > 0
+            ? {
+                assignees: {
+                  create: t.assignees.map((a) => ({ userId: a.userId, role: a.role })),
+                },
+              }
+            : {}),
         },
       });
 

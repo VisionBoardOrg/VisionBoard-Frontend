@@ -8,6 +8,7 @@ import {
   dispatchMentionNotification,
   dispatchCommentNotification,
 } from "@/lib/notifications";
+import { ownerIdsOf } from "@/lib/task-assignments";
 
 /**
  * SECURITY (HIGH-4): Sanitize comment body before storage to prevent stored XSS.
@@ -177,33 +178,36 @@ export async function POST(request: NextRequest) {
   // 2. Entity owner/assignee comment notification
   (async () => {
     try {
-      let targetUserId: string | null = null;
+      let targetUserIds: string[] = [];
       let entityTitle: string | undefined;
 
       if (entityType === "task" && taskId) {
         const task = await prisma.task.findUnique({
           where: { id: taskId },
-          select: { assigneeId: true, title: true },
+          select: { title: true, assignees: { select: { userId: true, role: true } } },
         });
-        targetUserId = task?.assigneeId ?? null;
+        targetUserIds = task ? ownerIdsOf(task.assignees) : [];
         entityTitle = task?.title;
       } else if (entityType === "goal" && goalId) {
         const goal = await prisma.goal.findUnique({
           where: { id: goalId },
           select: { ownerId: true, title: true },
         });
-        targetUserId = goal?.ownerId ?? null;
+        targetUserIds = goal?.ownerId ? [goal.ownerId] : [];
         entityTitle = goal?.title;
       } else if (entityType === "document" && documentId) {
         const doc = await prisma.document.findUnique({
           where: { id: documentId },
           select: { authorId: true, title: true },
         });
-        targetUserId = doc?.authorId ?? null;
+        targetUserIds = doc?.authorId ? [doc.authorId] : [];
         entityTitle = doc?.title;
       }
 
-      if (targetUserId && targetUserId !== session.user.id && !mentionedUserIds.includes(targetUserId)) {
+      // Notify accountable owners only; skip self and anyone already mentioned.
+      for (const targetUserId of targetUserIds) {
+        if (targetUserId === session.user.id) continue;
+        if (mentionedUserIds.includes(targetUserId)) continue;
         await dispatchCommentNotification({
           targetUserId,
           authorId: session.user.id,

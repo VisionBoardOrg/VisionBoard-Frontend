@@ -11,6 +11,7 @@ import {
 import { runUserCleanup, UserCleanupResult } from "@/lib/user-cleanup";
 import { authorizeCron } from "@/lib/cron-auth";
 import { acquireCronLock } from "@/lib/cron-lock";
+import { ownerIdsOf } from "@/lib/task-assignments";
 
 export const maxDuration = 60;
 
@@ -72,7 +73,8 @@ export async function GET(request: NextRequest) {
       where: { status: { not: "done" }, dueDate: { lte: fortyEightHoursFromNow } },
       take: TASK_CAP,
       select: {
-        id: true, title: true, dueDate: true, assigneeId: true,
+        id: true, title: true, dueDate: true,
+        assignees: { select: { userId: true, role: true } },
         milestone: { select: { id: true, goal: { select: { id: true, workspaceId: true } } } },
       },
     });
@@ -107,26 +109,38 @@ export async function GET(request: NextRequest) {
       recentTaskNotifs.map((n) => `${n.userId}:${n.entityId}:${n.type}`)
     );
 
-    const tasksToAlert = [
-      ...overdueTasks
-        .filter((t) => {
-          if (!t.assigneeId || !t.dueDate) return false;
-          const key = `${t.assigneeId}:${t.id}:task_overdue`;
-          if (recentNotifSet.has(key)) return false;
+    // Fan out ONE alert per OWNER (accountability). A task with no owners
+    // produces no alerts. Dedupe key is `${userId}:${taskId}:${type}`.
+    const tasksToAlert: Array<{
+      id: string;
+      title: string;
+      dueDate: Date;
+      userId: string;
+      workspaceId: string;
+      isOverdue: boolean;
+    }> = [];
+
+    const collectAlerts = (tasks: typeof candidateTasks, type: string, isOverdue: boolean) => {
+      for (const t of tasks) {
+        if (!t.dueDate) continue;
+        for (const ownerId of ownerIdsOf(t.assignees)) {
+          const key = `${ownerId}:${t.id}:${type}`;
+          if (recentNotifSet.has(key)) continue;
           recentNotifSet.add(key);
-          return true;
-        })
-        .map((t) => ({ ...t, isOverdue: true })),
-      ...dueSoon24hTasks
-        .filter((t) => {
-          if (!t.assigneeId || !t.dueDate) return false;
-          const key = `${t.assigneeId}:${t.id}:task_due_soon`;
-          if (recentNotifSet.has(key)) return false;
-          recentNotifSet.add(key);
-          return true;
-        })
-        .map((t) => ({ ...t, isOverdue: false })),
-    ];
+          tasksToAlert.push({
+            id: t.id,
+            title: t.title,
+            dueDate: t.dueDate,
+            userId: ownerId,
+            workspaceId: t.milestone.goal.workspaceId,
+            isOverdue,
+          });
+        }
+      }
+    };
+
+    collectAlerts(overdueTasks, "task_overdue", true);
+    collectAlerts(dueSoon24hTasks, "task_due_soon", false);
 
     // Fire in controlled sequential chunks of NOTIF_CHUNK to avoid saturating the connection pool
     for (let i = 0; i < tasksToAlert.length; i += NOTIF_CHUNK) {
@@ -136,9 +150,9 @@ export async function GET(request: NextRequest) {
           dispatchTaskDueAlert({
             taskId: t.id,
             taskTitle: t.title,
-            dueDate: t.dueDate!,
-            assigneeId: t.assigneeId!,
-            workspaceId: t.milestone.goal.workspaceId,
+            dueDate: t.dueDate,
+            assigneeId: t.userId,
+            workspaceId: t.workspaceId,
             isOverdue: t.isOverdue,
           }).catch((err) => console.error("[cron/sweeps] Task notification failed:", err))
         )

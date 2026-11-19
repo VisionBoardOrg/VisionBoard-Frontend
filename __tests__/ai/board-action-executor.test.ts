@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { executeBoardActions, undoBoardAction } from "@/lib/ai/board-action-executor";
 import { prisma } from "@/lib/prisma";
 
+vi.mock("server-only", () => ({}));
+
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: {
@@ -9,6 +11,14 @@ vi.mock("@/lib/prisma", () => ({
     },
     workspaceMember: {
       findUnique: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+    },
+    taskAssignment: {
+      findMany: vi.fn(),
+      deleteMany: vi.fn(),
+      createMany: vi.fn(),
+      update: vi.fn(),
     },
     milestone: {
       findUnique: vi.fn(),
@@ -38,6 +48,7 @@ vi.mock("@/lib/prisma", () => ({
     activityLog: {
       create: vi.fn().mockResolvedValue({}),
     },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -63,6 +74,14 @@ describe("board-action-executor", () => {
       name: "Owner User",
       email: "owner@test.com",
     } as never);
+    // Assignment plumbing defaults — individual tests override as needed.
+    vi.mocked(prisma.taskAssignment.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.taskAssignment.deleteMany).mockResolvedValue({ count: 0 } as never);
+    vi.mocked(prisma.taskAssignment.createMany).mockResolvedValue({ count: 0 } as never);
+    vi.mocked(prisma.taskAssignment.update).mockResolvedValue({} as never);
+    vi.mocked(prisma.workspaceMember.count).mockResolvedValue(1 as never);
+    vi.mocked(prisma.workspaceMember.findMany).mockResolvedValue([] as never);
+    vi.mocked(prisma.$transaction).mockResolvedValue([] as never);
   });
 
   describe("executeBoardActions", () => {
@@ -83,7 +102,7 @@ describe("board-action-executor", () => {
             id: "task-1",
             title: "Setup forum",
             description: null,
-            assigneeId: null,
+            assignees: [],
             status: "todo",
             priority: "medium",
             storyPoints: 3,
@@ -140,26 +159,22 @@ describe("board-action-executor", () => {
       vi.mocked(prisma.task.findUnique).mockResolvedValue({
         id: "task-skill-1",
         title: "Skill Development",
-        assigneeId: null,
+        assignees: [],
         milestoneId: "ms-dev",
         milestone: {
           id: "ms-dev",
           title: "Core Training",
           goal: { workspaceId },
         },
-        assignee: null,
       } as never);
 
-      vi.mocked(prisma.workspaceMember.findUnique).mockResolvedValue({
-        workspaceId,
-        userId: "usr-grace",
-        user: { id: "usr-grace", name: "Grace", email: "grace@test.com" },
-      } as never);
-
-      vi.mocked(prisma.task.update).mockResolvedValue({ id: "task-skill-1" } as never);
+      vi.mocked(prisma.workspaceMember.findMany).mockResolvedValue([
+        { userId: "usr-grace", user: { id: "usr-grace", name: "Grace", email: "grace@test.com" } },
+      ] as never);
 
       const results = await executeBoardActions(workspaceId, userId, [
         {
+          // Legacy scalar input — must still resolve to a single owner.
           action: "assign_task",
           taskId: "task-skill-1",
           taskTitle: "Skill Development",
@@ -172,10 +187,10 @@ describe("board-action-executor", () => {
       expect(results[0].success).toBe(true);
       expect(results[0].action).toBe("assign_task");
       expect(results[0].message).toContain("Assigned Grace to \"Skill Development\"");
-      expect(results[0].undoData?.prevAssigneeId).toBeNull();
-      expect(prisma.task.update).toHaveBeenCalledWith({
-        where: { id: "task-skill-1" },
-        data: { assigneeId: "usr-grace" },
+      expect(results[0].undoData?.prevAssignees).toEqual([]);
+      expect(prisma.taskAssignment.createMany).toHaveBeenCalledWith({
+        data: [{ taskId: "task-skill-1", userId: "usr-grace", role: "owner" }],
+        skipDuplicates: true,
       });
     });
 
@@ -200,21 +215,18 @@ describe("board-action-executor", () => {
       vi.mocked(prisma.task.findUnique).mockResolvedValue({
         id: "task-skill-1",
         title: "Skill Development",
-        assigneeId: null,
+        assignees: [],
         milestoneId: "ms-training",
         milestone: {
           id: "ms-training",
           title: "Training",
           goal: { workspaceId },
         },
-        assignee: null,
       } as never);
 
-      vi.mocked(prisma.workspaceMember.findUnique).mockResolvedValue({
-        workspaceId,
-        userId: "usr-grace",
-        user: { id: "usr-grace", name: "Grace", email: "grace@test.com" },
-      } as never);
+      vi.mocked(prisma.workspaceMember.findMany).mockResolvedValue([
+        { userId: "usr-grace", user: { id: "usr-grace", name: "Grace", email: "grace@test.com" } },
+      ] as never);
       vi.mocked(prisma.task.update).mockResolvedValue({ id: "task-skill-1" } as never);
 
       const results = await executeBoardActions(workspaceId, userId, [
@@ -224,11 +236,11 @@ describe("board-action-executor", () => {
           title: "Community Setup & Planning",
         },
         {
+          // New-style input exercising the `assignees` array path.
           action: "assign_task",
           taskId: "task-skill-1",
           taskTitle: "Skill Development",
-          assigneeId: "usr-grace",
-          assigneeName: "Grace",
+          assignees: [{ userId: "usr-grace", role: "owner" }],
         },
       ]);
 
@@ -421,14 +433,12 @@ describe("board-action-executor", () => {
   });
 
   describe("undoBoardAction", () => {
-    it("reverts task assignment back to previous assignee", async () => {
+    it("reverts task assignment back to previous assignees", async () => {
       vi.mocked(prisma.task.findUnique).mockResolvedValue({
         id: "task-skill-1",
         title: "Skill Development",
         milestone: { goal: { workspaceId } },
       } as never);
-
-      vi.mocked(prisma.task.update).mockResolvedValue({ id: "task-skill-1" } as never);
 
       const undoResult = await undoBoardAction(workspaceId, userId, {
         id: "act-1",
@@ -442,16 +452,15 @@ describe("board-action-executor", () => {
         appliedAt: new Date().toISOString(),
         undoData: {
           taskId: "task-skill-1",
-          prevAssigneeId: "usr-previous",
-          prevAssigneeName: "Ade",
+          prevAssignees: [{ userId: "usr-previous", role: "owner" }],
         },
       });
 
       expect(undoResult.success).toBe(true);
       expect(undoResult.message).toContain("Reverted assignment");
-      expect(prisma.task.update).toHaveBeenCalledWith({
-        where: { id: "task-skill-1" },
-        data: { assigneeId: "usr-previous" },
+      expect(prisma.taskAssignment.createMany).toHaveBeenCalledWith({
+        data: [{ taskId: "task-skill-1", userId: "usr-previous", role: "owner" }],
+        skipDuplicates: true,
       });
     });
 
@@ -496,7 +505,7 @@ describe("board-action-executor", () => {
               id: "task-1",
               title: "Setup forum",
               description: null,
-              assigneeId: null,
+              assignees: [],
               status: "todo",
               priority: "medium",
               storyPoints: 1,

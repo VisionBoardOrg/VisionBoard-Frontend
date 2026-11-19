@@ -2,14 +2,24 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
-import { dispatchTaskAssignmentNotification } from "@/lib/notifications";
 import { syncMilestoneStatus } from "@/lib/milestone-sync";
+import {
+  MAX_TASK_ASSIGNEES,
+  assigneesInclude,
+  normalizeAssignees,
+  setTaskAssignments,
+} from "@/lib/task-assignments";
+
+const assigneeSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(["owner", "contributor"]),
+});
 
 const createSchema = z.object({
   milestoneId: z.string(),
   title: z.string().min(1).max(300),
   priority: z.enum(["low", "medium", "high", "urgent"]).optional().default("medium"),
-  assigneeId: z.string().nullable().optional(),
+  assignees: z.array(assigneeSchema).max(MAX_TASK_ASSIGNEES).optional(),
   dueDate: z.string().or(z.date()).optional(),
 });
 
@@ -52,6 +62,7 @@ export async function GET(request: NextRequest) {
       // on the hot workspace-list path (indexed)
       ...(workspaceId ? { workspaceId } : {}),
     },
+    include: { ...assigneesInclude },
     orderBy: { order: "asc" },
     // Hard cap — this endpoint feeds client-side search/boards; callers that
     // need everything must paginate by milestone
@@ -81,21 +92,15 @@ export async function POST(request: NextRequest) {
 
   const workspaceId = milestone.goal.workspaceId;
 
-  // Validate membership + assignee membership in parallel
-  const [member, assigneeMember] = await Promise.all([
-    prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
-    }),
-    parsed.data.assigneeId
-      ? prisma.workspaceMember.findUnique({
-          where: { workspaceId_userId: { workspaceId, userId: parsed.data.assigneeId } },
-        })
-      : Promise.resolve(null),
-  ]);
-
+  const member = await prisma.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
+  });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (parsed.data.assigneeId && !assigneeMember) {
-    return NextResponse.json({ error: "Assignee is not a member of this workspace" }, { status: 400 });
+
+  // Single validation entry point for the "≥1 owner" invariant + membership.
+  const normalized = await normalizeAssignees(parsed.data.assignees, workspaceId);
+  if (!normalized.ok) {
+    return NextResponse.json({ error: normalized.error }, { status: 400 });
   }
 
   // Atomic order: get current max order in a single aggregate query rather than
@@ -122,12 +127,24 @@ export async function POST(request: NextRequest) {
       workspaceId,
       title: parsed.data.title,
       priority: parsed.data.priority,
-      assigneeId: parsed.data.assigneeId ?? null,
       status: "todo",
       order,
       dueDate: taskDueDate,
     },
   });
+
+  // Route every assignment write through the shared module so notifications and
+  // the owner invariant can never drift between callers.
+  if (normalized.assignees.length > 0) {
+    await setTaskAssignments({
+      taskId: task.id,
+      workspaceId,
+      taskTitle: task.title,
+      actorId: session.user.id,
+      actorName: session.user.name || "A team member",
+      assignees: normalized.assignees,
+    });
+  }
 
   // Re-sync parent milestone status (a new todo task must reopen a completed
   // milestone and clear any stale in_progress) — fire-and-forget
@@ -146,17 +163,10 @@ export async function POST(request: NextRequest) {
     },
   }).catch((err: unknown) => console.error("[tasks POST] Activity log failed:", err));
 
-  // If assigned to another user, dispatch task assignment notification
-  if (parsed.data.assigneeId && parsed.data.assigneeId !== session.user.id) {
-    dispatchTaskAssignmentNotification({
-      assigneeId: parsed.data.assigneeId,
-      assignerId: session.user.id,
-      assignerName: session.user.name || "A team member",
-      taskId: task.id,
-      taskTitle: task.title,
-      workspaceId,
-    }).catch((err) => console.error("[tasks POST] Task assignment notification failed:", err));
-  }
+  const finalTask = await prisma.task.findUnique({
+    where: { id: task.id },
+    include: { ...assigneesInclude },
+  });
 
-  return NextResponse.json({ task }, { status: 201 });
+  return NextResponse.json({ task: finalTask ?? task }, { status: 201 });
 }

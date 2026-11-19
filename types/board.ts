@@ -36,13 +36,19 @@ export interface MilestoneWithTasks {
   tasks: TaskSimple[];
 }
 
+export interface TaskAssigneeSimple {
+  userId: string;
+  role: string;
+  user?: UserSimple | null;
+}
+
 export interface TaskSimple {
   id: string;
   title: string;
   status: string;
   priority: string;
   storyPoints: number | null;
-  assigneeId: string | null;
+  assignees: TaskAssigneeSimple[];
   dueDate: Date | string | null;
 }
 

@@ -22,6 +22,17 @@ function hashPrompt(input: string): string {
   return `sha256:${createHash("sha256").update(input).digest("hex")}`;
 }
 
+/** Join every assigned person's display name for prompt labels. */
+function assigneeNames(
+  t: { assignees: Array<{ user: { name: string | null } | null }> },
+  fallback = "Unassigned"
+): string {
+  const names = t.assignees
+    .map((a) => a.user?.name)
+    .filter((n): n is string => Boolean(n && n.trim()));
+  return names.length > 0 ? names.join(", ") : fallback;
+}
+
 export async function POST(request: NextRequest) {
   // Rate limit: AI generation route (LLM call per request)
   const rateLimit = await checkRateLimit(request, "ai-copilot-standup", {
@@ -94,33 +105,33 @@ export async function POST(request: NextRequest) {
         status: "done",
         updatedAt: { gte: twoDaysAgo },
       },
-      select: { id: true, title: true, assignee: { select: { name: true } }, milestone: { select: { title: true } } },
+      select: { id: true, title: true, assignees: { select: { user: { select: { name: true } } } }, milestone: { select: { title: true } } },
     }),
     prisma.task.findMany({
       where: {
         milestone: { goal: { workspaceId } },
         status: { in: ["in_progress", "in_review"] },
       },
-      select: { id: true, title: true, status: true, assignee: { select: { name: true } }, milestone: { select: { title: true } } },
+      select: { id: true, title: true, status: true, assignees: { select: { user: { select: { name: true } } } }, milestone: { select: { title: true } } },
     }),
     prisma.task.findMany({
       where: {
         milestone: { goal: { workspaceId } },
         status: "blocked",
       },
-      select: { id: true, title: true, blockedReason: true, assignee: { select: { name: true } }, milestone: { select: { title: true } } },
+      select: { id: true, title: true, blockedReason: true, assignees: { select: { user: { select: { name: true } } } }, milestone: { select: { title: true } } },
     }),
   ]);
 
   const promptInput = `
 Recently Completed Tasks (Last 48h):
-${recentDone.map((t) => `- "${t.title}" (Assignee: ${t.assignee?.name || "Team"}, Milestone: ${t.milestone.title})`).join("\n") || "None"}
+${recentDone.map((t) => `- "${t.title}" (Assignee: ${assigneeNames(t, "Team")}, Milestone: ${t.milestone.title})`).join("\n") || "None"}
 
 Tasks In Progress / In Review:
-${inProgress.map((t) => `- "${t.title}" [${t.status}] (Assignee: ${t.assignee?.name || "Unassigned"}, Milestone: ${t.milestone.title})`).join("\n") || "None"}
+${inProgress.map((t) => `- "${t.title}" [${t.status}] (Assignee: ${assigneeNames(t)}, Milestone: ${t.milestone.title})`).join("\n") || "None"}
 
 Blocked Tasks:
-${blocked.map((t) => `- "${t.title}" (Assignee: ${t.assignee?.name || "Unassigned"}, Blocker: ${t.blockedReason || "None specified"})`).join("\n") || "None"}
+${blocked.map((t) => `- "${t.title}" (Assignee: ${assigneeNames(t)}, Blocker: ${t.blockedReason || "None specified"})`).join("\n") || "None"}
 `;
 
   const systemPrompt = `You are an agile Scrum Master and Engineering Lead.

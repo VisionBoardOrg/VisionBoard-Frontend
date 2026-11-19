@@ -1,0 +1,2 @@
+/c/Users/USER/Desktop/vision/visionboard
+/c/Program Files/nodejs/pnpm
