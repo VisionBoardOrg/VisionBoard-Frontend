@@ -3,22 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import {
   Target, Plus, CheckCircle2, Clock, AlertTriangle, Circle,
   ChevronRight, FileText, MessageCircle,
 } from "lucide-react";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
 import { GoalsWebMCPTools } from "@/components/webmcp/GoalsWebMCPTools";
-
-const GoalHealthScore = dynamic(
-  () => import("@/components/dashboard/GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
-  {
-    ssr: false,
-    // Small circular placeholder matching the "sm" size (80px) radial chart
-    loading: () => <div aria-hidden="true" className="w-20 h-20 rounded-full bg-border/60 animate-pulse shrink-0" />,
-  }
-);
+import { GoalHealthScore } from "@/components/dashboard/GoalHealthScore";
 
 interface Task {
   id: string; status: string; storyPoints: number | null;

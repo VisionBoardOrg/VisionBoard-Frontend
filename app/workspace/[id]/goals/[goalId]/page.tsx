@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { GoalDetail } from "@/components/goals/GoalDetail";
+import { getSlimWorkspaceMembership } from "@/lib/workspace-data";
 
 interface GoalPageProps { params: Promise<{ id: string; goalId: string }> }
 
@@ -10,13 +11,9 @@ export default async function GoalPage({ params }: GoalPageProps) {
   if (!session) redirect("/auth/login");
   const { id, goalId } = await params;
 
-  // Fetch membership + goal in parallel — avoids two sequential round trips.
-  // We include a minimal workspace-check field on the goal so we can verify
-  // it belongs to this workspace without a separate query.
+  // getSlimWorkspaceMembership is deduplicated with WorkspaceLayout via React.cache().
   const [member, goal] = await Promise.all([
-    prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-    }),
+    getSlimWorkspaceMembership(id, session.user.id),
     prisma.goal.findUnique({
       where: { id: goalId },
       include: {

@@ -1,5 +1,4 @@
 import { Metadata } from "next";
-import { cookies } from "next/headers";
 import {
   Users,
   Building2,
@@ -11,9 +10,12 @@ import {
   TrendingUp,
 } from "lucide-react";
 import MetricCard from "@/components/admin/MetricCard";
+import { getAdminOverview } from "@/lib/admin/admin-data";
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+export const dynamic = "force-dynamic";
+
+function timeAgo(dateInput: Date | string): string {
+  const diff = Date.now() - new Date(dateInput).getTime();
   const s = Math.floor(diff / 1000);
   if (s < 60) return `${s}s ago`;
   const m = Math.floor(s / 60);
@@ -25,50 +27,6 @@ function timeAgo(dateStr: string): string {
 
 export const metadata: Metadata = { title: "Overview" };
 
-interface OverviewData {
-  kpis: {
-    totalUsers: number;
-    newUsersLast30d: number;
-    newUsersLast7d: number;
-    totalWorkspaces: number;
-    totalTasks: number;
-    totalGoals: number;
-    activeSubscriptions: number;
-    scheduledDeletions: number;
-    aiTokensLast30d: number;
-    aiCallsLast30d: number;
-  };
-  planBreakdown: Record<string, number>;
-  recentActivity: Array<{
-    id: string;
-    entityType: string;
-    action: string;
-    createdAt: string;
-    user?: { name?: string; email: string } | null;
-    workspace?: { name: string; slug: string } | null;
-  }>;
-}
-
-async function getOverviewData(): Promise<OverviewData | null> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("admin_session")?.value;
-
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-
-  try {
-    const res = await fetch(`${baseUrl}/api/admin/overview`, {
-      headers: { Cookie: `admin_session=${sessionCookie}` },
-      next: { revalidate: 60 },
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
-}
-
 const PLAN_COLORS: Record<string, string> = {
   free: "bg-muted/20 text-slate",
   startup: "bg-blue-faint text-blue",
@@ -77,7 +35,7 @@ const PLAN_COLORS: Record<string, string> = {
 };
 
 export default async function OverviewPage() {
-  const data = await getOverviewData();
+  const data = await getAdminOverview();
 
   if (!data) {
     return (

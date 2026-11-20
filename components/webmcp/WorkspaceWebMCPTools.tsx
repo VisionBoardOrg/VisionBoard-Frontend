@@ -16,38 +16,18 @@
  */
 
 import { useEffect } from "react";
-import { initializeWebMCP } from "@/lib/webmcp/init";
+import { getWebMCPModelContext } from "@/lib/webmcp/init";
 
 interface Props {
   workspaceId: string;
 }
 
-type ModelContext = {
-  registerTool: (tool: unknown, opts?: unknown) => Promise<void>;
-};
-
-function getModelContext(): ModelContext | undefined {
-  return (document as unknown as { modelContext?: ModelContext }).modelContext;
-}
-
-/** Waits up to 2 s for document.modelContext to be populated by the polyfill. */
-async function waitForModelContext(): Promise<ModelContext | undefined> {
-  for (let i = 0; i < 20; i++) {
-    const mc = getModelContext();
-    if (mc) return mc;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return getModelContext();
-}
-
 export function WorkspaceWebMCPTools({ workspaceId }: Props) {
   useEffect(() => {
-    initializeWebMCP();
-
     let cancelled = false;
 
     async function register() {
-      const mc = await waitForModelContext();
+      const mc = await getWebMCPModelContext();
       if (!mc || cancelled) return;
 
       const controllers: AbortController[] = [];

@@ -39,6 +39,13 @@ export type DashboardGoal = {
   milestones: DashboardMilestone[];
 };
 
+/** Pre-aggregated task counts computed server-side for overview dashboards. */
+export type DashboardTaskStats = {
+  total: number;
+  done: number;
+  blocked: number;
+};
+
 /** Slim workspace graph consumed by the role dashboards (PM/Exec/Eng/Marketing). */
 export type DashboardWorkspace = {
   id: string;
@@ -46,4 +53,5 @@ export type DashboardWorkspace = {
   goals: DashboardGoal[];
   members: DashboardMember[];
   _count: { goals: number; documents: number; members: number };
+  taskStats?: DashboardTaskStats;
 };

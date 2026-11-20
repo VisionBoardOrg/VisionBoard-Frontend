@@ -43,7 +43,7 @@ const nextConfig: NextConfig = {
   // Explicitly enable gzip/brotli compression — important when not behind a CDN
   compress: true,
   experimental: {
-    optimizePackageImports: ["lucide-react", "recharts", "@tiptap/react", "@tiptap/starter-kit"],
+    optimizePackageImports: ["lucide-react", "@tiptap/react", "@tiptap/starter-kit"],
   },
   // instrumentation.js is enabled by default in Next.js 15+ — no flag needed.
   images: {

@@ -1,41 +1,10 @@
 import { Metadata } from "next";
-import { cookies } from "next/headers";
 import { Sparkles, CheckCircle2, XCircle, TrendingUp } from "lucide-react";
 import MetricCard from "@/components/admin/MetricCard";
+import { getAiMetrics } from "@/lib/admin/admin-data";
 
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "AI Analytics" };
-
-interface AiMetricsData {
-  period: { days: number; since: string };
-  summary: {
-    totalCalls: number;
-    totalTokens: number;
-    acceptanceRate: number | null;
-    acceptedCount: number;
-    rejectedCount: number;
-  };
-  byFeature: Array<{ feature: string; calls: number; tokens: number }>;
-  daily: Array<{ day: string; calls: number; tokens: number }>;
-}
-
-async function getAiMetrics(days = 30): Promise<AiMetricsData | null> {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("admin_session")?.value;
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-
-  try {
-    const res = await fetch(`${baseUrl}/api/admin/ai-metrics?days=${days}`, {
-      headers: { Cookie: `admin_session=${sessionCookie}` },
-      next: { revalidate: 300 },
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
-}
 
 const FEATURE_LABELS: Record<string, string> = {
   roadmap_generator: "Roadmap Generator",

@@ -83,7 +83,27 @@ interface BoardCanvasProps {
 }
 
 export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, milestones: initialMilestones, members }: BoardCanvasProps) {
-  const { items, moveItem, setItems, updateBoardItem, removeItem, addItem } = useBoard(workspaceId, initialItems);
+  // Hydrate linkedGoal / linkedMilestone client-side from the sibling props so
+  // the server never duplicates every goal, milestone, and task array in the
+  // RSC flight payload.
+  const hydratedInitialItems = useMemo<BoardItemFull[]>(() => {
+    const goalMap = new Map(initialGoals.map((g) => [g.id, g]));
+    const milestoneMap = new Map(initialMilestones.map((m) => [m.id, m]));
+    return initialItems.map((item) => ({
+      ...item,
+      linkedGoal:
+        item.linkedGoal ??
+        (item.linkedGoalId ? (goalMap.get(item.linkedGoalId) ?? null) : null),
+      linkedMilestone:
+        item.linkedMilestone ??
+        (item.linkedMilestoneId ? (milestoneMap.get(item.linkedMilestoneId) ?? null) : null),
+    }));
+  }, [initialItems, initialGoals, initialMilestones]);
+
+  const { items, moveItem, setItems, updateBoardItem, removeItem, addItem } = useBoard(
+    workspaceId,
+    hydratedInitialItems
+  );
   const { toast } = useToast();
 
   // Read current logged-in user session for presence broadcasting
@@ -133,7 +153,15 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   const [goals, setGoals] = useState<GoalSimple[]>(initialGoals);
   const [milestones, setMilestones] = useState<MilestoneWithTasks[]>(initialMilestones);
 
-  // Sync state when props change (e.g. after router.refresh() from AI board actions)
+  // Persist drag — debounced 400 ms per individual card to prevent race condition drops
+  const persistTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Sync state when props change (e.g. after router.refresh() from AI board actions).
+  // Skip the very first render because useBoard() already seeds the store on mount,
+  // and preserve in-flight optimistic drag coordinates so a background refresh
+  // never snaps an actively dragged card back to stale server coordinates.
+  const hasSyncedItemsRef = useRef(false);
+
   useEffect(() => {
     setGoals(initialGoals);
   }, [initialGoals]);
@@ -143,8 +171,24 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
   }, [initialMilestones]);
 
   useEffect(() => {
-    setItems(initialItems);
-  }, [initialItems, setItems]);
+    if (!hasSyncedItemsRef.current) {
+      hasSyncedItemsRef.current = true;
+      return;
+    }
+    if (persistTimers.current.size === 0) {
+      setItems(hydratedInitialItems);
+      return;
+    }
+    const currentById = useBoardStore.getState().itemsById;
+    setItems(
+      hydratedInitialItems.map((item) => {
+        if (persistTimers.current.has(item.id) && currentById[item.id]) {
+          return { ...item, x: currentById[item.id].x, y: currentById[item.id].y };
+        }
+        return item;
+      })
+    );
+  }, [hydratedInitialItems, setItems]);
 
   // Listen to real-time visionboard:board-updated custom events
   useEffect(() => {
@@ -329,9 +373,6 @@ export function BoardCanvas({ workspaceId, initialItems, goals: initialGoals, mi
       setSelectedId(null);
     }
   }
-
-  // Persist drag — debounced 400 ms per individual card to prevent race condition drops
-  const persistTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     const timers = persistTimers.current;

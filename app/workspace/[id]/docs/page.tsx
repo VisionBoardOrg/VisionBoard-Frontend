@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { FileText, Plus } from "lucide-react";
 import { ImportDocButton } from "@/components/docs/ImportDocButton";
+import { getSlimWorkspaceMembership } from "@/lib/workspace-data";
 
 interface DocsPageProps { params: Promise<{ id: string }> }
 
@@ -12,30 +13,32 @@ export default async function DocsPage({ params }: DocsPageProps) {
   if (!session) redirect("/auth/login");
   const { id } = await params;
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-  });
-  if (!member) redirect("/dashboard");
+  // getSlimWorkspaceMembership is deduplicated with WorkspaceLayout via React.cache(),
+  // and runs in parallel with the document list fetch.
+  const [member, docs] = await Promise.all([
+    getSlimWorkspaceMembership(id, session.user.id),
+    // Exclude the `content` JSONB blob — the list view only needs metadata.
+    // content can be megabytes per document (especially with embedded images).
+    prisma.document.findMany({
+      where: { workspaceId: id },
+      select: {
+        id: true,
+        title: true,
+        authorId: true,
+        workspaceId: true,
+        createdAt: true,
+        updatedAt: true,
+        linkedGoalId: true,
+        linkedMilestoneId: true,
+        linkedTaskId: true,
+        author: { select: { id: true, name: true } },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 100, // safety cap — paginate if needed
+    }),
+  ]);
 
-  // Exclude the `content` JSONB blob — the list view only needs metadata.
-  // content can be megabytes per document (especially with embedded images).
-  const docs = await prisma.document.findMany({
-    where: { workspaceId: id },
-    select: {
-      id: true,
-      title: true,
-      authorId: true,
-      workspaceId: true,
-      createdAt: true,
-      updatedAt: true,
-      linkedGoalId: true,
-      linkedMilestoneId: true,
-      linkedTaskId: true,
-      author: { select: { id: true, name: true } },
-    },
-    orderBy: { updatedAt: "desc" },
-    take: 100, // safety cap — paginate if needed
-  });
+  if (!member) redirect("/dashboard");
 
   return (
     <div className="space-y-6">

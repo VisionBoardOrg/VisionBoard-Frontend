@@ -9,23 +9,10 @@
  */
 
 import { useEffect } from "react";
+import { getWebMCPModelContext } from "@/lib/webmcp/init";
 
 interface Props {
   workspaceId: string;
-}
-
-type ModelContext = {
-  registerTool: (tool: unknown, opts?: unknown) => Promise<void>;
-};
-
-async function waitForModelContext(): Promise<ModelContext | undefined> {
-  for (let i = 0; i < 20; i++) {
-    const mc = (document as unknown as { modelContext?: ModelContext })
-      .modelContext;
-    if (mc) return mc;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return (document as unknown as { modelContext?: ModelContext }).modelContext;
 }
 
 export function TasksWebMCPTools({ workspaceId }: Props) {
@@ -33,7 +20,7 @@ export function TasksWebMCPTools({ workspaceId }: Props) {
     let cancelled = false;
 
     async function register() {
-      const mc = await waitForModelContext();
+      const mc = await getWebMCPModelContext();
       if (!mc || cancelled) return;
 
       const controllers: AbortController[] = [];

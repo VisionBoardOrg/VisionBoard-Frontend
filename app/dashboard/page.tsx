@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import { UserSummaryCards } from "@/components/dashboard/UserSummaryCards";
 import { AppShell } from "@/components/layout/AppShell";
+import { getUserPlanAndCredits } from "@/lib/workspace-data";
 
 export const metadata = {
   title: "Dashboard — VisionBoard",
@@ -16,14 +17,10 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session) redirect("/auth/login");
 
-  // Fetch cross-workspace user stats, memberships, and the user's assignments in parallel.
-  // NOTE: Prisma `groupBy` cannot filter by relations (i.e. `assignees`), so we
-  // resolve the user's assigned task IDs first and aggregate on the plain `id in`.
-  const [user, userMemberships, myAssignments] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { id: true, plan: true, aiCreditsUsed: true },
-    }),
+  // Fetch user plan, workspace memberships, and cross-workspace assigned task
+  // status counts in a single parallel wave (collapsed from a 2-step waterfall).
+  const [user, userMemberships, taskStatusGroups] = await Promise.all([
+    getUserPlanAndCredits(session.user.id),
     prisma.workspaceMember.findMany({
       where: { userId: session.user.id },
       include: {
@@ -39,17 +36,14 @@ export default async function DashboardPage() {
       },
       orderBy: { joinedAt: "asc" },
     }),
-    prisma.taskAssignment.findMany({
-      where: { userId: session.user.id },
-      select: { taskId: true },
-    }),
+    prisma.$queryRaw<Array<{ status: string; count: number }>>`
+      SELECT t."status"::text AS status, COUNT(*)::int AS count
+      FROM "Task" t
+      INNER JOIN "TaskAssignment" ta ON ta."taskId" = t."id"
+      WHERE ta."userId" = ${session.user.id}
+      GROUP BY t."status"
+    `,
   ]);
-
-  const taskStatusGroups = await prisma.task.groupBy({
-    by: ["status"],
-    where: { id: { in: myAssignments.map((a) => a.taskId) } },
-    _count: { id: true },
-  });
 
   if (userMemberships.length === 0) redirect("/onboarding");
 
@@ -62,9 +56,10 @@ export default async function DashboardPage() {
   let totalAssigned = 0;
   let totalDone = 0;
   for (const group of taskStatusGroups) {
-    totalAssigned += group._count.id;
+    const count = Number(group.count) || 0;
+    totalAssigned += count;
     if (group.status === "done") {
-      totalDone += group._count.id;
+      totalDone += count;
     }
   }
   const completionRate = totalAssigned > 0 ? (totalDone / totalAssigned) * 100 : 0;

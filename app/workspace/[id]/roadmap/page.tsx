@@ -3,6 +3,11 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { RoadmapView } from "@/components/roadmap/RoadmapView";
 import { checkPlanLimit } from "@/lib/plan-limits";
+import {
+  getSlimWorkspaceMembership,
+  getUserPlanAndCredits,
+  getWorkspaceName,
+} from "@/lib/workspace-data";
 
 interface RoadmapPageProps {
   params: Promise<{ id: string }>;
@@ -10,7 +15,7 @@ interface RoadmapPageProps {
 
 export async function generateMetadata({ params }: RoadmapPageProps) {
   const { id } = await params;
-  const workspace = await prisma.workspace.findUnique({ where: { id }, select: { name: true } });
+  const workspace = await getWorkspaceName(id);
   return { title: `Roadmap — ${workspace?.name ?? "VisionBoard"}` };
 }
 
@@ -20,16 +25,11 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
 
   const { id } = await params;
 
-  // Fetch membership, user plan, and goals in parallel.
+  // getSlimWorkspaceMembership and getUserPlanAndCredits are shared with
+  // WorkspaceLayout via React.cache() — zero duplicate DB round-trips.
   const [member, currentUser, goals] = await Promise.all([
-    prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-      include: { workspace: { select: { name: true, ownerId: true } } },
-    }),
-    prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { plan: true, aiCreditsUsed: true },
-    }),
+    getSlimWorkspaceMembership(id, session.user.id),
+    getUserPlanAndCredits(session.user.id),
     prisma.goal.findMany({
       where: { workspaceId: id },
       include: {

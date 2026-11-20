@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { RadialBarChart, RadialBar, ResponsiveContainer } from "recharts";
 
 interface GoalHealthScoreProps {
   score: number; // 0-100
@@ -32,38 +31,62 @@ function getStatus(score: number): { label: string; description: string } {
 
 export function GoalHealthScore({ score, label = "Goal Health", size = "md" }: GoalHealthScoreProps) {
   const [hovered, setHovered] = useState(false);
-  const color = getColor(score);
+  const clampedScore = Math.max(0, Math.min(100, Math.round(score)));
+  const color = getColor(clampedScore);
   const dim = size === "sm" ? 80 : size === "lg" ? 140 : 110;
-  const status = getStatus(score);
-
-  const data = [
-    { name: "score", value: score, fill: color },
-    { name: "bg", value: 100 - score, fill: "#E2E8F0" },
-  ];
+  const strokeWidth = Math.round(dim * 0.14);
+  const radius = (dim - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - clampedScore / 100);
+  const status = getStatus(clampedScore);
 
   return (
     <div
-      className="relative flex flex-col items-center gap-1"
+      className="relative flex flex-col items-center gap-1 outline-none"
+      tabIndex={0}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={() => setHovered(false)}
     >
-      <div style={{ width: dim, height: dim }} className="relative">
-        <ResponsiveContainer width="100%" height="100%">
-          <RadialBarChart
-            cx="50%"
-            cy="50%"
-            innerRadius="60%"
-            outerRadius="100%"
-            data={data}
-            startAngle={90}
-            endAngle={-270}
-          >
-            <RadialBar dataKey="value" cornerRadius={6} background={false} />
-          </RadialBarChart>
-        </ResponsiveContainer>
+      <div
+        style={{ width: dim, height: dim }}
+        className="relative"
+        role="img"
+        aria-label={`${label}: ${clampedScore} out of 100 — ${status.label}`}
+      >
+        <svg
+          width={dim}
+          height={dim}
+          viewBox={`0 0 ${dim} ${dim}`}
+          className="-rotate-90 block"
+          aria-hidden="true"
+        >
+          <circle
+            cx={dim / 2}
+            cy={dim / 2}
+            r={radius}
+            fill="none"
+            stroke="#E2E8F0"
+            strokeWidth={strokeWidth}
+          />
+          {clampedScore > 0 && (
+            <circle
+              cx={dim / 2}
+              cy={dim / 2}
+              r={radius}
+              fill="none"
+              stroke={color}
+              strokeWidth={strokeWidth}
+              strokeDasharray={circumference}
+              strokeDashoffset={dashOffset}
+              strokeLinecap="round"
+            />
+          )}
+        </svg>
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="font-bold text-ink" style={{ fontSize: size === "sm" ? 14 : size === "lg" ? 24 : 18 }}>
-            {score}
+            {clampedScore}
           </span>
         </div>
       </div>
@@ -78,7 +101,7 @@ export function GoalHealthScore({ score, label = "Goal Health", size = "md" }: G
               style={{ backgroundColor: color }}
             />
             <span className="font-semibold">{status.label}</span>
-            <span className="ml-auto font-bold">{score}/100</span>
+            <span className="ml-auto font-bold">{clampedScore}/100</span>
           </div>
           <p className="text-white/70 leading-snug">{status.description}</p>
           {/* Arrow */}

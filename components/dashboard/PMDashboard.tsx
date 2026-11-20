@@ -1,14 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
-
-const GoalHealthScore = dynamic(
-  () => import("./GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
-  { ssr: false }
-);
-
+import { GoalHealthScore } from "./GoalHealthScore";
 import { MetricBar } from "./MetricBar";
-import { AlertBanner } from "./AlertBanner";
 import type { DashboardWorkspace } from "@/types/dashboard";
 import Link from "next/link";
 import { ArrowRight, Target, HeartPulse, Users, FileText } from "lucide-react";

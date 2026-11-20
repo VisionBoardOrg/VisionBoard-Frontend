@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { DocEditor } from "@/components/docs/DocEditorDynamic";
+import { getSlimWorkspaceMembership } from "@/lib/workspace-data";
 
 interface NewDocPageProps {
   params: Promise<{ id: string }>;
@@ -14,15 +15,12 @@ export default async function NewDocPage({ params, searchParams }: NewDocPagePro
   const { id } = await params;
   const { linkedGoalId, linkedMilestoneId } = await searchParams;
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-  });
-  if (!member) redirect("/dashboard");
-
-  const [goals, milestones] = await Promise.all([
+  const [member, goals, milestones] = await Promise.all([
+    getSlimWorkspaceMembership(id, session.user.id),
     prisma.goal.findMany({ where: { workspaceId: id }, select: { id: true, title: true } }),
     prisma.milestone.findMany({ where: { goal: { workspaceId: id } }, select: { id: true, title: true } }),
   ]);
+  if (!member) redirect("/dashboard");
 
   return (
     <DocEditor

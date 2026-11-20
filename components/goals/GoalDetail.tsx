@@ -1,16 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import dynamic from "next/dynamic";
 import { Zap, FileText, MessageCircle, ChevronRight, CheckCircle2, Circle, Clock, AlertTriangle, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { MentionInput, renderMentionedBody } from "@/components/ui/MentionInput";
 import { useConfirm } from "@/context/ConfirmContext";
-
-const GoalHealthScore = dynamic(
-  () => import("@/components/dashboard/GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
-  { ssr: false }
-);
+import { GoalHealthScore } from "@/components/dashboard/GoalHealthScore";
 
 interface KeyResult { id: string; title: string; target: number; current: number; unit: string }
 

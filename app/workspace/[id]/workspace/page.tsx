@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { cache } from "react";
 import { RoleSwitcher, type MemberRole } from "@/components/workspace/RoleSwitcher";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import Link from "next/link";
@@ -14,9 +13,16 @@ import { ExecDashboard } from "@/components/dashboard/ExecDashboard";
 import { EngDashboard } from "@/components/dashboard/EngDashboard";
 import { MarketingDashboard } from "@/components/dashboard/MarketingDashboard";
 import {
+  getSlimWorkspaceMembership,
   getWorkspaceName,
   getUserPlanAndCredits,
 } from "@/lib/workspace-data";
+import type {
+  DashboardWorkspace,
+  DashboardTaskStats,
+  DashboardGoal,
+  DashboardMember,
+} from "@/types/dashboard";
 
 interface WorkspacePageProps {
   params: Promise<{ id: string }>;
@@ -57,59 +63,6 @@ export async function generateMetadata({ params }: WorkspacePageProps) {
   return { title: `Workspace — ${workspace?.name ?? "VisionBoard"}` };
 }
 
-/**
- * The dashboard page needs the full workspace graph (members + goals +
- * milestones + task counts) so we CANNOT share the slim layout query.
- * But we do share:
- *   - getUserPlanAndCredits → was already fetched by WorkspaceLayout above,
- *     so React.cache returns the same Promise and we save 1 DB call.
- */
-const getFullDashboardMember = cache(
-  async (workspaceId: string, userId: string) =>
-    prisma.workspaceMember.findUnique({
-      relationLoadStrategy: "join",
-      where: {
-        workspaceId_userId: { workspaceId, userId },
-      },
-      include: {
-        workspace: {
-          include: {
-            owner: { select: { id: true, name: true, email: true, plan: true } },
-            members: {
-              include: {
-                user: {
-                  select: { id: true, name: true, email: true, image: true },
-                },
-              },
-              orderBy: { joinedAt: "asc" },
-            },
-            goals: {
-              select: {
-                id: true,
-                title: true,
-                status: true,
-                healthScore: true,
-                targetDate: true,
-                milestones: {
-                  select: {
-                    id: true,
-                    title: true,
-                    status: true,
-                    targetDate: true,
-                    tasks: {
-                      select: { id: true, status: true, assignees: { select: { userId: true, role: true } } },
-                    },
-                  },
-                },
-              },
-            },
-            _count: { select: { goals: true, documents: true, members: true } },
-          },
-        },
-      },
-    })
-);
-
 export default async function WorkspacePage({ params }: WorkspacePageProps) {
   const session = await auth();
   if (!session) redirect("/auth/login");
@@ -117,26 +70,144 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
   const { id } = await params;
   const userId = session.user.id;
 
-  // getUserPlanAndCredits is already populated by WorkspaceLayout (React.cache
-  // within same request → 0 extra DB work).
+  // Both calls are already populated by WorkspaceLayout (React.cache within the
+  // same request → 0 extra DB round-trips), giving us the user's role up-front
+  // so we only fetch the slices required by that role's dashboard.
   const [member, currentUser] = await Promise.all([
-    getFullDashboardMember(id, userId),
+    getSlimWorkspaceMembership(id, userId),
     getUserPlanAndCredits(userId),
   ]);
 
   if (!member || !currentUser) redirect("/dashboard");
 
-  const workspace = member.workspace;
-  const plan = currentUser.plan;
-  const limits = PLAN_LIMITS[plan];
   const myRole = member.role as MemberRole;
   const isAdmin = myRole === "admin";
+  const needsFullMembers = isAdmin;
+  const needsPreviewMembers = !isAdmin && myRole === "exec";
+  const needsRawTasks = myRole === "eng";
+  const needsTaskStats = myRole === "exec";
+
+  const [workspaceData, workspaceMembers, dashboardGoals, taskStatusGroups] = await Promise.all([
+    prisma.workspace.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        ownerId: true,
+        owner: { select: { id: true, name: true, email: true, plan: true } },
+        _count: { select: { goals: true, documents: true, members: true } },
+      },
+    }),
+    needsFullMembers || needsPreviewMembers
+      ? prisma.workspaceMember.findMany({
+          where: { workspaceId: id },
+          include: {
+            user: {
+              select: { id: true, name: true, email: true, image: true },
+            },
+          },
+          orderBy: { joinedAt: "asc" },
+          ...(needsPreviewMembers ? { take: 4 } : {}),
+        })
+      : Promise.resolve<DashboardMember[]>([]),
+    needsRawTasks
+      ? prisma.goal.findMany({
+          where: { workspaceId: id },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            healthScore: true,
+            targetDate: true,
+            milestones: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                targetDate: true,
+                tasks: {
+                  select: {
+                    id: true,
+                    title: true,
+                    status: true,
+                    priority: true,
+                    assignees: { select: { userId: true, role: true } },
+                  },
+                },
+              },
+            },
+          },
+        })
+      : prisma.goal
+          .findMany({
+            where: { workspaceId: id },
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              healthScore: true,
+              targetDate: true,
+              milestones: {
+                select: {
+                  id: true,
+                  title: true,
+                  status: true,
+                  targetDate: true,
+                },
+              },
+            },
+          })
+          .then<DashboardGoal[]>((rows) =>
+            rows.map((g) => ({
+              ...g,
+              milestones: g.milestones.map((m) => ({ ...m, tasks: [] })),
+            }))
+          ),
+    needsTaskStats
+      ? prisma.task.groupBy({
+          by: ["status"],
+          where: { workspaceId: id },
+          _count: { id: true },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (!workspaceData) redirect("/dashboard");
+
+  let taskStats: DashboardTaskStats | undefined;
+  if (taskStatusGroups) {
+    let total = 0;
+    let done = 0;
+    let blocked = 0;
+    for (const g of taskStatusGroups) {
+      total += g._count.id;
+      if (g.status === "done") done += g._count.id;
+      else if (g.status === "blocked") blocked += g._count.id;
+    }
+    taskStats = { total, done, blocked };
+  }
+
+  const dashboardWorkspace: DashboardWorkspace = {
+    id: workspaceData.id,
+    name: workspaceData.name,
+    _count: workspaceData._count,
+    members: workspaceMembers,
+    goals: dashboardGoals,
+    taskStats,
+  };
+
+  const workspace = {
+    ...workspaceData,
+    members: workspaceMembers,
+  };
+  const plan = currentUser.plan;
+  const limits = PLAN_LIMITS[plan];
   const isOwner = workspace.ownerId === session.user.id;
 
   // Role-driven dashboard — each role sees the workspace through its own lens.
   // Admins fall back to the PM view (most general).
   const dashboardProps = {
-    workspace,
+    workspace: dashboardWorkspace,
     userId: session.user.id,
     userName: session.user.name ?? session.user.email ?? "",
   };
@@ -173,7 +244,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
         {/* Quick stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
-            { icon: Users, label: "Members", value: workspace.members.length },
+            { icon: Users, label: "Members", value: workspace._count.members },
             { icon: Hash, label: "Goals", value: workspace._count.goals },
             { icon: CreditCard, label: "Plan", value: PLAN_NAMES[plan] ?? plan },
           ].map(({ icon: Icon, label, value }) => (

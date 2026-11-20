@@ -35,15 +35,16 @@ import "server-only";
  *   failures.
  */
 
-const PRODUCTION_CONNECTION_LIMIT = 1;
-const DEV_CONNECTION_LIMIT        = 5;
-const PROD_POOL_TIMEOUT_SECONDS   = 5;
-const DEV_POOL_TIMEOUT_SECONDS    = 30;
-const PROD_CONNECT_TIMEOUT_SECONDS = 10;
-const DEV_CONNECT_TIMEOUT_SECONDS  = 30;
+const DEFAULT_PROD_CONNECTION_LIMIT         = 5;
+const SUPABASE_SESSION_CONNECTION_LIMIT     = 3;
+const DEV_CONNECTION_LIMIT                  = 5;
+const PROD_POOL_TIMEOUT_SECONDS             = 5;
+const DEV_POOL_TIMEOUT_SECONDS              = 30;
+const PROD_CONNECT_TIMEOUT_SECONDS          = 10;
+const DEV_CONNECT_TIMEOUT_SECONDS           = 30;
 
-const MAX_TRANSIENT_RETRIES = 3;
-const RETRY_BASE_MS         = 120;
+const MAX_TRANSIENT_RETRIES = 2;
+const RETRY_BASE_MS         = 100;
 
 function isTransientPoolError(err: unknown): boolean {
   if (err == null) return false;
@@ -65,9 +66,26 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 const isProd = process.env.NODE_ENV === "production";
-const targetLimit = isProd ? PRODUCTION_CONNECTION_LIMIT : DEV_CONNECTION_LIMIT;
 const targetPoolTimeout = isProd ? PROD_POOL_TIMEOUT_SECONDS : DEV_POOL_TIMEOUT_SECONDS;
 const targetConnectTimeout = isProd ? PROD_CONNECT_TIMEOUT_SECONDS : DEV_CONNECT_TIMEOUT_SECONDS;
+
+function resolveConnectionLimit(u: URL): number {
+  const envOverride = process.env.PRISMA_CONNECTION_LIMIT;
+  if (envOverride) {
+    const parsed = Number.parseInt(envOverride, 10);
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      return Math.min(20, parsed);
+    }
+  }
+  if (!isProd) return DEV_CONNECTION_LIMIT;
+  // Supabase pooler on port 5432 runs PgBouncer in Session mode (~15 total slots),
+  // whereas port 6543 runs Transaction mode (multiplexes across many clients).
+  const isSupabaseSessionPooler =
+    u.hostname.includes("pooler.supabase.com") && (u.port === "5432" || u.port === "");
+  return isSupabaseSessionPooler
+    ? SUPABASE_SESSION_CONNECTION_LIMIT
+    : DEFAULT_PROD_CONNECTION_LIMIT;
+}
 
 function buildPoolSafeUrl(rawUrl: string | undefined): string {
   if (!rawUrl) {
@@ -77,6 +95,7 @@ function buildPoolSafeUrl(rawUrl: string | undefined): string {
     );
   }
   const u = new URL(rawUrl);
+  const targetLimit = resolveConnectionLimit(u);
   u.searchParams.set("connection_limit", String(targetLimit));
   u.searchParams.set("pool_timeout",     String(targetPoolTimeout));
   u.searchParams.set("connect_timeout",  String(targetConnectTimeout));
@@ -121,17 +140,20 @@ prisma.$use(async (params, next) => {
       return await next(params);
     } catch (err) {
       attempt += 1;
-      if (attempt > MAX_TRANSIENT_RETRIES || !isTransientPoolError(err)) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isPoolWaitTimeout = /timed out fetching a new connection/i.test(errMsg);
+      const maxAttempts = isPoolWaitTimeout ? 1 : MAX_TRANSIENT_RETRIES;
+      if (attempt > maxAttempts || !isTransientPoolError(err)) {
         throw err;
       }
-      // Jittered exponential backoff: ~120ms, ~240ms, ~480ms (±25%).
+      // Jittered exponential backoff: ~100ms, ~200ms (±25%).
       const backoff =
         RETRY_BASE_MS * 2 ** (attempt - 1) * (0.75 + Math.random() * 0.5);
       if (isProd) {
         console.warn(
           `[prisma] transient pool error on ${params.model ?? "?"}.${params.action} ` +
-            `(attempt ${attempt}/${MAX_TRANSIENT_RETRIES}); retrying in ${backoff.toFixed(0)}ms — ` +
-            (err instanceof Error ? err.message : String(err))
+            `(attempt ${attempt}/${maxAttempts}); retrying in ${backoff.toFixed(0)}ms — ` +
+            errMsg
         );
       }
       await sleepMs(backoff);

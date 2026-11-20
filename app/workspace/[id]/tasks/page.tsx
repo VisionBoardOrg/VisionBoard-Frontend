@@ -4,16 +4,15 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { ListTodo } from "lucide-react";
 import { TasksFilteredList } from "@/components/tasks/TasksFilteredList";
+import { getSlimWorkspaceMembership, getWorkspaceName } from "@/lib/workspace-data";
 
 interface TasksPageProps {
   params: Promise<{ id: string }>;
 }
 
 export async function generateMetadata({ params }: TasksPageProps) {
-  // Next.js calls generateMetadata concurrently with the page component, so
-  // this does not add an extra sequential round trip in practice.
   const { id } = await params;
-  const workspace = await prisma.workspace.findUnique({ where: { id }, select: { name: true } });
+  const workspace = await getWorkspaceName(id);
   return { title: `My Tasks — ${workspace?.name ?? "VisionBoard"}` };
 }
 
@@ -22,15 +21,13 @@ export default async function TasksPage({ params }: TasksPageProps) {
   if (!session) redirect("/auth/login");
   const { id } = await params;
 
-  // Run member check + task fetch in parallel
+  // getSlimWorkspaceMembership is deduplicated with WorkspaceLayout via React.cache().
   const [member, tasks] = await Promise.all([
-    prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-    }),
+    getSlimWorkspaceMembership(id, session.user.id),
     prisma.task.findMany({
       where: {
+        workspaceId: id,
         assignees: { some: { userId: session.user.id } },
-        milestone: { goal: { workspaceId: id } },
       },
       include: {
         milestone: {

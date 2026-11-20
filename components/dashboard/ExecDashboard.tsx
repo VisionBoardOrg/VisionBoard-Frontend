@@ -1,38 +1,42 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { MetricBar } from "./MetricBar";
-
-const GoalHealthScore = dynamic(
-  () => import("./GoalHealthScore").then((m) => ({ default: m.GoalHealthScore })),
-  { ssr: false }
-);
-
+import { GoalHealthScore } from "./GoalHealthScore";
 import type { DashboardWorkspace } from "@/types/dashboard";
 
 interface ExecDashboardProps { workspace: DashboardWorkspace; userId: string; userName: string }
 
 export function ExecDashboard({ workspace }: ExecDashboardProps) {
   const goals = workspace.goals;
-  const allTasks = goals.flatMap((g) => g.milestones.flatMap((m) => m.tasks));
-  const donePercent = allTasks.length
-    ? Math.round((allTasks.filter((t) => t.status === "done").length / allTasks.length) * 100)
-    : 0;
+
+  // Prefer server-side SQL groupBy counts when available to avoid shipping raw task lists
+  let totalTasks = workspace.taskStats?.total ?? 0;
+  let doneTasks = workspace.taskStats?.done ?? 0;
+  let blockedTasks = workspace.taskStats?.blocked ?? 0;
+
+  if (!workspace.taskStats) {
+    for (const g of goals) {
+      for (const m of g.milestones) {
+        for (const t of m.tasks) {
+          totalTasks += 1;
+          if (t.status === "done") doneTasks += 1;
+          else if (t.status === "blocked") blockedTasks += 1;
+        }
+      }
+    }
+  }
+
+  const donePercent = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
   // Health scores are persisted by the sweeper cron — no client recomputation
   const avgHealth = goals.length
     ? Math.round(goals.reduce((sum, g) => sum + (g.healthScore ?? 0), 0) / goals.length)
-    : 0;
-
-  const sprintTasks = workspace.goals.flatMap((g) => g.milestones.flatMap((m) => m.tasks));
-  const sprintPercent = sprintTasks.length
-    ? Math.round((sprintTasks.filter((t) => t.status === "done").length / sprintTasks.length) * 100)
     : 0;
 
   const rollup = [
     { label: "Goals", value: avgHealth, color: "#2563EB" },
     { label: "Product", value: donePercent, color: "#0EA5E9" },
     { label: "Design", value: Math.min(100, donePercent + 14), color: "#8B5CF6" },
-    { label: "Tasks", value: sprintPercent, color: "#10B981" },
+    { label: "Tasks", value: donePercent, color: "#10B981" },
   ];
 
   return (
@@ -87,10 +91,10 @@ export function ExecDashboard({ workspace }: ExecDashboardProps) {
         </div>
 
         <div className="bg-white rounded-2xl border border-border p-5">
-          <div className="text-3xl font-bold text-ink">{allTasks.filter(t => t.status === "blocked").length}</div>
+          <div className="text-3xl font-bold text-ink">{blockedTasks}</div>
           <div className="text-sm text-muted mt-1">Blockers across all goals</div>
           <div className="mt-2 text-xs text-slate">
-            {allTasks.filter(t => t.status === "blocked").length === 0
+            {blockedTasks === 0
               ? "No blockers — great execution!"
               : "Review blockers on the Board"}
           </div>

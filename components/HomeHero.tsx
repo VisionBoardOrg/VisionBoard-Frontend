@@ -1,13 +1,7 @@
-"use client";
-
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import SecondaryButton from "./reusables/secondaryButton";
 
 export default function HomeHero() {
-  const router = useRouter();
-
   return (
     <section className="relative pt-10 flex flex-col items-center justify-start overflow-hidden bg-offwhite">
       {/* Subtle dot grid */}
@@ -35,13 +29,12 @@ export default function HomeHero() {
           >
             Start for free <ArrowRight size={18} aria-hidden="true" />
           </Link>
-          <SecondaryButton
-            size="md"
-            onClick={() => router.push("/#features")}
-            className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm"
+          <Link
+            href="/#features"
+            className="inline-flex items-center justify-center font-semibold tracking-tight transition-colors cursor-pointer h-11 text-[16px] rounded-lg gap-2 w-full sm:w-auto px-8 bg-white border border-blue-light text-blue hover:bg-blue-faint shadow-sm"
           >
             Explore Features
-          </SecondaryButton>
+          </Link>
         </div>
 
         <p className="text-xs text-muted mt-1">No credit card required · Free plan available · Upgrade anytime</p>
@@ -86,7 +79,13 @@ export default function HomeHero() {
                 100% { transform: translateX(-50%); }
             }
             .animate-marquee {
+                will-change: transform;
                 animation: marquee 20s linear infinite;
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .animate-marquee {
+                    animation: none;
+                }
             }
         `,
         }}

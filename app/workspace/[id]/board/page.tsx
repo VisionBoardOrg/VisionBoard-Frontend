@@ -1,27 +1,20 @@
-import { cache } from "react";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { BoardCanvas } from "@/components/board/BoardCanvas";
+import {
+  getSlimWorkspaceMembership,
+  getUserPlanAndCredits,
+  getWorkspaceName,
+} from "@/lib/workspace-data";
 
 interface BoardPageProps {
   params: Promise<{ id: string }>;
 }
 
-/**
- * React.cache() deduplicates this query within a single request — both
- * generateMetadata and the page component call it, but Prisma only runs once.
- */
-const getWorkspace = cache((id: string) =>
-  prisma.workspace.findUnique({
-    where: { id },
-    select: { name: true, ownerId: true },
-  })
-);
-
 export async function generateMetadata({ params }: BoardPageProps) {
   const { id } = await params;
-  const workspace = await getWorkspace(id);
+  const workspace = await getWorkspaceName(id);
   return { title: `Board — ${workspace?.name ?? "VisionBoard"}` };
 }
 
@@ -31,38 +24,31 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
   const { id } = await params;
 
-  // Membership check, workspace data, and user plan run in parallel.
-  const [memberCheck, workspace, currentUser] = await Promise.all([
-    prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-    }),
-    getWorkspace(id),
-    prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { plan: true, aiCreditsUsed: true },
-    }),
-  ]);
-
-  if (!memberCheck || !workspace || !currentUser) redirect("/dashboard");
-
-  const [boardItems, goals, milestones, members] = await Promise.all([
+  // getSlimWorkspaceMembership and getUserPlanAndCredits are already populated
+  // by WorkspaceLayout (React.cache within request → 0 extra DB round-trips),
+  // and run in parallel with all board data fetches (single wave, no waterfall).
+  const [memberCheck, currentUser, boardItems, goals, milestones, members] = await Promise.all([
+    getSlimWorkspaceMembership(id, session.user.id),
+    getUserPlanAndCredits(session.user.id),
     prisma.boardItem.findMany({
       where: { workspaceId: id },
       take: 500,
-      include: {
-        // Only the identity fields — the richer goal/milestone data is merged
-        // in from the dedicated queries below, so fetching it here would
-        // duplicate every row across up to 500 board items in the RSC payload
-        linkedGoal: {
-          select: { id: true, title: true },
-        },
-        linkedMilestone: {
-          select: {
-            id: true,
-            title: true,
-            goalId: true,
-          },
-        },
+      // Select only scalar card fields — linkedGoal and linkedMilestone are
+      // hydrated on the client from `goals` and `milestones` below so we don't
+      // serialize every goal, milestone, and task array twice in the RSC stream.
+      select: {
+        id: true,
+        workspaceId: true,
+        x: true,
+        y: true,
+        width: true,
+        height: true,
+        entityType: true,
+        color: true,
+        label: true,
+        linkedGoalId: true,
+        linkedMilestoneId: true,
+        linkedTaskId: true,
       },
     }),
     prisma.goal.findMany({
@@ -113,6 +99,8 @@ export default async function BoardPage({ params }: BoardPageProps) {
     }),
   ]);
 
+  if (!memberCheck || !currentUser) redirect("/dashboard");
+
   const now = new Date();
   const updatedMilestones = milestones.map((m) => {
     if (m.status === "planned" || m.status === "in_progress") {
@@ -123,51 +111,10 @@ export default async function BoardPage({ params }: BoardPageProps) {
     return m;
   });
 
-  const goalMap = new Map(goals.map((g) => [g.id, g]));
-  const milestoneMap = new Map(updatedMilestones.map((m) => [m.id, m]));
-  const updatedBoardItems = boardItems.map((item) => {
-    let linkedGoal = item.linkedGoal as
-      | (Record<string, unknown> & { id: string; title: string })
-      | null;
-    if (linkedGoal) {
-      const g = goalMap.get(linkedGoal.id);
-      if (g) {
-        linkedGoal = {
-          ...linkedGoal,
-          objective: g.objective,
-          targetDate: g.targetDate,
-          status: g.status,
-          healthScore: g.healthScore,
-        };
-      }
-    }
-
-    let linkedMilestone = item.linkedMilestone as (Record<string, unknown> & { id: string; tasks?: unknown[] }) | null;
-    if (linkedMilestone) {
-      const ms = milestoneMap.get(linkedMilestone.id);
-      if (ms) {
-        linkedMilestone = {
-          ...linkedMilestone,
-          description: ms.description,
-          targetDate: ms.targetDate,
-          startDate: ms.startDate,
-          status: ms.status,
-          tasks: ms.tasks ?? [],
-        };
-      }
-    }
-
-    return {
-      ...item,
-      linkedGoal,
-      linkedMilestone,
-    };
-  });
-
   return (
     <BoardCanvas
       workspaceId={id}
-      initialItems={updatedBoardItems as never}
+      initialItems={boardItems as never}
       goals={goals as never}
       milestones={updatedMilestones as never}
       members={members.map((m) => m.user)}

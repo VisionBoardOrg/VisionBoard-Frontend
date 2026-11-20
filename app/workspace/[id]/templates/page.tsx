@@ -1,9 +1,9 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { TEMPLATES, TemplateName } from "@/lib/templates";
 import { TemplateApplyButton } from "@/components/workspace/TemplateApplyButton";
 import { Target, Map, ClipboardList, Zap, LayoutTemplate, Package, LucideIcon } from "lucide-react";
+import { getSlimWorkspaceMembership } from "@/lib/workspace-data";
 
 interface TemplatesPageProps {
   params: Promise<{ id: string }>;
@@ -22,10 +22,8 @@ export default async function TemplatesPage({ params }: TemplatesPageProps) {
   if (!session) redirect("/auth/login");
   const { id } = await params;
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { workspaceId_userId: { workspaceId: id, userId: session.user.id } },
-    include: { workspace: { select: { ownerId: true } } },
-  });
+  // Deduplicated with WorkspaceLayout via React.cache() — 0 extra DB round-trips.
+  const member = await getSlimWorkspaceMembership(id, session.user.id);
   if (!member) redirect("/dashboard");
 
   const canApply =
