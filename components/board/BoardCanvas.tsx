@@ -503,28 +503,37 @@ export function BoardCanvas({
     isPanning.current = true;
   }
 
-  function onTouchMove(e: React.TouchEvent) {
-    if (e.touches.length === 2 && pinchState.current) {
-      e.preventDefault();
-      const [t1, t2] = [e.touches[0], e.touches[1]];
-      const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      if (pinchState.current.initialDist > 0) {
-        const scale = currentDist / pinchState.current.initialDist;
-        const midX = (t1.clientX + t2.clientX) / 2;
-        const midY = (t1.clientY + t2.clientY) / 2;
-        zoomAtPoint(midX, midY, pinchState.current.initialZoom * scale);
+  // Native non-passive touchmove listener so preventDefault() never warns in Chrome/Safari
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el || layoutMode !== "canvas") return;
+
+    function handleNativeTouchMove(e: TouchEvent) {
+      if (e.touches.length === 2 && pinchState.current) {
+        if (e.cancelable) e.preventDefault();
+        const [t1, t2] = [e.touches[0], e.touches[1]];
+        const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        if (pinchState.current.initialDist > 0) {
+          const scale = currentDist / pinchState.current.initialDist;
+          const midX = (t1.clientX + t2.clientX) / 2;
+          const midY = (t1.clientY + t2.clientY) / 2;
+          zoomAtPoint(midX, midY, pinchState.current.initialZoom * scale);
+        }
+        return;
       }
-      return;
+
+      if (!isPanning.current || touchOnCard.current) return;
+      if (e.touches.length !== 1) return;
+      if (e.cancelable) e.preventDefault();
+      const dx = e.touches[0].clientX - lastPos.current.x;
+      const dy = e.touches[0].clientY - lastPos.current.y;
+      applyPan(dx, dy);
+      lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     }
 
-    if (!isPanning.current || touchOnCard.current) return;
-    if (e.touches.length !== 1) return;
-    e.preventDefault();
-    const dx = e.touches[0].clientX - lastPos.current.x;
-    const dy = e.touches[0].clientY - lastPos.current.y;
-    applyPan(dx, dy);
-    lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  }
+    el.addEventListener("touchmove", handleNativeTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", handleNativeTouchMove);
+  }, [layoutMode, zoomAtPoint, applyPan]);
 
   function onTouchEnd(e: React.TouchEvent) {
     if (e.touches.length < 2) {
@@ -1675,8 +1684,8 @@ export function BoardCanvas({
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
           onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
           onTouchEnd={onTouchEnd}
+          onTouchCancel={onTouchEnd}
         >
           {/* Dot grid */}
           <div
