@@ -37,6 +37,24 @@ export async function POST(request: NextRequest) {
 
   const { workspaceId, returnUrl, tier, period } = parsed.data;
 
+  // If upgrading from a workspace context, verify the caller owns that workspace
+  // (subscriptions are tied to the workspace owner's Stripe customer).
+  if (workspaceId) {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { ownerId: true },
+    });
+    if (!workspace) {
+      return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
+    }
+    if (workspace.ownerId !== session.user.id) {
+      return NextResponse.json(
+        { error: "Only the workspace owner can manage workspace billing." },
+        { status: 403 }
+      );
+    }
+  }
+
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { id: true, email: true, name: true, stripeCustomerId: true },

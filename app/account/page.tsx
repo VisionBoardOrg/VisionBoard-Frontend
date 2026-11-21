@@ -49,13 +49,9 @@ export default async function AccountPage() {
 
   if (!user) redirect("/auth/login");
 
-  // If the user has no workspace yet, send them to onboarding
-  if (!membership) redirect("/onboarding");
-
-  const workspace = membership.workspace;
-  const isOwner   = workspace.ownerId === session.user.id;
-  const plan      = user.plan;
-  const limits    = PLAN_LIMITS[plan];
+  const isOwner = membership ? membership.workspace.ownerId === session.user.id : false;
+  const plan    = user.plan;
+  const limits  = PLAN_LIMITS[plan];
 
   return (
     <AppShell
@@ -65,6 +61,9 @@ export default async function AccountPage() {
       aiCreditsUsed={user.aiCreditsUsed}
       aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
       userId={session.user.id}
+      userName={user.name}
+      userEmail={user.email}
+      userImage={user.image}
       isOwner={isOwner}
     >
       <div className="max-w-2xl mx-auto space-y-8">

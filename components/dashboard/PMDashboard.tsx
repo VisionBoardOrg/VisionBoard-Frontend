@@ -4,7 +4,7 @@ import { GoalHealthScore } from "./GoalHealthScore";
 import { MetricBar } from "./MetricBar";
 import type { DashboardWorkspace } from "@/types/dashboard";
 import Link from "next/link";
-import { ArrowRight, Target, HeartPulse, Users, FileText } from "lucide-react";
+import { ArrowRight, Target, HeartPulse, Users, FileText, Plus } from "lucide-react";
 
 interface PMDashboardProps {
   workspace: DashboardWorkspace;
@@ -25,6 +25,8 @@ export function PMDashboard({ workspace, userName }: PMDashboardProps) {
     value: g.healthScore ?? 0,
   }));
 
+  const remainingGoalsCount = Math.max(0, goals.length - 4);
+
   return (
     <div className="space-y-6">
       {/* Greeting */}
@@ -36,54 +38,86 @@ export function PMDashboard({ workspace, userName }: PMDashboardProps) {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard label="Active Goals" value={workspace._count.goals} icon={Target} />
-        <KPICard label="Overall Health" value={`${avgHealth}%`} icon={HeartPulse} />
+        <KPICard label="Overall Health" value={goals.length > 0 ? `${avgHealth}%` : "—"} icon={HeartPulse} />
         <KPICard label="Team Members" value={workspace._count.members} icon={Users} />
         <KPICard label="Connected Docs" value={workspace._count.documents} icon={FileText} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Goal Health Scores */}
-        <div className="bg-white rounded-2xl border border-border p-6">
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="font-semibold text-ink">Goal Health</h2>
-            <GoalHealthScore score={avgHealth} label="Avg" size="sm" />
+      {goals.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-border p-8 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-blue-faint text-blue flex items-center justify-center mx-auto mb-3">
+            <Target size={22} aria-hidden="true" />
           </div>
-          <MetricBar metrics={roadmapHealth} />
-          <Link
-            href={`/workspace/${workspace.id}/roadmap`}
-            className="mt-4 flex items-center gap-1 text-sm text-blue hover:underline"
-          >
-            View full roadmap <ArrowRight size={14} />
-          </Link>
+          <h3 className="font-semibold text-ink text-base">Start tracking your product goals</h3>
+          <p className="text-sm text-slate mt-1 mb-5 max-w-md mx-auto">
+            Create your first goal with milestones to unlock health scores, roadmap progress, and sprint tracking.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href={`/workspace/${workspace.id}/goals`}
+              className="inline-flex items-center gap-1.5 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors"
+            >
+              <Plus size={15} aria-hidden="true" /> Create your first goal
+            </Link>
+            <Link
+              href={`/workspace/${workspace.id}/templates`}
+              className="inline-flex items-center gap-1.5 border border-border text-ink rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-offwhite transition-colors"
+            >
+              Browse templates <ArrowRight size={14} aria-hidden="true" />
+            </Link>
+          </div>
         </div>
-
-        {/* Milestone progress */}
-        <div className="bg-white rounded-2xl border border-border p-6">
-          <h2 className="font-semibold text-ink mb-4">Milestone Progress</h2>
-          {goals.length === 0 ? (
-            <p className="text-sm text-muted">No goals yet — create one to start tracking.</p>
-          ) : (
-            <div className="space-y-3">
-              {goals.slice(0, 4).map((g) => {
-                const total = g.milestones.length;
-                const done = g.milestones.filter((m) => m.status === "completed").length;
-                const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-                return (
-                  <div key={g.id}>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="text-slate truncate max-w-[200px]">{g.title}</span>
-                      <span className="text-muted shrink-0">{done}/{total} milestones</span>
-                    </div>
-                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
-                      <div className="h-full bg-blue rounded-full transition-all" style={{ width: `${pct}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Goal Health Scores */}
+          <div className="bg-white rounded-2xl border border-border p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="font-semibold text-ink">Goal Health</h3>
+              <GoalHealthScore score={avgHealth} label="Avg" size="sm" />
             </div>
-          )}
+            <MetricBar metrics={roadmapHealth} />
+            <Link
+              href={`/workspace/${workspace.id}/roadmap`}
+              className="mt-4 inline-flex items-center gap-1 text-sm text-blue hover:underline"
+            >
+              View full roadmap <ArrowRight size={14} aria-hidden="true" />
+            </Link>
+          </div>
+
+          {/* Milestone progress */}
+          <div className="bg-white rounded-2xl border border-border p-6 flex flex-col justify-between">
+            <div>
+              <h3 className="font-semibold text-ink mb-4">Milestone Progress</h3>
+              <div className="space-y-3">
+                {goals.slice(0, 4).map((g) => {
+                  const total = g.milestones.length;
+                  const done = g.milestones.filter((m) => m.status === "completed").length;
+                  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                  return (
+                    <div key={g.id}>
+                      <div className="flex items-center justify-between gap-2 text-xs mb-1">
+                        <span className="text-slate truncate">{g.title}</span>
+                        <span className="text-muted shrink-0">{done}/{total} milestones</span>
+                      </div>
+                      <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                        <div className="h-full bg-blue rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {remainingGoalsCount > 0 && (
+              <Link
+                href={`/workspace/${workspace.id}/goals`}
+                className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-blue hover:underline"
+              >
+                +{remainingGoalsCount} more goal{remainingGoalsCount !== 1 ? "s" : ""} <ArrowRight size={12} aria-hidden="true" />
+              </Link>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -92,7 +126,7 @@ function KPICard({ label, value, icon: Icon }: { label: string; value: string | 
   return (
     <div className="bg-white rounded-2xl border border-border p-5">
       <div className="w-9 h-9 rounded-xl bg-blue/10 text-blue flex items-center justify-center mb-3">
-        <Icon size={18} />
+        <Icon size={18} aria-hidden="true" />
       </div>
       <div className="text-2xl font-bold text-ink">{value}</div>
       <div className="text-xs text-muted mt-0.5">{label}</div>

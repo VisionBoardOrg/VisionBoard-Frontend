@@ -40,10 +40,14 @@ export async function POST(request: NextRequest) {
   ]);
 
   const coveredGoalIds = new Set(
-    existingItems.filter((i) => i.linkedGoalId).map((i) => i.linkedGoalId!)
+    existingItems
+      .filter((i) => i.entityType === "goal" && i.linkedGoalId)
+      .map((i) => i.linkedGoalId!)
   );
   const coveredMilestoneIds = new Set(
-    existingItems.filter((i) => i.linkedMilestoneId).map((i) => i.linkedMilestoneId!)
+    existingItems
+      .filter((i) => i.entityType === "milestone" && i.linkedMilestoneId)
+      .map((i) => i.linkedMilestoneId!)
   );
 
   const missingGoals = goals.filter((g) => !coveredGoalIds.has(g.id));
@@ -100,20 +104,57 @@ export async function POST(request: NextRequest) {
   await prisma.boardItem.createMany({ data: toCreate });
 
   // Return newly created items so the client can add them to the canvas state
+  const orFilters: Array<Record<string, unknown>> = [];
+  if (missingGoals.length > 0) {
+    orFilters.push({
+      entityType: "goal",
+      linkedGoalId: { in: missingGoals.map((g) => g.id) },
+    });
+  }
+  if (missingMilestones.length > 0) {
+    orFilters.push({
+      entityType: "milestone",
+      linkedMilestoneId: { in: missingMilestones.map((m) => m.id) },
+    });
+  }
+
   const created = await prisma.boardItem.findMany({
     where: {
       workspaceId,
-      OR: [
-        { linkedGoalId: { in: missingGoals.map((g) => g.id) } },
-        { linkedMilestoneId: { in: missingMilestones.map((m) => m.id) } },
-      ],
+      OR: orFilters,
     },
     include: {
-      linkedGoal: { select: { id: true, title: true, status: true, healthScore: true } },
+      linkedGoal: {
+        select: {
+          id: true,
+          title: true,
+          objective: true,
+          status: true,
+          healthScore: true,
+          targetDate: true,
+          keyResults: true,
+        },
+      },
       linkedMilestone: {
         select: {
-          id: true, title: true, status: true, goalId: true,
-          tasks: { select: { id: true, title: true, status: true, priority: true, dueDate: true, assignees: { select: { userId: true, role: true } } } },
+          id: true,
+          title: true,
+          description: true,
+          status: true,
+          goalId: true,
+          startDate: true,
+          targetDate: true,
+          tasks: {
+            select: {
+              id: true,
+              title: true,
+              status: true,
+              priority: true,
+              storyPoints: true,
+              dueDate: true,
+              assignees: { select: { userId: true, role: true } },
+            },
+          },
         },
       },
     },

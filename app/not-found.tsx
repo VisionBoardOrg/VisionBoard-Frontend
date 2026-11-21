@@ -1,16 +1,19 @@
 import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { ArrowLeft, MapPinOff } from "lucide-react";
+import { ArrowLeft, LayoutDashboard, MapPinOff } from "lucide-react";
 
 export default function NotFound() {
   return (
     <div className="min-h-screen flex flex-col bg-offwhite text-ink font-sans">
       <Header />
-      <main className="flex-1 flex items-center justify-center p-6">
+      <main id="main-content" tabIndex={-1} className="flex-1 flex items-center justify-center p-6">
         <div className="bg-white rounded-3xl border border-border p-8 md:p-12 max-w-lg w-full text-center space-y-6 shadow-sm">
-          <div className="w-16 h-16 bg-blue-faint rounded-2xl border border-blue-light flex items-center justify-center mx-auto text-blue">
-            <MapPinOff className="w-8 h-8" />
+          <div
+            aria-hidden="true"
+            className="w-16 h-16 bg-blue-faint rounded-2xl border border-blue-light flex items-center justify-center mx-auto text-blue"
+          >
+            <MapPinOff className="w-8 h-8" aria-hidden="true" />
           </div>
 
           <div className="space-y-2">
@@ -25,13 +28,20 @@ export default function NotFound() {
             </p>
           </div>
 
-          <div className="pt-2 flex justify-center">
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 bg-blue text-white px-6 py-3 rounded-xl font-semibold text-xs shadow-md hover:bg-blue-mid transition-all hover:scale-[1.02]"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-blue text-white px-6 py-3 rounded-xl font-semibold text-sm shadow-md hover:bg-blue-mid transition-all"
             >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Home
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" />
+              Return Home
+            </Link>
+            <Link
+              href="/dashboard"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-white text-ink border border-border px-6 py-3 rounded-xl font-semibold text-sm hover:bg-offwhite transition-colors"
+            >
+              <LayoutDashboard className="w-4 h-4 text-slate" aria-hidden="true" />
+              Go to Dashboard
             </Link>
           </div>
         </div>

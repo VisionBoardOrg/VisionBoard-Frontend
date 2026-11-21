@@ -3,47 +3,67 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
 
 function AuthErrorContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
-  const getErrorMessage = (errorCode: string | null) => {
+  const getErrorGuidance = (errorCode: string | null) => {
     switch (errorCode) {
       case "Configuration":
-        return "There is a problem with the server authentication configuration. Please check your environment variables (e.g. GOOGLE_CLIENT_ID or AUTH_SECRET).";
+        return {
+          title: "Sign-in Temporarily Unavailable",
+          message:
+            "We ran into a temporary issue on our end while signing you in. Please try again in a few moments, or contact support if the problem persists.",
+        };
       case "AccessDenied":
-        return "Access denied. You do not have permission to sign in.";
+        return {
+          title: "Access Denied",
+          message:
+            "You do not have permission to sign in with this account. Try signing in with a different email address or contact your workspace admin.",
+        };
       case "Verification":
-        return "The verification token has expired or has already been used.";
+        return {
+          title: "Link Expired",
+          message:
+            "This sign-in or verification link has expired or has already been used. Please request a fresh link and try again.",
+        };
       case "OAuthAccountNotLinked":
-        return "Another account already exists with the same email address. Try signing in with your email and password instead, or link your Google account.";
+        return {
+          title: "Account Already Exists",
+          message:
+            "An account with that email address already exists using a different sign-in method. Sign in with your email and password instead.",
+        };
       case "OAuthSignin":
       case "OAuthCallback":
       case "OAuthCreateAccount":
       case "EmailCreateAccount":
       case "Callback":
-        return "Could not complete sign-in with the authentication provider. Please verify your Google OAuth configuration.";
+        return {
+          title: "Could Not Complete Sign-in",
+          message:
+            "We couldn't finish signing you in with your authentication provider. Please try again or use your email and password.",
+        };
       default:
-        return "An unexpected authentication error occurred. Please try again.";
+        return {
+          title: "Authentication Error",
+          message:
+            "Something went wrong while signing you in. Please try again, or reset your password if you're having trouble accessing your account.",
+        };
     }
   };
+
+  const { title, message } = getErrorGuidance(error);
 
   return (
     <div className="min-h-screen bg-offwhite flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-2xl border border-border p-8 shadow-sm text-center">
         <div className="w-12 h-12 rounded-full bg-red-100 text-danger flex items-center justify-center mx-auto mb-4">
-          <AlertCircle size={24} />
+          <AlertCircle size={24} aria-hidden="true" />
         </div>
-        <h1 className="text-xl font-bold text-ink mb-2">Authentication Error</h1>
-        <p className="text-slate text-sm mb-6">{getErrorMessage(error)}</p>
-
-        {error && (
-          <div className="bg-slate/5 rounded-lg p-3 text-xs font-mono text-slate mb-6">
-            Error code: {error}
-          </div>
-        )}
+        <h1 className="text-xl font-bold text-ink mb-2">{title}</h1>
+        <p className="text-slate text-sm mb-6 leading-relaxed">{message}</p>
 
         <div className="flex flex-col gap-3">
           <Link
@@ -66,7 +86,14 @@ function AuthErrorContent() {
 
 export default function AuthErrorPage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-offwhite flex items-center justify-center gap-2 text-sm text-slate">
+          <Loader2 size={16} className="animate-spin text-blue" aria-hidden="true" />
+          <span>Loading…</span>
+        </div>
+      }
+    >
       <AuthErrorContent />
     </Suspense>
   );

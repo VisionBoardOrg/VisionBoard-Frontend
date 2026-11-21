@@ -60,7 +60,12 @@ import { syncUserToResend } from "@/lib/resend-sync";
  * which is already enough to avoid saturation.
  * ─────────────────────────────────────────────────────────────────────── */
 
-const CACHE_TTL_MS = 15 * 1000;
+// Match BASE_REFRESH_MS (5 min). Because App Router RSC/API `auth()` calls
+// cannot write Set-Cookie to persist an updated `membershipFetchedAt` back to
+// the browser cookie, a 15s TTL caused every >15s poll to re-query Supabase
+// once a cookie was >5 min old. Explicit `updateSession()` calls (`trigger === "update"`)
+// bypass this cache via `invalidateAuthCache()`.
+const CACHE_TTL_MS = 5 * 60 * 1000;
 type WorkspaceMemberWithWorkspace = WorkspaceMember & {
   workspace: Workspace;
 };
@@ -92,6 +97,16 @@ const cacheUser =
   (globalForAuthCache.authCacheUser          ??= new Map());
 const backoffUntil =
   (globalForAuthCache.authBackoffUntil       ??= new Map());
+
+/**
+ * Evict cached auth lookups for a user on this process (e.g. after role,
+ * plan, or account-deletion updates, or when `trigger === "update"`).
+ */
+export function invalidateAuthCache(userId: string): void {
+  cacheMembership.delete(`m:${userId}`);
+  cacheUser.delete(`u:${userId}`);
+  backoffUntil.delete(`u:${userId}`);
+}
 
 function getCached<T>(
   map: Map<string, { v: T; ts: number }>,
@@ -463,6 +478,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const needsRefresh = userId && (dbBackedForce || cadenceDue);
 
       if (userId && needsRefresh) {
+        // Explicit updateSession() should always bypass the per-process cache.
+        if (trigger === "update") {
+          invalidateAuthCache(userId);
+        }
+
         // Don't even attempt a query if we just failed for this user and
         // are in the exponential backoff window — keep cached values.
         if (isInBackoff(userId) && trigger !== "update") {

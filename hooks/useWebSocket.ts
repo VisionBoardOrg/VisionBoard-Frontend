@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useBoardStore } from "@/store/board-store";
 import { useCursorStore, type CursorUpdate } from "@/store/cursor-store";
+import type { TaskSimple } from "@/types/board";
 
 // Exponential backoff configuration for WebSocket reconnection
 // Prevents thundering herd on mass reconnects (e.g. after backend deploy)
@@ -11,6 +12,13 @@ const RECONNECT_BASE_DELAY = 1000;
 const RECONNECT_MAX_DELAY = 30000;
 // Max reconnect attempts before giving up (prevents infinite spam)
 const MAX_ATTEMPTS = 8;
+
+export type WebSocketConnectionState =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "offline"
+  | "disabled";
 
 /**
  * Exponential backoff with "full jitter" per AWS best practice.
@@ -26,6 +34,12 @@ function getReconnectDelayMs(attempt: number): number {
   );
   const jitter = Math.floor(Math.random() * RECONNECT_BASE_DELAY);
   return cappedExp + jitter;
+}
+
+/** Allow wss:// everywhere, plus ws://localhost or ws://127.0.0.1 for local dev. */
+function isAllowedWsUrl(wsUrl: string): boolean {
+  if (wsUrl.startsWith("wss://")) return true;
+  return /^ws:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(wsUrl);
 }
 
 export interface RemoteCursor {
@@ -65,15 +79,15 @@ function validateAssignees(v: unknown): { userId: string; role: string }[] | nul
 function validateTaskUpdated(data: Record<string, unknown>): {
   milestoneId: string;
   taskId: string;
-  updates: Record<string, unknown>;
+  updates: Partial<TaskSimple>;
 } | null {
   if (!isNonEmptyString(data.milestoneId) || !isNonEmptyString(data.taskId)) return null;
 
-  const updates: Record<string, unknown> = {};
+  const updates: Partial<TaskSimple> = {};
 
   if (data.status !== undefined) {
     if (!VALID_TASK_STATUSES.has(data.status as string)) return null;
-    updates.status = data.status;
+    updates.status = data.status as string;
   }
   if (data.assignees !== undefined) {
     const assignees = validateAssignees(data.assignees);
@@ -85,14 +99,56 @@ function validateTaskUpdated(data: Record<string, unknown>): {
   }
   if (data.title !== undefined) {
     if (!isNonEmptyString(data.title) || (data.title as string).length > 300) return null;
-    updates.title = data.title;
+    updates.title = data.title as string;
   }
   if (data.priority !== undefined) {
     if (!VALID_PRIORITIES.has(data.priority as string)) return null;
-    updates.priority = data.priority;
+    updates.priority = data.priority as string;
+  }
+  if (data.dueDate !== undefined) {
+    if (data.dueDate === null) {
+      updates.dueDate = null;
+    } else if (isNonEmptyString(data.dueDate) && !isNaN(new Date(data.dueDate).getTime())) {
+      updates.dueDate = data.dueDate;
+    } else {
+      return null;
+    }
   }
 
   return { milestoneId: data.milestoneId as string, taskId: data.taskId as string, updates };
+}
+
+function validateTaskCreated(data: Record<string, unknown>): {
+  milestoneId: string;
+  task: TaskSimple;
+} | null {
+  if (!isNonEmptyString(data.milestoneId)) return null;
+  const raw = data.task as Record<string, unknown> | undefined;
+  if (!raw || typeof raw !== "object") return null;
+  if (!isNonEmptyString(raw.id) || !isNonEmptyString(raw.title)) return null;
+
+  const status = VALID_TASK_STATUSES.has(raw.status as string) ? (raw.status as string) : "todo";
+  const priority = VALID_PRIORITIES.has(raw.priority as string) ? (raw.priority as string) : "medium";
+  const assignees = raw.assignees !== undefined ? (validateAssignees(raw.assignees) ?? []) : [];
+  const dueDate =
+    raw.dueDate === null || raw.dueDate === undefined
+      ? null
+      : isNonEmptyString(raw.dueDate) && !isNaN(new Date(raw.dueDate).getTime())
+      ? raw.dueDate
+      : null;
+
+  return {
+    milestoneId: data.milestoneId,
+    task: {
+      id: raw.id,
+      title: raw.title,
+      status,
+      priority,
+      storyPoints: typeof raw.storyPoints === "number" ? raw.storyPoints : null,
+      assignees,
+      dueDate,
+    },
+  };
 }
 
 function validateCardUpdated(data: Record<string, unknown>): {
@@ -150,7 +206,11 @@ function validateCursorMoved(data: Record<string, unknown>): CursorUpdate | null
     update.userColor = data.userColor as string;
   }
   if (isNonEmptyString(data.userImage)) update.userImage = data.userImage as string;
-  if (isNonEmptyString(data.selectedCardId)) update.selectedCardId = data.selectedCardId as string;
+  if (data.selectedCardId === null) {
+    update.selectedCardId = null;
+  } else if (isNonEmptyString(data.selectedCardId)) {
+    update.selectedCardId = data.selectedCardId as string;
+  }
 
   return update;
 }
@@ -159,11 +219,19 @@ function validateCursorMoved(data: Record<string, unknown>): CursorUpdate | null
 export function useWebSocket(workspaceId: string | null) {
   const { data: session } = useSession();
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isConnectingRef = useRef(false);
   const attemptsRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
   const connectRef = useRef<() => void>(() => {});
+  const hasConnectedOnceRef = useRef(false);
+
+  const wsUrlEnv = process.env.NEXT_PUBLIC_WS_URL;
+  const isConfigured = Boolean(wsUrlEnv && isAllowedWsUrl(wsUrlEnv));
+
+  const [connectionState, setConnectionState] = useState<WebSocketConnectionState>(() =>
+    isConfigured ? "connecting" : "disabled"
+  );
 
   const sessionToken = (session as { accessToken?: string })?.accessToken ?? session?.user?.id ?? null;
   useEffect(() => {
@@ -172,13 +240,24 @@ export function useWebSocket(workspaceId: string | null) {
     }
   }, [sessionToken]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
     const activeToken = tokenRef.current ?? sessionToken;
-    if (!wsUrl || !workspaceId || !activeToken) return;
+    if (!wsUrl) {
+      setConnectionState("disabled");
+      return;
+    }
+    if (!isAllowedWsUrl(wsUrl)) {
+      console.warn(
+        "[useWebSocket] NEXT_PUBLIC_WS_URL must use wss:// (or ws://localhost / ws://127.0.0.1 in local development). Real-time sync disabled."
+      );
+      setConnectionState("disabled");
+      return;
+    }
+    if (!workspaceId || !activeToken) return;
 
-    if (!wsUrl.startsWith("wss://")) {
-      console.warn("[useWebSocket] NEXT_PUBLIC_WS_URL must use wss:// (TLS is required in all environments). Real-time sync disabled. For local development with a self-signed cert, set NODE_TLS_REJECT_UNAUTHORIZED=0 on the server process and use wss:// against your local backend.");
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setConnectionState("offline");
       return;
     }
 
@@ -187,11 +266,17 @@ export function useWebSocket(workspaceId: string | null) {
       wsRef.current &&
       (wsRef.current.readyState === WebSocket.CONNECTING ||
         wsRef.current.readyState === WebSocket.OPEN)
-    ) return;
+    ) {
+      return;
+    }
 
-    if (attemptsRef.current >= MAX_ATTEMPTS) return;
+    if (attemptsRef.current >= MAX_ATTEMPTS) {
+      setConnectionState("offline");
+      return;
+    }
 
     isConnectingRef.current = true;
+    setConnectionState(hasConnectedOnceRef.current || attemptsRef.current > 0 ? "reconnecting" : "connecting");
 
     try {
       const ws = new WebSocket(wsUrl);
@@ -200,6 +285,8 @@ export function useWebSocket(workspaceId: string | null) {
       ws.onopen = () => {
         isConnectingRef.current = false;
         attemptsRef.current = 0;
+        hasConnectedOnceRef.current = true;
+        setConnectionState("connected");
         ws.send(JSON.stringify({
           type: "join",
           workspaceId,
@@ -222,6 +309,21 @@ export function useWebSocket(workspaceId: string | null) {
                 .getState()
                 .updateTaskInMilestone(validated.milestoneId, validated.taskId, validated.updates);
             }
+          }
+
+          if (data.type === "TASK_CREATED") {
+            const validated = validateTaskCreated(data);
+            if (validated) {
+              useBoardStore
+                .getState()
+                .addTaskToMilestone(validated.milestoneId, validated.task);
+            }
+          }
+
+          if (data.type === "TASK_DELETED" && isNonEmptyString(data.milestoneId) && isNonEmptyString(data.taskId)) {
+            useBoardStore
+              .getState()
+              .removeTaskFromMilestone(data.milestoneId, data.taskId);
           }
 
           if (data.type === "CARD_UPDATED") {
@@ -265,15 +367,19 @@ export function useWebSocket(workspaceId: string | null) {
         wsRef.current = null;
         if (event.code === 1008) {
           tokenRef.current = null;
+          setConnectionState("offline");
           console.warn("[useWebSocket] Connection closed: authentication failed");
           return;
         }
         attemptsRef.current += 1;
         if (attemptsRef.current < MAX_ATTEMPTS) {
+          setConnectionState("reconnecting");
           const delay = getReconnectDelayMs(attemptsRef.current);
           reconnectTimeoutRef.current = setTimeout(() => {
             connectRef.current();
           }, delay);
+        } else {
+          setConnectionState("offline");
         }
       };
 
@@ -291,10 +397,13 @@ export function useWebSocket(workspaceId: string | null) {
       wsRef.current = null;
       attemptsRef.current += 1;
       if (attemptsRef.current < MAX_ATTEMPTS) {
+        setConnectionState("reconnecting");
         const delay = getReconnectDelayMs(attemptsRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
           connectRef.current();
         }, delay);
+      } else {
+        setConnectionState("offline");
       }
     }
   }, [workspaceId, sessionToken]);
@@ -302,6 +411,44 @@ export function useWebSocket(workspaceId: string | null) {
   useEffect(() => {
     connectRef.current = connect;
   }, [connect]);
+
+  // Manual reconnect (resets retry counter and cancels pending backoff timer)
+  const reconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    attemptsRef.current = 0;
+    isConnectingRef.current = false;
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onclose = null;
+      wsRef.current.onerror = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    connectRef.current();
+  }, []);
+
+  // Reconnect automatically when browser connectivity returns
+  useEffect(() => {
+    if (!isConfigured || !workspaceId) return;
+
+    function handleOnline() {
+      reconnect();
+    }
+    function handleOffline() {
+      setConnectionState("offline");
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [isConfigured, workspaceId, reconnect]);
 
   // Clean up idle cursors after 8 seconds of inactivity
   useEffect(() => {
@@ -317,11 +464,15 @@ export function useWebSocket(workspaceId: string | null) {
     if (!workspaceId || !activeToken) return;
 
     attemptsRef.current = 0;
+    hasConnectedOnceRef.current = false;
     connect();
 
     return () => {
       isConnectingRef.current = false;
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.onopen = null;
         wsRef.current.onmessage = null;
@@ -330,6 +481,7 @@ export function useWebSocket(workspaceId: string | null) {
         wsRef.current.close();
         wsRef.current = null;
       }
+      useCursorStore.getState().reset();
     };
   }, [connect, workspaceId, sessionToken]);
 
@@ -339,6 +491,5 @@ export function useWebSocket(workspaceId: string | null) {
     }
   }, []);
 
-  return { sendEvent };
+  return { sendEvent, connectionState, reconnect };
 }
-

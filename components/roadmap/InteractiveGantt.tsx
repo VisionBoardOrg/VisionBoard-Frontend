@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import {
   TimeScale,
   GanttMilestone,
+  getPixelsPerDay,
   getTimelineBounds,
   generateTimeHeaders,
   dateToPixel,
@@ -17,12 +18,15 @@ import {
 import { GanttDependencyLayer, MilestonePosition } from "./GanttDependencyLayer";
 import { MilestoneDetailDrawer } from "./MilestoneDetailDrawer";
 import { CascadePromptModal } from "./CascadePromptModal";
+import { useToast } from "@/context/ToastContext";
 import {
   ChevronDown,
   ChevronRight,
   Plus,
   Target,
   Compass,
+  Calendar,
+  CheckCircle2,
 } from "lucide-react";
 
 export interface GoalGroup {
@@ -42,8 +46,19 @@ interface InteractiveGanttProps {
   showBaseline: boolean;
   filterStatus?: string;
   searchQuery?: string;
+  initialSelectedMilestoneId?: string;
   onRefreshData?: () => void;
   onAddMilestoneClick?: (goalId: string) => void;
+}
+
+interface DragState {
+  type: "move" | "resize-left" | "resize-right";
+  milestoneId: string;
+  startX: number;
+  originalStart: Date;
+  originalTarget: Date;
+  currentStart: Date;
+  currentTarget: Date;
 }
 
 const ROW_HEIGHT = 44;
@@ -52,31 +67,35 @@ const SIDEBAR_WIDTH = 260;
 
 const STATUS_THEMES: Record<
   string,
-  { bg: string; border: string; text: string; barBg: string }
+  { bg: string; border: string; text: string; barBg: string; label: string }
 > = {
   completed: {
     bg: "bg-emerald-50",
     border: "border-emerald-300",
     text: "text-emerald-800",
     barBg: "bg-emerald-500",
+    label: "Completed",
   },
   in_progress: {
     bg: "bg-blue/15",
     border: "border-blue/40",
     text: "text-blue",
     barBg: "bg-blue",
+    label: "In Progress",
   },
   planned: {
     bg: "bg-slate-100",
     border: "border-slate-300",
     text: "text-slate-700",
     barBg: "bg-slate-500",
+    label: "Planned",
   },
   delayed: {
     bg: "bg-rose-50",
     border: "border-rose-300",
     text: "text-rose-800",
     barBg: "bg-rose-500",
+    label: "Delayed",
   },
 };
 
@@ -88,16 +107,19 @@ export function InteractiveGantt({
   showBaseline,
   filterStatus,
   searchQuery = "",
+  initialSelectedMilestoneId,
   onRefreshData,
   onAddMilestoneClick,
 }: InteractiveGanttProps) {
+  const { toast } = useToast();
   const [goals, setGoals] = useState<GoalGroup[]>(initialGoals);
 
   useEffect(() => {
     setGoals(initialGoals);
   }, [initialGoals]);
+
   const [collapsedGoals, setCollapsedGoals] = useState<Set<string>>(new Set());
-  const [selectedMilestone, setSelectedMilestone] = useState<GanttMilestone | null>(null);
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Cascade prompt state
@@ -112,18 +134,14 @@ export function InteractiveGantt({
   const [isSubmittingCascade, setIsSubmittingCascade] = useState(false);
 
   // Dragging & Resizing interaction state
-  const [dragState, setDragState] = useState<{
-    type: "move" | "resize-left" | "resize-right";
-    milestoneId: string;
-    startX: number;
-    originalStart: Date;
-    originalTarget: Date;
-    currentStart: Date;
-    currentTarget: Date;
-  } | null>(null);
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStateRef = useRef<DragState | null>(null);
+  const didDragRef = useRef(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollableTimelineRef = useRef<HTMLDivElement>(null);
+  const lastAutoOpenedIdRef = useRef<string | undefined>(undefined);
 
   // Flatten all milestones across goals
   const allMilestones = useMemo(() => {
@@ -131,6 +149,31 @@ export function InteractiveGantt({
       g.milestones.map((m) => ({ ...m, goalId: g.id, goalTitle: g.title }))
     );
   }, [goals]);
+
+  const selectedMilestone = useMemo(
+    () => (selectedMilestoneId ? allMilestones.find((m) => m.id === selectedMilestoneId) ?? null : null),
+    [allMilestones, selectedMilestoneId]
+  );
+
+  // Auto-open drawer when navigated with ?milestoneId=...
+  useEffect(() => {
+    if (
+      initialSelectedMilestoneId &&
+      initialSelectedMilestoneId !== lastAutoOpenedIdRef.current
+    ) {
+      const match = allMilestones.find((m) => m.id === initialSelectedMilestoneId);
+      if (match) {
+        lastAutoOpenedIdRef.current = initialSelectedMilestoneId;
+        setSelectedMilestoneId(match.id);
+        setIsDrawerOpen(true);
+      }
+    }
+  }, [initialSelectedMilestoneId, allMilestones]);
+
+  const openMilestoneDrawer = useCallback((ms: GanttMilestone) => {
+    setSelectedMilestoneId(ms.id);
+    setIsDrawerOpen(true);
+  }, []);
 
   // Filtered milestones based on search and status filters
   const filteredGoals = useMemo(() => {
@@ -194,7 +237,6 @@ export function InteractiveGantt({
     let currentTop = 0;
 
     for (const goal of filteredGoals) {
-      // Goal header row
       currentTop += GOAL_HEADER_HEIGHT;
 
       if (!collapsedGoals.has(goal.id)) {
@@ -244,53 +286,60 @@ export function InteractiveGantt({
     }
   }, [todayPixel]);
 
-  // Initial scroll to today or first milestone on mount
+  // Initial scroll to today on mount
   useEffect(() => {
     scrollToToday();
   }, [scrollToToday]);
 
-  // ── Drag & Resize Mouse Handlers ──────────────────────────────────────────
-
-  function startDrag(
-    e: React.MouseEvent,
-    milestone: GanttMilestone,
-    type: "move" | "resize-left" | "resize-right"
-  ) {
-    e.stopPropagation();
-    e.preventDefault();
-
-    const start = normalizeDate(milestone.startDate) || normalizeDate(milestone.targetDate) || new Date();
-    const target = normalizeDate(milestone.targetDate) || addDays(start, 7);
-
-    setDragState({
-      type,
-      milestoneId: milestone.id,
-      startX: e.clientX,
-      originalStart: start,
-      originalTarget: target,
-      currentStart: start,
-      currentTarget: target,
-    });
-  }
-
   // Direct single milestone update
   const updateMilestoneDirect = useCallback(
     async (id: string, data: Partial<GanttMilestone>): Promise<void> => {
-      // Optimistic UI update
-      setGoals((prevGoals) =>
-        prevGoals.map((g) => ({
+      let previousGoals: GoalGroup[] = [];
+      setGoals((prevGoals) => {
+        previousGoals = prevGoals;
+        // Handle potential goal reassignment as well as in-place edits
+        if (data.goalId) {
+          let movedMilestone: GanttMilestone | null = null;
+          const stripped = prevGoals.map((g) => {
+            const found = g.milestones.find((m) => m.id === id);
+            if (found) movedMilestone = { ...found, ...data };
+            return {
+              ...g,
+              milestones: g.milestones.filter((m) => m.id !== id),
+            };
+          });
+          if (movedMilestone) {
+            const target = movedMilestone;
+            return stripped.map((g) =>
+              g.id === data.goalId
+                ? { ...g, milestones: [...g.milestones, target] }
+                : g
+            );
+          }
+        }
+        return prevGoals.map((g) => ({
           ...g,
           milestones: g.milestones.map((m) => (m.id === id ? { ...m, ...data } : m)),
-        }))
-      );
+        }));
+      });
 
       try {
         const res = await fetch(`/api/milestones/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            startDate: data.startDate ? new Date(data.startDate).toISOString() : undefined,
-            targetDate: data.targetDate ? new Date(data.targetDate).toISOString() : undefined,
+            startDate:
+              data.startDate !== undefined
+                ? data.startDate
+                  ? new Date(data.startDate).toISOString()
+                  : null
+                : undefined,
+            targetDate:
+              data.targetDate !== undefined
+                ? data.targetDate
+                  ? new Date(data.targetDate).toISOString()
+                  : null
+                : undefined,
             title: data.title,
             description: data.description,
             status: data.status,
@@ -300,86 +349,209 @@ export function InteractiveGantt({
         });
 
         if (!res.ok) {
-          console.error("Failed to update milestone on server");
+          const errData = await res.json().catch(() => ({}));
+          const msg = errData.error || "Failed to update milestone.";
+          setGoals(previousGoals);
+          toast({ title: "Milestone update failed", description: msg, type: "error" });
+          onRefreshData?.();
+          throw new Error(msg);
+        }
+        onRefreshData?.();
+      } catch (err) {
+        if (!(err instanceof Error && err.message)) {
+          setGoals(previousGoals);
+          toast({
+            title: "Milestone update failed",
+            description: "Network error while updating milestone.",
+            type: "error",
+          });
           onRefreshData?.();
         }
-      } catch (err) {
-        console.error("Milestone update error:", err);
-        onRefreshData?.();
+        throw err;
       }
     },
-    [onRefreshData]
+    [onRefreshData, toast]
   );
 
+  // Toggle linked task status inside MilestoneDetailDrawer
+  const handleToggleTask = useCallback(
+    async (taskId: string, newStatus: string): Promise<void> => {
+      let previousGoals: GoalGroup[] = [];
+      setGoals((prev) => {
+        previousGoals = prev;
+        return prev.map((g) => ({
+          ...g,
+          milestones: g.milestones.map((m) => ({
+            ...m,
+            tasks: m.tasks?.map((t) =>
+              t.id === taskId ? { ...t, status: newStatus } : t
+            ),
+          })),
+        }));
+      });
+
+      try {
+        const res = await fetch(`/api/tasks/${taskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          setGoals(previousGoals);
+          toast({
+            title: "Could not update task",
+            description: errData.error || "Please try again.",
+            type: "error",
+          });
+          return;
+        }
+        onRefreshData?.();
+      } catch {
+        setGoals(previousGoals);
+        toast({
+          title: "Could not update task",
+          description: "Network error while updating task status.",
+          type: "error",
+        });
+      }
+    },
+    [onRefreshData, toast]
+  );
+
+  // Refs to avoid re-binding pointer listeners every frame during drag
+  const allMilestonesRef = useRef(allMilestones);
+  const timeScaleRef = useRef(timeScale);
+  const updateMilestoneDirectRef = useRef(updateMilestoneDirect);
+
   useEffect(() => {
-    if (!dragState) return;
+    allMilestonesRef.current = allMilestones;
+  }, [allMilestones]);
+
+  useEffect(() => {
+    timeScaleRef.current = timeScale;
+  }, [timeScale]);
+
+  useEffect(() => {
+    updateMilestoneDirectRef.current = updateMilestoneDirect;
+  }, [updateMilestoneDirect]);
+
+  // ── Drag & Resize Pointer Handlers ────────────────────────────────────────
+
+  function startDrag(
+    e: React.PointerEvent,
+    milestone: GanttMilestone,
+    type: "move" | "resize-left" | "resize-right"
+  ) {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    e.stopPropagation();
+
+    const start =
+      normalizeDate(milestone.startDate) || normalizeDate(milestone.targetDate) || new Date();
+    const target = normalizeDate(milestone.targetDate) || addDays(start, 7);
+
+    didDragRef.current = false;
+    const initial: DragState = {
+      type,
+      milestoneId: milestone.id,
+      startX: e.clientX,
+      originalStart: start,
+      originalTarget: target,
+      currentStart: start,
+      currentTarget: target,
+    };
+    dragStateRef.current = initial;
+    setDragState(initial);
+    setIsDragging(true);
+  }
+
+  useEffect(() => {
+    if (!isDragging) return;
 
     let rafId: number | null = null;
 
-    function handleMouseMove(e: MouseEvent) {
-      if (!dragState) return;
+    function handlePointerMove(e: PointerEvent) {
+      const activeDrag = dragStateRef.current;
+      if (!activeDrag) return;
+
+      const deltaX = e.clientX - activeDrag.startX;
+      if (Math.abs(deltaX) > 4) {
+        didDragRef.current = true;
+      }
 
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
 
       rafId = requestAnimationFrame(() => {
-        const deltaX = e.clientX - dragState.startX;
-        const daysDelta = Math.round(
-          deltaX / (timeScale === "day" ? 44 : timeScale === "week" ? 16 : 5.3)
-        );
+        const current = dragStateRef.current;
+        if (!current) return;
 
-        if (dragState.type === "move") {
-          const nextStart = addDays(dragState.originalStart, daysDelta);
-          const nextTarget = addDays(dragState.originalTarget, daysDelta);
-          setDragState((prev) =>
-            prev ? { ...prev, currentStart: nextStart, currentTarget: nextTarget } : null
-          );
-        } else if (dragState.type === "resize-left") {
-          const nextStart = addDays(dragState.originalStart, daysDelta);
-          if (nextStart < dragState.originalTarget) {
-            setDragState((prev) => (prev ? { ...prev, currentStart: nextStart } : null));
+        const pxPerDay = getPixelsPerDay(timeScaleRef.current);
+        const daysDelta = Math.round(deltaX / pxPerDay);
+
+        let nextStart = current.currentStart;
+        let nextTarget = current.currentTarget;
+
+        if (current.type === "move") {
+          nextStart = addDays(current.originalStart, daysDelta);
+          nextTarget = addDays(current.originalTarget, daysDelta);
+        } else if (current.type === "resize-left") {
+          const candidate = addDays(current.originalStart, daysDelta);
+          if (candidate < current.originalTarget) {
+            nextStart = candidate;
           }
-        } else if (dragState.type === "resize-right") {
-          const nextTarget = addDays(dragState.originalTarget, daysDelta);
-          if (nextTarget > dragState.originalStart) {
-            setDragState((prev) => (prev ? { ...prev, currentTarget: nextTarget } : null));
+        } else if (current.type === "resize-right") {
+          const candidate = addDays(current.originalTarget, daysDelta);
+          if (candidate > current.originalStart) {
+            nextTarget = candidate;
           }
         }
+
+        const updated: DragState = {
+          ...current,
+          currentStart: nextStart,
+          currentTarget: nextTarget,
+        };
+        dragStateRef.current = updated;
+        setDragState(updated);
       });
     }
 
-    async function handleMouseUp() {
+    async function handlePointerUp() {
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
       }
-      if (!dragState) return;
+      const activeDrag = dragStateRef.current;
+      dragStateRef.current = null;
+      setDragState(null);
+      setIsDragging(false);
+
+      if (!activeDrag) return;
 
       const { milestoneId, currentStart, currentTarget, originalStart, originalTarget } =
-        dragState;
+        activeDrag;
 
-      // Check if dates actually changed
       const hasChanged =
         diffDays(currentStart, originalStart) !== 0 ||
         diffDays(currentTarget, originalTarget) !== 0;
 
-      setDragState(null);
-
       if (!hasChanged) return;
 
-      const targetMilestone = allMilestones.find((m) => m.id === milestoneId);
+      const currentMilestones = allMilestonesRef.current;
+      const targetMilestone = currentMilestones.find((m) => m.id === milestoneId);
       if (!targetMilestone) return;
 
       // Compute cascade shifts
       const shifts = calculateCascadeShifts(
-        allMilestones,
+        currentMilestones,
         milestoneId,
         currentStart,
         currentTarget
       );
 
       if (shifts.length > 0) {
-        // Prompt user to cascade
         setCascadeShifts(shifts);
         setPendingCascadeMilestone({
           id: milestoneId,
@@ -389,22 +561,28 @@ export function InteractiveGantt({
         });
         setIsCascadeModalOpen(true);
       } else {
-        // Direct single milestone update
-        await updateMilestoneDirect(milestoneId, {
-          startDate: currentStart,
-          targetDate: currentTarget,
-        });
+        try {
+          await updateMilestoneDirectRef.current(milestoneId, {
+            startDate: currentStart,
+            targetDate: currentTarget,
+          });
+        } catch {
+          // Error already toasted in updateMilestoneDirect
+        }
       }
     }
 
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
 
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
-  }, [dragState, allMilestones, timeScale, updateMilestoneDirect]);
+  }, [isDragging]);
 
   // Handle Cascade shifts batch apply
   async function handleApplyCascade() {
@@ -438,12 +616,27 @@ export function InteractiveGantt({
         setIsCascadeModalOpen(false);
         setCascadeShifts([]);
         setPendingCascadeMilestone(null);
+        toast({
+          title: "Cascade rescheduled",
+          description: `Updated ${payloadShifts.length} milestone${payloadShifts.length === 1 ? "" : "s"}.`,
+          type: "success",
+        });
         onRefreshData?.();
       } else {
-        alert("Failed to apply cascade rescheduling.");
+        const errData = await res.json().catch(() => ({}));
+        toast({
+          title: "Cascade reschedule failed",
+          description: errData.error || "Failed to apply cascade rescheduling.",
+          type: "error",
+        });
       }
     } catch (err) {
       console.error("Cascade reschedule error:", err);
+      toast({
+        title: "Cascade reschedule failed",
+        description: "Network error while applying cascade rescheduling.",
+        type: "error",
+      });
     } finally {
       setIsSubmittingCascade(false);
     }
@@ -451,19 +644,37 @@ export function InteractiveGantt({
 
   // Handle delete milestone
   async function handleDeleteMilestone(id: string): Promise<void> {
-    setGoals((prev) =>
-      prev.map((g) => ({
+    let previousGoals: GoalGroup[] = [];
+    setGoals((prev) => {
+      previousGoals = prev;
+      return prev.map((g) => ({
         ...g,
         milestones: g.milestones.filter((m) => m.id !== id),
-      }))
-    );
+      }));
+    });
 
     try {
-      await fetch(`/api/milestones/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/milestones/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const msg = errData.error || "Failed to delete milestone.";
+        setGoals(previousGoals);
+        toast({ title: "Delete failed", description: msg, type: "error" });
+        onRefreshData?.();
+        throw new Error(msg);
+      }
       onRefreshData?.();
     } catch (err) {
-      console.error("Delete milestone error:", err);
-      onRefreshData?.();
+      if (!(err instanceof Error && err.message)) {
+        setGoals(previousGoals);
+        toast({
+          title: "Delete failed",
+          description: "Network error while deleting milestone.",
+          type: "error",
+        });
+        onRefreshData?.();
+      }
+      throw err;
     }
   }
 
@@ -472,8 +683,134 @@ export function InteractiveGantt({
       ref={containerRef}
       className="bg-white rounded-2xl border border-border overflow-hidden shadow-xs flex flex-col select-none"
     >
-      {/* Scrollable Layout Container: Fixed Sidebar + Timeline Grid */}
-      <div className="flex flex-1 overflow-hidden relative">
+      {/* ── Mobile Stacked Timeline Fallback (<md) ──────────────────────────── */}
+      <div className="md:hidden divide-y divide-border">
+        {filteredGoals.length === 0 ? (
+          <div className="p-8 text-center text-xs text-muted space-y-2">
+            <Target size={22} className="text-slate-300 mx-auto" aria-hidden="true" />
+            <p className="font-medium text-slate">No goals to display.</p>
+            <p className="text-[11px] text-muted">
+              Create a goal or generate a roadmap with AI to get started.
+            </p>
+          </div>
+        ) : (
+          filteredGoals.map((goal) => {
+            const isCollapsed = collapsedGoals.has(goal.id);
+            const completedCount = goal.milestones.filter((m) => m.status === "completed").length;
+            const progressPct =
+              goal.milestones.length > 0
+                ? Math.round((completedCount / goal.milestones.length) * 100)
+                : 0;
+
+            return (
+              <div key={`mobile-goal-${goal.id}`} className="bg-white">
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-50/70 gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                    onClick={() => toggleGoalCollapse(goal.id)}
+                    className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight size={15} className="text-muted shrink-0" aria-hidden="true" />
+                    ) : (
+                      <ChevronDown size={15} className="text-muted shrink-0" aria-hidden="true" />
+                    )}
+                    <Target size={14} className="text-blue shrink-0" aria-hidden="true" />
+                    <span className="font-bold text-ink text-xs truncate">{goal.title}</span>
+                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-semibold text-muted bg-white border border-border px-1.5 py-0.5 rounded-md">
+                      {progressPct}%
+                    </span>
+                    {onAddMilestoneClick && (
+                      <button
+                        type="button"
+                        onClick={() => onAddMilestoneClick(goal.id)}
+                        aria-label={`Add milestone to ${goal.title}`}
+                        className="p-1.5 text-muted hover:text-blue hover:bg-white rounded-lg transition-colors cursor-pointer"
+                      >
+                        <Plus size={14} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {!isCollapsed && (
+                  <div className="p-3 space-y-2">
+                    {goal.milestones.length === 0 ? (
+                      <p className="text-xs text-muted italic px-2 py-2">No milestones yet.</p>
+                    ) : (
+                      goal.milestones.map((ms) => {
+                        const isCritical =
+                          highlightCriticalPath && criticalMilestoneIds.has(ms.id);
+                        const theme = STATUS_THEMES[ms.status] || STATUS_THEMES.planned;
+                        const s = normalizeDate(ms.startDate);
+                        const t = normalizeDate(ms.targetDate);
+                        const doneTasks = ms.tasks?.filter((x) => x.status === "done").length ?? 0;
+                        const totalTasks = ms.tasks?.length ?? 0;
+
+                        return (
+                          <button
+                            key={`mobile-ms-${ms.id}`}
+                            type="button"
+                            onClick={() => openMilestoneDrawer(ms)}
+                            className={`w-full text-left rounded-xl border p-3 transition-colors hover:bg-blue-faint/20 cursor-pointer ${
+                              isCritical ? "border-rose-300 bg-rose-50/40" : "border-border bg-white"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={`w-2 h-2 rounded-full shrink-0 ${theme.barBg}`}
+                                  aria-hidden="true"
+                                />
+                                <span className="text-xs font-bold text-ink truncate">
+                                  {ms.title}
+                                </span>
+                              </div>
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${theme.bg} ${theme.border} ${theme.text}`}
+                              >
+                                {theme.label}
+                              </span>
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate">
+                              {(s || t) && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Calendar size={11} className="text-muted" aria-hidden="true" />
+                                  {s ? s.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "TBD"}
+                                  {" – "}
+                                  {t ? t.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "TBD"}
+                                </span>
+                              )}
+                              {totalTasks > 0 && (
+                                <span className="inline-flex items-center gap-1">
+                                  <CheckCircle2 size={11} className="text-emerald-600" aria-hidden="true" />
+                                  {doneTasks}/{totalTasks} tasks
+                                </span>
+                              )}
+                              {isCritical && (
+                                <span className="text-[10px] font-bold uppercase text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md">
+                                  Critical Path
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* ── Desktop Scrollable Layout Container: Fixed Sidebar + Timeline Grid ── */}
+      <div className="hidden md:flex flex-1 overflow-hidden relative">
         {/* ── 1. Left Sidebar: Goals & Milestones Tree ────────────────────────── */}
         <div
           className="shrink-0 border-r border-border bg-slate-50/50 flex flex-col z-20"
@@ -483,11 +820,12 @@ export function InteractiveGantt({
           <div className="h-16 px-4 border-b border-border flex items-center justify-between bg-slate-50 font-bold text-xs text-ink uppercase tracking-wider">
             <span>Goal / Milestone</span>
             <button
+              type="button"
               onClick={scrollToToday}
-              className="text-[11px] font-semibold text-blue hover:text-blue-mid flex items-center gap-1 bg-blue-faint px-2 py-1 rounded-lg transition-colors"
+              className="text-[11px] font-semibold text-blue hover:text-blue-mid flex items-center gap-1 bg-blue-faint px-2 py-1 rounded-lg transition-colors cursor-pointer"
               title="Jump timeline to Today"
             >
-              <Compass size={12} /> Today
+              <Compass size={12} aria-hidden="true" /> Today
             </button>
           </div>
 
@@ -495,9 +833,11 @@ export function InteractiveGantt({
           <div className="overflow-hidden">
             {filteredGoals.length === 0 ? (
               <div className="p-6 text-center text-xs text-muted space-y-2">
-                <Target size={20} className="text-slate-300 mx-auto" />
+                <Target size={20} className="text-slate-300 mx-auto" aria-hidden="true" />
                 <p className="font-medium text-slate">No goals to display.</p>
-                <p className="text-[11px] text-muted">Create a goal or generate a roadmap with AI to get started.</p>
+                <p className="text-[11px] text-muted">
+                  Create a goal or generate a roadmap with AI to get started.
+                </p>
               </div>
             ) : (
               filteredGoals.map((goal) => {
@@ -510,21 +850,29 @@ export function InteractiveGantt({
 
                 return (
                   <div key={goal.id} className="border-b border-border last:border-b-0">
-                    {/* Goal Header Row */}
+                    {/* Goal Header Row (clean flex row, no nested interactive elements) */}
                     <div
-                      className="flex items-center justify-between px-3 hover:bg-slate-100/70 transition-colors cursor-pointer"
+                      className="flex items-center justify-between px-3 hover:bg-slate-100/70 transition-colors gap-1"
                       style={{ height: GOAL_HEADER_HEIGHT }}
-                      onClick={() => toggleGoalCollapse(goal.id)}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <button className="text-muted hover:text-ink p-0.5">
-                          {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                        </button>
-                        <Target size={14} className="text-blue shrink-0" />
+                      <button
+                        type="button"
+                        aria-expanded={!isCollapsed}
+                        onClick={() => toggleGoalCollapse(goal.id)}
+                        className="flex items-center gap-2 min-w-0 flex-1 text-left py-1 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue/40 cursor-pointer"
+                      >
+                        <span className="text-muted p-0.5 shrink-0">
+                          {isCollapsed ? (
+                            <ChevronRight size={14} aria-hidden="true" />
+                          ) : (
+                            <ChevronDown size={14} aria-hidden="true" />
+                          )}
+                        </span>
+                        <Target size={14} className="text-blue shrink-0" aria-hidden="true" />
                         <span className="font-bold text-ink text-xs truncate" title={goal.title}>
                           {goal.title}
                         </span>
-                      </div>
+                      </button>
 
                       <div className="flex items-center gap-1.5 shrink-0">
                         <span className="text-[10px] font-semibold text-muted bg-white border border-border px-1.5 py-0.5 rounded-md">
@@ -532,14 +880,13 @@ export function InteractiveGantt({
                         </span>
                         {onAddMilestoneClick && (
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onAddMilestoneClick(goal.id);
-                            }}
-                            className="p-1 text-muted hover:text-blue hover:bg-white rounded-md transition-colors"
+                            type="button"
+                            onClick={() => onAddMilestoneClick(goal.id)}
+                            aria-label={`Add milestone to ${goal.title}`}
+                            className="p-1 text-muted hover:text-blue hover:bg-white rounded-md transition-colors cursor-pointer"
                             title="Add Milestone"
                           >
-                            <Plus size={13} />
+                            <Plus size={13} aria-hidden="true" />
                           </button>
                         )}
                       </div>
@@ -555,11 +902,16 @@ export function InteractiveGantt({
                           return (
                             <div
                               key={ms.id}
+                              role="button"
+                              tabIndex={0}
                               style={{ height: ROW_HEIGHT }}
-                              className="flex items-center justify-between pl-8 pr-3 border-t border-border/40 hover:bg-blue-faint/30 transition-colors cursor-pointer group"
-                              onClick={() => {
-                                setSelectedMilestone(ms);
-                                setIsDrawerOpen(true);
+                              className="flex items-center justify-between pl-8 pr-3 border-t border-border/40 hover:bg-blue-faint/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue/40 transition-colors cursor-pointer group"
+                              onClick={() => openMilestoneDrawer(ms)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  openMilestoneDrawer(ms);
+                                }
                               }}
                             >
                               <div className="flex items-center gap-2 min-w-0">
@@ -674,8 +1026,7 @@ export function InteractiveGantt({
                 onSelectDependency={(predId) => {
                   const ms = allMilestones.find((m) => m.id === predId);
                   if (ms) {
-                    setSelectedMilestone(ms);
-                    setIsDrawerOpen(true);
+                    openMilestoneDrawer(ms);
                   }
                 }}
               />
@@ -691,7 +1042,6 @@ export function InteractiveGantt({
                       style={{ height: GOAL_HEADER_HEIGHT }}
                       className="border-b border-border/60 bg-slate-50/40 relative"
                     >
-                      {/* Optional Goal Target Marker */}
                       {goal.targetDate && (
                         <div
                           style={{
@@ -699,7 +1049,7 @@ export function InteractiveGantt({
                           }}
                           className="absolute top-1/2 -translate-y-1/2 flex items-center gap-1 bg-white border border-blue/40 text-blue px-2 py-0.5 rounded-full text-[10px] font-bold shadow-2xs z-5"
                         >
-                          <Target size={11} />
+                          <Target size={11} aria-hidden="true" />
                           <span>Goal Target</span>
                         </div>
                       )}
@@ -708,8 +1058,7 @@ export function InteractiveGantt({
                     {/* Milestone Bars */}
                     {!isCollapsed &&
                       goal.milestones.map((ms) => {
-                        const isDraggingCurrent =
-                          dragState?.milestoneId === ms.id;
+                        const isDraggingCurrent = dragState?.milestoneId === ms.id;
 
                         const s = isDraggingCurrent
                           ? dragState.currentStart
@@ -732,8 +1081,7 @@ export function InteractiveGantt({
 
                         // Baseline ghost bar coordinates
                         const hasBaseline =
-                          showBaseline &&
-                          (ms.baselineStartDate || ms.baselineTargetDate);
+                          showBaseline && (ms.baselineStartDate || ms.baselineTargetDate);
                         const bStart =
                           normalizeDate(ms.baselineStartDate) ||
                           normalizeDate(ms.baselineTargetDate);
@@ -765,13 +1113,25 @@ export function InteractiveGantt({
 
                             {/* Main Interactive Milestone Bar */}
                             <div
-                              style={{ left, width }}
-                              onMouseDown={(e) => startDrag(e, ms, "move")}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`${ms.title} (${duration} days, ${theme.label})`}
+                              style={{ left, width, touchAction: "none" }}
+                              onPointerDown={(e) => startDrag(e, ms, "move")}
                               onClick={() => {
-                                setSelectedMilestone(ms);
-                                setIsDrawerOpen(true);
+                                if (didDragRef.current) {
+                                  didDragRef.current = false;
+                                  return;
+                                }
+                                openMilestoneDrawer(ms);
                               }}
-                              className={`absolute h-7 rounded-xl flex items-center justify-between px-2.5 cursor-grab active:cursor-grabbing transition-shadow z-5 shadow-xs border ${
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  openMilestoneDrawer(ms);
+                                }
+                              }}
+                              className={`absolute h-7 rounded-xl flex items-center justify-between px-2.5 cursor-grab active:cursor-grabbing transition-shadow z-5 shadow-xs border focus:outline-none focus-visible:ring-2 focus-visible:ring-blue ${
                                 theme.bg
                               } ${theme.border} ${theme.text} ${
                                 isCritical
@@ -781,7 +1141,8 @@ export function InteractiveGantt({
                             >
                               {/* Left Resize Handle */}
                               <div
-                                onMouseDown={(e) => startDrag(e, ms, "resize-left")}
+                                onPointerDown={(e) => startDrag(e, ms, "resize-left")}
+                                onClick={(e) => e.stopPropagation()}
                                 className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-ink/20 rounded-l-xl transition-colors"
                                 title="Drag to adjust start date"
                               />
@@ -797,13 +1158,14 @@ export function InteractiveGantt({
                               </div>
 
                               {/* Duration Pill */}
-                              <span className="text-[9px] font-semibold opacity-75 shrink-0 ml-1.5 bg-white/70 px-1 py-0.2 rounded">
+                              <span className="text-[9px] font-semibold opacity-75 shrink-0 ml-1.5 bg-white/70 px-1 py-0.2 rounded pointer-events-none">
                                 {duration}d
                               </span>
 
                               {/* Right Resize Handle */}
                               <div
-                                onMouseDown={(e) => startDrag(e, ms, "resize-right")}
+                                onPointerDown={(e) => startDrag(e, ms, "resize-right")}
+                                onClick={(e) => e.stopPropagation()}
                                 className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize hover:bg-ink/20 rounded-r-xl transition-colors"
                                 title="Drag to adjust target date"
                               />
@@ -827,10 +1189,11 @@ export function InteractiveGantt({
         goals={goals.map((g) => ({ id: g.id, title: g.title }))}
         onClose={() => {
           setIsDrawerOpen(false);
-          setSelectedMilestone(null);
+          setSelectedMilestoneId(null);
         }}
         onUpdate={updateMilestoneDirect}
         onDelete={handleDeleteMilestone}
+        onToggleTask={handleToggleTask}
       />
 
       {/* ── 4. Cascade Auto-Scheduling Confirmation Modal ───────────────────── */}
@@ -842,13 +1205,18 @@ export function InteractiveGantt({
         onApplyCascade={handleApplyCascade}
         onApplySingleOnly={async () => {
           if (pendingCascadeMilestone) {
-            await updateMilestoneDirect(pendingCascadeMilestone.id, {
-              startDate: pendingCascadeMilestone.startDate,
-              targetDate: pendingCascadeMilestone.targetDate,
-            });
-            setIsCascadeModalOpen(false);
-            setCascadeShifts([]);
-            setPendingCascadeMilestone(null);
+            try {
+              await updateMilestoneDirect(pendingCascadeMilestone.id, {
+                startDate: pendingCascadeMilestone.startDate,
+                targetDate: pendingCascadeMilestone.targetDate,
+              });
+            } catch {
+              // Error already toasted
+            } finally {
+              setIsCascadeModalOpen(false);
+              setCascadeShifts([]);
+              setPendingCascadeMilestone(null);
+            }
           }
         }}
         onCancel={() => {

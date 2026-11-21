@@ -1,17 +1,19 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Loader2, Info } from "lucide-react";
 import Logo from "@/components/reusables/Logo";
 import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = getSafeCallbackUrl(searchParams.get("callbackUrl"), "/dashboard");
+  const rawCallbackUrl = searchParams.get("callbackUrl");
+  const callbackUrl = getSafeCallbackUrl(rawCallbackUrl, "/dashboard");
+  const messageParam = searchParams.get("message");
   const searchParamError = searchParams.get("error");
   const urlError = searchParamError === "OAuthAccountNotLinked"
     ? "An account already exists with the same email address using a different sign-in method."
@@ -27,41 +29,65 @@ function LoginForm() {
   const [error, setError] = useState(urlError);
   const [deletionEmail, setDeletionEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    setError(urlError);
+  }, [urlError]);
 
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault();
+    if (loading || googleLoading) return;
     setLoading(true);
     setError("");
     setDeletionEmail(null);
 
-    const res = await signIn("credentials", {
-      email: form.email,
-      password: form.password,
-      redirect: false,
-    });
+    try {
+      const res = await signIn("credentials", {
+        email: form.email,
+        password: form.password,
+        redirect: false,
+      });
 
-    if (res?.error) {
-      if (res.error.includes("ACCOUNT_DELETION_SCHEDULED")) {
-        const userEmail = res.error.split("ACCOUNT_DELETION_SCHEDULED:")[1] || form.email;
-        setDeletionEmail(userEmail);
-      } else if (res.error.includes("ACCOUNT_LOCKED")) {
-        const minutes = res.error.split("ACCOUNT_LOCKED:")[1] || "15";
-        setError(`Too many failed attempts. This account is temporarily locked for ${minutes} minutes. Please try again later or reset your password.`);
-      } else if (res.error.includes("RATE_LIMIT_EXCEEDED")) {
-        setError("Too many sign-in attempts from this network. Please wait a few minutes before trying again.");
+      if (res?.error) {
+        if (res.error.includes("ACCOUNT_DELETION_SCHEDULED")) {
+          const userEmail = res.error.split("ACCOUNT_DELETION_SCHEDULED:")[1] || form.email;
+          setDeletionEmail(userEmail);
+        } else if (res.error.includes("ACCOUNT_LOCKED")) {
+          const minutes = res.error.split("ACCOUNT_LOCKED:")[1] || "15";
+          setError(`Too many failed attempts. This account is temporarily locked for ${minutes} minutes. Please try again later or reset your password.`);
+        } else if (res.error.includes("RATE_LIMIT_EXCEEDED")) {
+          setError("Too many sign-in attempts from this network. Please wait a few minutes before trying again.");
+        } else {
+          setError("Invalid email or password.");
+        }
       } else {
-        setError("Invalid email or password.");
+        router.push(callbackUrl);
+        return;
       }
+    } catch {
+      setError("Network error while signing in. Please try again.");
+    } finally {
       setLoading(false);
-    } else {
-      router.push(callbackUrl);
     }
   }
 
   async function handleGoogle() {
-    await signIn("google", { callbackUrl });
+    if (loading || googleLoading) return;
+    setGoogleLoading(true);
+    setError("");
+    try {
+      await signIn("google", { callbackUrl });
+    } catch {
+      setError("Could not start Google sign-in. Please try again.");
+      setGoogleLoading(false);
+    }
   }
+
+  const registerHref = rawCallbackUrl
+    ? `/auth/register?callbackUrl=${encodeURIComponent(callbackUrl)}`
+    : "/auth/register";
 
   return (
     <div className="min-h-screen bg-offwhite flex items-center justify-center p-4">
@@ -76,14 +102,31 @@ function LoginForm() {
         </div>
 
         <div className="bg-white rounded-2xl border border-border p-8 shadow-sm">
+          {messageParam === "account-deleted" && (
+            <div role="status" className="mb-5 flex items-start gap-2.5 bg-blue-faint border border-blue-light rounded-xl px-4 py-3 text-xs text-ink">
+              <Info size={16} className="text-blue shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="space-y-1">
+                <p className="font-semibold">Account scheduled for deletion</p>
+                <p className="text-slate leading-relaxed">
+                  You&apos;ve been signed out and your account will be permanently removed after 30 days. Changed your mind?{" "}
+                  <Link href="/auth/cancel-deletion" className="text-blue font-semibold hover:underline">
+                    Restore your account
+                  </Link>
+                  .
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Google OAuth */}
           <button
             onClick={handleGoogle}
             type="button"
-            className="w-full flex items-center justify-center gap-3 border border-border rounded-xl px-4 py-3 text-sm font-medium text-ink hover:bg-offwhite transition-colors cursor-pointer"
+            disabled={loading || googleLoading}
+            className="w-full flex items-center justify-center gap-3 border border-border rounded-xl px-4 py-3 text-sm font-medium text-ink hover:bg-offwhite transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
-            <GoogleIcon />
-            Continue with Google
+            {googleLoading ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <GoogleIcon />}
+            {googleLoading ? "Redirecting to Google…" : "Continue with Google"}
           </button>
 
           <div className="relative my-6">
@@ -98,17 +141,17 @@ function LoginForm() {
           {/* Credentials */}
           <form onSubmit={handleCredentials} className="space-y-4">
             {deletionEmail ? (
-              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger space-y-1">
+              <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger space-y-1">
                 <p>Your account is scheduled for deletion. Would you like to restore it?</p>
                 <Link
                   href={`/auth/cancel-deletion?email=${encodeURIComponent(deletionEmail)}`}
-                  className="inline-block underline font-semibold text-blue-600 hover:text-blue-700"
+                  className="inline-block underline font-semibold text-blue hover:text-blue-mid"
                 >
-                  Cancel account deletion
+                  Restore your account
                 </Link>
               </div>
             ) : error ? (
-              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
+              <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
                 {error}
               </div>
             ) : null}
@@ -152,19 +195,20 @@ function LoginForm() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors cursor-pointer"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                 </button>
               </div>
             </div>
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60 cursor-pointer"
+              disabled={loading || googleLoading}
+              className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer inline-flex items-center justify-center gap-2"
             >
+              {loading && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
               {loading ? "Signing in…" : "Sign in"}
             </button>
           </form>
@@ -172,7 +216,7 @@ function LoginForm() {
 
         <p className="text-center text-sm text-slate mt-6">
           Don&apos;t have an account?{" "}
-          <Link href="/auth/register" className="text-blue font-medium hover:underline">
+          <Link href={registerHref} className="text-blue font-medium hover:underline">
             Create one
           </Link>
         </p>
@@ -183,7 +227,14 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-offwhite flex items-center justify-center gap-2 text-sm text-slate">
+          <Loader2 size={16} className="animate-spin text-blue" aria-hidden="true" />
+          <span>Loading…</span>
+        </div>
+      }
+    >
       <LoginForm />
     </Suspense>
   );

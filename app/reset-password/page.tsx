@@ -1,15 +1,22 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/reusables/Logo";
-import { CheckCircle2, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
+import { CheckCircle2, Check, Circle, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+    };
+  }, []);
 
   // ── Request mode (no token) ──
   const [email, setEmail] = useState("");
@@ -23,11 +30,16 @@ function ResetPasswordForm() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [resetError, setResetError] = useState("");
+  const [isTokenError, setIsTokenError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const hasMinLength = password.length >= 12;
+  const hasNumberOrSymbol = /[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password);
+
   async function handleRequest(e: React.FormEvent) {
     e.preventDefault();
+    if (requestLoading) return;
     setRequestLoading(true);
     setRequestError("");
     try {
@@ -36,7 +48,7 @@ function ResetPasswordForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setRequestError(data.error || "Something went wrong.");
       } else {
@@ -51,10 +63,18 @@ function ResetPasswordForm() {
 
   async function handleReset(e: React.FormEvent) {
     e.preventDefault();
+    if (resetLoading) return;
+    setIsTokenError(false);
+
+    if (!hasMinLength || !hasNumberOrSymbol) {
+      setResetError("Password must be at least 12 characters and include a number or symbol.");
+      return;
+    }
     if (password !== confirmPassword) {
       setResetError("Passwords do not match.");
       return;
     }
+
     setResetLoading(true);
     setResetError("");
     try {
@@ -63,12 +83,16 @@ function ResetPasswordForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, password }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setResetError(data.error || "Failed to reset password.");
+        const msg: string = data.error || "Failed to reset password.";
+        setResetError(msg);
+        if (/token|expired|invalid|used/i.test(msg) || res.status === 400) {
+          setIsTokenError(true);
+        }
       } else {
         setResetSuccess(true);
-        setTimeout(() => router.push("/auth/login"), 2500);
+        redirectTimerRef.current = setTimeout(() => router.push("/auth/login"), 2500);
       }
     } catch {
       setResetError("Network error. Please try again.");
@@ -99,9 +123,9 @@ function ResetPasswordForm() {
           {!token && (
             <>
               {requestSent ? (
-                <div className="text-center space-y-4">
+                <div role="status" className="text-center space-y-4">
                   <div className="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center mx-auto">
-                    <CheckCircle2 size={24} className="text-success" />
+                    <CheckCircle2 size={24} className="text-success" aria-hidden="true" />
                   </div>
                   <h2 className="font-semibold text-ink">Check your inbox</h2>
                   <p className="text-sm text-slate">
@@ -111,13 +135,13 @@ function ResetPasswordForm() {
                     href="/auth/login"
                     className="inline-flex items-center gap-1.5 text-sm text-blue hover:underline font-medium"
                   >
-                    <ArrowLeft size={14} /> Back to sign in
+                    <ArrowLeft size={14} aria-hidden="true" /> Back to sign in
                   </Link>
                 </div>
               ) : (
                 <form onSubmit={handleRequest} className="space-y-4">
                   {requestError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
+                    <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
                       {requestError}
                     </div>
                   )}
@@ -129,6 +153,7 @@ function ResetPasswordForm() {
                       id="email"
                       type="email"
                       required
+                      autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
@@ -138,9 +163,9 @@ function ResetPasswordForm() {
                   <button
                     type="submit"
                     disabled={requestLoading}
-                    className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                    className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
                   >
-                    {requestLoading && <Loader2 size={14} className="animate-spin" />}
+                    {requestLoading && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
                     {requestLoading ? "Sending…" : "Send reset link"}
                   </button>
                 </form>
@@ -152,20 +177,34 @@ function ResetPasswordForm() {
           {token && (
             <>
               {resetSuccess ? (
-                <div className="text-center space-y-4">
+                <div role="status" className="text-center space-y-4">
                   <div className="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center mx-auto">
-                    <CheckCircle2 size={24} className="text-success" />
+                    <CheckCircle2 size={24} className="text-success" aria-hidden="true" />
                   </div>
                   <h2 className="font-semibold text-ink">Password updated</h2>
                   <p className="text-sm text-slate">
                     Your password has been changed. Redirecting you to sign in…
                   </p>
+                  <Link
+                    href="/auth/login"
+                    className="inline-flex items-center gap-1.5 text-sm text-blue hover:underline font-medium"
+                  >
+                    Sign in now
+                  </Link>
                 </div>
               ) : (
                 <form onSubmit={handleReset} className="space-y-4">
                   {resetError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
-                      {resetError}
+                    <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger space-y-1.5">
+                      <p>{resetError}</p>
+                      {isTokenError && (
+                        <Link
+                          href="/reset-password"
+                          className="inline-block text-xs font-semibold text-blue underline hover:text-blue-mid"
+                        >
+                          Request a new reset link
+                        </Link>
+                      )}
                     </div>
                   )}
                   <div>
@@ -177,21 +216,36 @@ function ResetPasswordForm() {
                         id="password"
                         type={showPassword ? "text" : "password"}
                         required
+                        autoComplete="new-password"
                         minLength={12}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
+                        aria-describedby="reset-password-rules"
                         className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
-                        placeholder="Minimum 12 characters, include a number or symbol"
+                        placeholder="Enter your new password"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors cursor-pointer"
                         aria-label={showPassword ? "Hide password" : "Show password"}
                       >
-                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                       </button>
                     </div>
+                    <p className="text-xs text-slate mt-1.5">
+                      Use a strong password you don&apos;t reuse elsewhere.
+                    </p>
+                    <ul id="reset-password-rules" className="mt-1.5 space-y-1 text-xs">
+                      <li className={`flex items-center gap-1.5 ${hasMinLength ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                        {hasMinLength ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                        <span>At least 12 characters</span>
+                      </li>
+                      <li className={`flex items-center gap-1.5 ${hasNumberOrSymbol ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                        {hasNumberOrSymbol ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                        <span>Includes a number or symbol</span>
+                      </li>
+                    </ul>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="confirm">
@@ -202,6 +256,7 @@ function ResetPasswordForm() {
                         id="confirm"
                         type={showConfirmPassword ? "text" : "password"}
                         required
+                        autoComplete="new-password"
                         minLength={12}
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
@@ -211,19 +266,19 @@ function ResetPasswordForm() {
                       <button
                         type="button"
                         onClick={() => setShowConfirmPassword((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors cursor-pointer"
                         aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
                       >
-                        {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showConfirmPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                       </button>
                     </div>
                   </div>
                   <button
                     type="submit"
                     disabled={resetLoading}
-                    className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                    className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
                   >
-                    {resetLoading && <Loader2 size={14} className="animate-spin" />}
+                    {resetLoading && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
                     {resetLoading ? "Updating…" : "Update password"}
                   </button>
                 </form>
@@ -247,7 +302,14 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-offwhite flex items-center justify-center gap-2 text-sm text-slate">
+          <Loader2 size={16} className="animate-spin text-blue" aria-hidden="true" />
+          <span>Loading…</span>
+        </div>
+      }
+    >
       <ResetPasswordForm />
     </Suspense>
   );

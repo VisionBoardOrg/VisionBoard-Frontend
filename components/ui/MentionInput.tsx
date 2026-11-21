@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { AtSign } from "lucide-react";
+import React, { useState, useEffect, useRef, useId, useCallback } from "react";
+import Image from "next/image";
+import { AtSign, AlertCircle, RefreshCw } from "lucide-react";
 
 export interface WorkspaceMemberMention {
   id: string;
@@ -43,37 +44,42 @@ export function MentionInput({
   disabled = false,
 }: MentionInputProps) {
   const [members, setMembers] = useState<WorkspaceMemberMention[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
+  const listboxId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const optionRefs = useRef<Array<HTMLDivElement | null>>([]);
 
-  // Fetch workspace members once on mount
-  useEffect(() => {
-    let isMounted = true;
-    async function loadMembers() {
-      try {
-        const res = await fetch(`/api/workspaces/${workspaceId}/members`);
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted && data.members) {
-            setMembers(data.members);
-          }
-        }
-      } catch (err) {
-        console.error("[MentionInput] Failed to load members for mentions:", err);
+  // Fetch workspace members
+  const loadMembers = useCallback(async () => {
+    if (!workspaceId) return;
+    setIsLoadingMembers(true);
+    setMembersError(null);
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/members`);
+      if (!res.ok) {
+        setMembersError("Could not load team members.");
+        return;
       }
+      const data = await res.json();
+      setMembers(data.members ?? []);
+    } catch (err) {
+      console.error("[MentionInput] Failed to load members for mentions:", err);
+      setMembersError("Network error loading team members.");
+    } finally {
+      setIsLoadingMembers(false);
     }
-    if (workspaceId) {
-      loadMembers();
-    }
-    return () => {
-      isMounted = false;
-    };
   }, [workspaceId]);
+
+  useEffect(() => {
+    void loadMembers();
+  }, [loadMembers]);
 
   // Filter members by query
   const filteredMembers = members.filter((m) => {
@@ -85,6 +91,20 @@ export function MentionInput({
       m.email.toLowerCase().includes(q)
     );
   });
+
+  const safeSelectedIndex =
+    filteredMembers.length === 0 ? 0 : Math.min(selectedIndex, filteredMembers.length - 1);
+
+  const activeOptionId =
+    isOpen && filteredMembers.length > 0
+      ? `${listboxId}-option-${safeSelectedIndex}`
+      : undefined;
+
+  // Scroll the highlighted option into view
+  useEffect(() => {
+    if (!isOpen) return;
+    optionRefs.current[safeSelectedIndex]?.scrollIntoView({ block: "nearest" });
+  }, [isOpen, safeSelectedIndex]);
 
   // Check if cursor is right after @ trigger on input changes or selection
   function evaluateMentionTrigger(text: string, cursorPos: number) {
@@ -149,29 +169,31 @@ export function MentionInput({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (isOpen && filteredMembers.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev + 1) % filteredMembers.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev - 1 + filteredMembers.length) % filteredMembers.length);
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        const chosen = filteredMembers[selectedIndex];
-        if (chosen) {
-          insertMention(chosen);
-        }
-        return;
-      }
+    if (isOpen) {
       if (e.key === "Escape") {
         e.preventDefault();
         setIsOpen(false);
         return;
+      }
+      if (filteredMembers.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev + 1) % filteredMembers.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev - 1 + filteredMembers.length) % filteredMembers.length);
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          const chosen = filteredMembers[safeSelectedIndex];
+          if (chosen) {
+            insertMention(chosen);
+          }
+          return;
+        }
       }
     }
 
@@ -202,6 +224,11 @@ export function MentionInput({
       <input
         ref={inputRef}
         type="text"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? listboxId : undefined}
+        aria-activedescendant={activeOptionId}
         value={value}
         onChange={handleInputChange}
         onClick={handleInputClick}
@@ -219,24 +246,53 @@ export function MentionInput({
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute bottom-full mb-2 left-0 w-80 max-h-64 bg-white rounded-2xl border border-border shadow-2xl p-1.5 z-50 overflow-y-auto animate-in fade-in zoom-in-95 duration-100"
+          className="absolute bottom-full mb-2 left-0 w-80 max-w-[calc(100vw-2rem)] max-h-64 bg-white rounded-2xl border border-border shadow-2xl p-1.5 z-50 overflow-y-auto animate-in fade-in zoom-in-95 duration-100"
         >
           <div className="px-2.5 py-1.5 border-b border-border/60 flex items-center justify-between text-[11px] font-bold text-slate">
             <span className="flex items-center gap-1.5">
-              <AtSign size={12} className="text-blue" /> Mention team member
+              <AtSign size={12} className="text-blue" aria-hidden="true" /> Mention team member
             </span>
-            <span className="text-[10px] text-muted font-mono">{filteredMembers.length} available</span>
+            <span className="text-[11px] text-slate font-mono">
+              {isLoadingMembers ? "Loading…" : `${filteredMembers.length} available`}
+            </span>
           </div>
 
-          <div className="py-1">
-            {filteredMembers.length > 0 ? (
+          <div id={listboxId} role="listbox" aria-label="Team members" className="py-1">
+            {isLoadingMembers ? (
+              <div className="px-3 py-4 text-center text-xs text-slate" role="status">
+                Loading team members…
+              </div>
+            ) : membersError ? (
+              <div className="px-3 py-3 text-center space-y-2" role="alert">
+                <p className="text-xs text-rose-700 flex items-center justify-center gap-1.5">
+                  <AlertCircle size={13} aria-hidden="true" />
+                  {membersError}
+                </p>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void loadMembers()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-offwhite border border-border text-xs font-semibold text-ink hover:bg-slate-100 transition-colors cursor-pointer"
+                >
+                  <RefreshCw size={11} aria-hidden="true" />
+                  Retry
+                </button>
+              </div>
+            ) : filteredMembers.length > 0 ? (
               filteredMembers.map((m, idx) => {
-                const isSelected = idx === selectedIndex;
+                const isSelected = idx === safeSelectedIndex;
                 const roleBadgeClass = ROLE_BADGE[m.role] || "bg-slate-100 text-slate-600";
 
                 return (
                   <div
                     key={m.id}
+                    ref={(el) => {
+                      optionRefs.current[idx] = el;
+                    }}
+                    id={`${listboxId}-option-${idx}`}
+                    role="option"
+                    aria-selected={isSelected}
+                    onMouseDown={(e) => e.preventDefault()}
                     onMouseEnter={() => setSelectedIndex(idx)}
                     onClick={() => insertMention(m)}
                     className={`flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs cursor-pointer transition-all ${
@@ -247,29 +303,43 @@ export function MentionInput({
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       {/* Avatar */}
-                      <div className="w-6 h-6 rounded-full bg-blue-light flex items-center justify-center text-blue text-[11px] font-bold uppercase shrink-0">
-                        {m.name ? m.name[0] : m.email[0]}
-                      </div>
+                      {m.image ? (
+                        <Image
+                          src={m.image}
+                          alt={m.name || m.email}
+                          width={24}
+                          height={24}
+                          unoptimized
+                          className="w-6 h-6 rounded-full object-cover border border-border shrink-0"
+                        />
+                      ) : (
+                        <div
+                          aria-hidden="true"
+                          className="w-6 h-6 rounded-full bg-blue-light flex items-center justify-center text-blue text-[11px] font-bold uppercase shrink-0"
+                        >
+                          {m.name ? m.name[0] : m.email[0]}
+                        </div>
+                      )}
                       {/* Name & Handle */}
                       <div className="min-w-0">
                         <div className="font-semibold text-ink truncate leading-tight">
                           {m.name || m.email.split("@")[0]}
                         </div>
-                        <div className="text-[10px] text-muted truncate font-mono">
+                        <div className="text-[11px] text-slate truncate font-mono">
                           @{m.handle}
                         </div>
                       </div>
                     </div>
 
                     {/* Role Pill */}
-                    <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-md shrink-0 ${roleBadgeClass}`}>
+                    <span className={`text-[11px] uppercase font-bold px-1.5 py-0.5 rounded-md shrink-0 ${roleBadgeClass}`}>
                       {m.role}
                     </span>
                   </div>
                 );
               })
             ) : (
-              <div className="px-3 py-4 text-center text-xs text-muted">
+              <div className="px-3 py-4 text-center text-xs text-slate">
                 No team member matching <span className="font-mono text-ink font-semibold">@{searchQuery}</span>
               </div>
             )}
@@ -295,7 +365,7 @@ export function renderMentionedBody(body: string) {
       return (
         <span
           key={i}
-          className="inline-flex items-center font-semibold text-blue bg-blue-faint border border-blue-light/60 px-1.5 py-0.2 rounded-md mx-0.5 font-mono text-[13px]"
+          className="inline-flex items-center font-semibold text-blue bg-blue-faint border border-blue-light/60 px-1.5 py-0.5 rounded-md mx-0.5 font-mono text-[13px]"
         >
           {part}
         </span>

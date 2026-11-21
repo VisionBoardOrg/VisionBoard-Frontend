@@ -14,15 +14,18 @@
   /* Neutrals */
   --color-ink: #0F172A;
   --color-slate: #475569;
-  --color-muted: #94A3B8;
+  /* WCAG AA compliant muted text/icon tone (4.76:1 on #FFF, 4.57:1 on #F8FAFF) */
+  --color-muted: #64748B;
+  --color-subtle: #94A3B8;
   --color-border: #E2E8F0;
   --color-offwhite: #F8FAFF;
   --color-white: #FFFFFF;
 
   /* Semantic */
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-danger: #EF4444;
+  --color-success: #059669;
+  --color-warning: #D97706;
+  /* WCAG AA compliant danger fill with white text (4.83:1) */
+  --color-danger: #DC2626;
 
   /* Layout / Shadows */
   --shadow-primary: 0 2px 8px rgba(37,99,235,0.32);
@@ -46,6 +49,24 @@ button:disabled,
 input:disabled,
 select:disabled {
   cursor: not-allowed !important;
+}
+
+/* Global Accessible Keyboard Focus Standard (WCAG 2.4.7) */
+:where(a, button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: 2px;
+}
+
+/* Respect user motion preferences globally (WCAG 2.2.2 / 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Board panel slide-in animation — defined here once to avoid per-mount style injection */

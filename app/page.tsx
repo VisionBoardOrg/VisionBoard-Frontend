@@ -48,11 +48,13 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-offwhite font-sans text-ink">
       <Header />
-      <HomeHero />
-      <FeatureSection1 />
-      <FeatureSection2 />
-      <FeatureSection3 />
-      <BottomCTA />
+      <main id="main-content" tabIndex={-1}>
+        <HomeHero />
+        <FeatureSection1 />
+        <FeatureSection2 />
+        <FeatureSection3 />
+        <BottomCTA />
+      </main>
       <Footer />
     </div>
   );

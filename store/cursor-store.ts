@@ -125,7 +125,11 @@ export const useCursorStore = create<CursorState>((set, get) => ({
         [user.userId]: { ...prev, ...user },
       };
     }
-    const nextActive = activeUsers.map((u) => (u.userId === user.userId ? user : u));
+    const existsInActive = activeUsers.some((u) => u.userId === user.userId);
+    const nextActive = existsInActive
+      ? activeUsers.map((u) => (u.userId === user.userId ? user : u))
+      : activeUsers;
+    if (nextCursors === cursors && nextActive === activeUsers) return;
     set({
       ...(nextCursors !== cursors ? { cursors: nextCursors } : {}),
       ...(nextActive !== activeUsers ? { activeUsers: nextActive } : {}),

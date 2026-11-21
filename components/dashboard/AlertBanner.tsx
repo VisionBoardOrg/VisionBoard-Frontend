@@ -24,12 +24,17 @@ export function AlertBanner({ message, variant = "info", dismissable = true }: A
   const { icon: Icon, bg, border, text, iconColor } = VARIANTS[variant];
 
   return (
-    <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${bg} ${border}`}>
-      <Icon size={16} className={`${iconColor} shrink-0 mt-0.5`} />
+    <div role="status" className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${bg} ${border}`}>
+      <Icon size={16} className={`${iconColor} shrink-0 mt-0.5`} aria-hidden="true" />
       <p className={`text-sm flex-1 ${text}`}>{message}</p>
       {dismissable && (
-        <button onClick={() => setDismissed(true)} className={`${text} opacity-60 hover:opacity-100 transition-opacity`}>
-          <X size={14} />
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          aria-label="Dismiss alert"
+          className={`${text} opacity-60 hover:opacity-100 transition-opacity cursor-pointer`}
+        >
+          <X size={14} aria-hidden="true" />
         </button>
       )}
     </div>

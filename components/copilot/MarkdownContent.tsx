@@ -10,6 +10,15 @@ interface MarkdownContentProps {
   className?: string;
 }
 
+function isSafeHref(rawHref: string): boolean {
+  const trimmed = rawHref.trim();
+  if (!trimmed) return false;
+  // Block protocol-relative URLs like //evil.com
+  if (trimmed.startsWith("//")) return false;
+  // Allow only http:, https:, mailto:, or relative / paths
+  return /^(?:https?:\/\/|mailto:|\/)/i.test(trimmed);
+}
+
 /**
  * Parses inline formatting:
  * - [[cite:entityType:entityId:Title]] -> <CitationBadge />
@@ -90,17 +99,24 @@ function parseInline(text: string, workspaceId?: string): React.ReactNode[] {
     else if (fullMatch.startsWith("[") && fullMatch.includes("](")) {
       const linkMatch = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(fullMatch);
       if (linkMatch) {
-        elements.push(
-          <a
-            key={`link-${start}`}
-            href={linkMatch[2]}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue font-medium hover:underline"
-          >
-            {linkMatch[1]}
-          </a>
-        );
+        const label = linkMatch[1];
+        const href = linkMatch[2].trim();
+        if (isSafeHref(href)) {
+          const isExternal = /^https?:\/\//i.test(href);
+          elements.push(
+            <a
+              key={`link-${start}`}
+              href={href}
+              {...(isExternal ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              className="text-blue font-medium hover:underline"
+            >
+              {label}
+            </a>
+          );
+        } else {
+          // Strip unsafe schemes such as javascript: or data:
+          elements.push(label);
+        }
       } else {
         elements.push(fullMatch);
       }
@@ -175,9 +191,7 @@ function preprocessMarkdown(raw: string): string {
     "$1\n\n"
   );
 
-  // 3. Separate inline bullet points: e.g. "following: * Item 1 * Item 2" -> "following:\n* Item 1\n* Item 2"
-  text = text.replace(/([^\n])\s+([*•\-]\s+)/g, "$1\n$2");
-
+  // Only match list markers at the start of a line (never break normal prose containing " - ")
   return text;
 }
 

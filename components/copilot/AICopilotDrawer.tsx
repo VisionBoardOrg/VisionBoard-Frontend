@@ -23,6 +23,8 @@ import {
   Rocket,
   ExternalLink,
   AlertCircle,
+  Square,
+  MessageSquarePlus,
 } from "lucide-react";
 import { CitationBadge } from "./CitationBadge";
 import { MarkdownContent } from "./MarkdownContent";
@@ -30,6 +32,7 @@ import { BoardActionReceipts } from "./BoardActionReceipts";
 import type { ExecutedBoardAction } from "@/lib/ai/board-action-executor";
 import type { TaskAssigneeSimple } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
+import { useModalA11y } from "@/hooks/useModalA11y";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -83,6 +86,88 @@ interface RoadmapMilestone {
   tasks?: unknown[];
   suggested_tasks?: unknown[];
   dependsOn?: number[];
+}
+
+interface TabError {
+  message: string;
+  isUpgrade?: boolean;
+}
+
+function parseInlineMarkdownToTiptap(text: string): Array<Record<string, unknown>> {
+  const cleaned = text.replace(
+    /\[\[cite:(?:document|goal|milestone|task|comment):[^:]+:([^\]]+)\]\]/gi,
+    "$1"
+  );
+  const nodes: Array<Record<string, unknown>> = [];
+  const regex = /(\*\*[^*]+\*\*)|(`[^`]+`)/g;
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(cleaned)) !== null) {
+    if (match.index > lastIdx) {
+      nodes.push({ type: "text", text: cleaned.slice(lastIdx, match.index) });
+    }
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      nodes.push({ type: "text", text: token.slice(2, -2), marks: [{ type: "bold" }] });
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      nodes.push({ type: "text", text: token.slice(1, -1), marks: [{ type: "code" }] });
+    }
+    lastIdx = match.index + token.length;
+  }
+  if (lastIdx < cleaned.length) {
+    nodes.push({ type: "text", text: cleaned.slice(lastIdx) });
+  }
+  return nodes.length > 0 ? nodes : [{ type: "text", text: " " }];
+}
+
+function markdownToTiptapDoc(markdown: string) {
+  const lines = markdown.split(/\r?\n/);
+  const content: Array<Record<string, unknown>> = [];
+  let bulletItems: Array<Record<string, unknown>> = [];
+
+  const flushBullets = () => {
+    if (bulletItems.length > 0) {
+      content.push({ type: "bulletList", content: bulletItems });
+      bulletItems = [];
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushBullets();
+      continue;
+    }
+    const headingMatch = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (headingMatch) {
+      flushBullets();
+      content.push({
+        type: "heading",
+        attrs: { level: headingMatch[1].length },
+        content: parseInlineMarkdownToTiptap(headingMatch[2]),
+      });
+      continue;
+    }
+    const bulletMatch = /^[-*•]\s+(.+)$/.exec(line);
+    if (bulletMatch) {
+      bulletItems.push({
+        type: "listItem",
+        content: [{ type: "paragraph", content: parseInlineMarkdownToTiptap(bulletMatch[1]) }],
+      });
+      continue;
+    }
+    flushBullets();
+    content.push({
+      type: "paragraph",
+      content: parseInlineMarkdownToTiptap(line),
+    });
+  }
+
+  flushBullets();
+  return {
+    type: "doc",
+    content: content.length > 0 ? content : [{ type: "paragraph", content: [{ type: "text", text: "" }] }],
+  };
 }
 
 function ProgressiveStepIndicator({
@@ -257,26 +342,34 @@ export function AICopilotDrawer({
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [feedbackByMsg, setFeedbackByMsg] = useState<Record<string, "up" | "down">>({});
+  const [chatError, setChatError] = useState<TabError | null>(null);
 
   // Executive Summary State
   const [execSummary, setExecSummary] = useState<string>("");
   const [execLoading, setExecLoading] = useState(false);
+  const [execError, setExecError] = useState<TabError | null>(null);
   const [execSavedDocId, setExecSavedDocId] = useState<string | null>(null);
   const [savingDoc, setSavingDoc] = useState(false);
 
   // Standup State
   const [standupText, setStandupText] = useState<string>("");
   const [standupLoading, setStandupLoading] = useState(false);
+  const [standupError, setStandupError] = useState<TabError | null>(null);
 
   // Knowledge Index Stats
   const [indexStats, setIndexStats] = useState<IndexStats | null>(null);
+  const [indexLoading, setIndexLoading] = useState(false);
+  const [indexError, setIndexError] = useState<TabError | null>(null);
   const [isSyncingKnowledge, setIsSyncingKnowledge] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState(false);
+  const [syncError, setSyncError] = useState<TabError | null>(null);
 
   // Roadmap Generator State
   const [roadmapInput, setRoadmapInput] = useState("");
   const [roadmapLoading, setRoadmapLoading] = useState(false);
   const [roadmapError, setRoadmapError] = useState("");
+  const [roadmapIsUpgrade, setRoadmapIsUpgrade] = useState(false);
   const [roadmapResult, setRoadmapResult] = useState<{
     goalTitle?: string;
     goalObjective?: string;
@@ -292,50 +385,104 @@ export function AICopilotDrawer({
   const [workspaceGoals, setWorkspaceGoals] = useState<GoalOption[]>([]);
   const [goalsLoading, setGoalsLoading] = useState(false);
 
-  // Credits
+  // Credits (synced with server prop updates)
   const [creditsUsed, setCreditsUsed] = useState(aiCreditsUsed);
+  useEffect(() => {
+    setCreditsUsed(aiCreditsUsed);
+  }, [aiCreditsUsed]);
 
+  const isUnlimitedCredits = aiCreditsMax < 0;
+  const isCreditsExhausted = !isUnlimitedCredits && aiCreditsMax > 0 && creditsUsed >= aiCreditsMax;
+  const isCreditsLow =
+    !isUnlimitedCredits && aiCreditsMax > 0 && !isCreditsExhausted && creditsUsed / aiCreditsMax >= 0.8;
+
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const appliedActionIdsRef = useRef<Set<string>>(new Set());
 
-  // Keyboard shortcut listener (Ctrl+J or Cmd+J)
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const execAbortRef = useRef<AbortController | null>(null);
+  const standupAbortRef = useRef<AbortController | null>(null);
+  const roadmapAbortRef = useRef<AbortController | null>(null);
+
+  // Accessible focus trap + Escape close (does not fight nested dialogs)
+  useModalA11y(drawerRef, handleClose, isOpen, {
+    initialFocusRef: activeTab === "chat" ? inputRef : undefined,
+    lockScroll: false,
+  });
+
+  // Keyboard shortcut listener (Ctrl+J or Cmd+J only; Escape handled by useModalA11y)
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         toggleOpen();
       }
-      if (e.key === "Escape" && isOpen) {
-        handleClose();
-      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, toggleOpen, handleClose]);
+  }, [toggleOpen]);
 
-  // Focus input when opened
+  // Abort active requests on unmount
   useEffect(() => {
-    if (isOpen && activeTab === "chat") {
-      setTimeout(() => inputRef.current?.focus(), 150);
-    }
-  }, [isOpen, activeTab]);
+    return () => {
+      chatAbortRef.current?.abort();
+      execAbortRef.current?.abort();
+      standupAbortRef.current?.abort();
+      roadmapAbortRef.current?.abort();
+    };
+  }, []);
 
-  // Scroll to bottom on new message
+  // Track whether user is near the bottom so streaming doesn't hijack scroll
+  const handleMessagesScroll = () => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    shouldAutoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+  };
+
+  // Scroll to bottom on new message only when near bottom
   useEffect(() => {
-    if (activeTab === "chat") {
+    if (activeTab === "chat" && shouldAutoScrollRef.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, activeTab]);
 
+  // Reset conversation ("New Chat")
+  const handleNewChat = () => {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setIsStreaming(false);
+    setMessages([]);
+    setConversationId(undefined);
+    setChatError(null);
+    setFeedbackByMsg({});
+    shouldAutoScrollRef.current = true;
+    inputRef.current?.focus();
+  };
+
   // Fetch index stats when drawer opens or knowledge tab is clicked
   const fetchIndexStats = useCallback(async () => {
+    setIndexLoading(true);
+    setIndexError(null);
     try {
       const res = await fetch(`/api/ai/copilot/index?workspaceId=${workspaceId}`);
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setIndexStats(data.stats);
+      } else {
+        setIndexError({
+          message: data.error || "Failed to load knowledge index statistics.",
+          isUpgrade: res.status === 403,
+        });
       }
-    } catch {}
+    } catch {
+      setIndexError({ message: "Network error while loading knowledge index statistics." });
+    } finally {
+      setIndexLoading(false);
+    }
   }, [workspaceId]);
 
   useEffect(() => {
@@ -348,22 +495,57 @@ export function AICopilotDrawer({
   const handleSyncKnowledge = async () => {
     setIsSyncingKnowledge(true);
     setSyncSuccess(false);
+    setSyncError(null);
     try {
       const res = await fetch("/api/ai/copilot/index", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspaceId }),
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setIndexStats(data.stats);
+        setIndexError(null);
         setSyncSuccess(true);
         setTimeout(() => setSyncSuccess(false), 3500);
+      } else {
+        setSyncError({
+          message: data.error || "Failed to re-index workspace knowledge.",
+          isUpgrade: res.status === 403,
+        });
       }
     } catch {
+      setSyncError({ message: "Network error while synchronizing workspace knowledge." });
     } finally {
       setIsSyncingKnowledge(false);
     }
+  };
+
+  const applyBoardActionsDeduped = useCallback(
+    (actions: ExecutedBoardAction[]) => {
+      const fresh = actions.filter((a) => {
+        if (!a.id) return true;
+        if (appliedActionIdsRef.current.has(a.id)) return false;
+        appliedActionIdsRef.current.add(a.id);
+        return true;
+      });
+      if (fresh.length === 0) return;
+      applyBoardActionsToStore(fresh);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("visionboard:board-updated", { detail: { actions: fresh } })
+        );
+      }
+      router.refresh();
+    },
+    [router]
+  );
+
+  // Stop streaming chat generation
+  const handleStopChat = () => {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setIsStreaming(false);
   };
 
   // Submit chat message
@@ -372,10 +554,11 @@ export function AICopilotDrawer({
     if (!text || isStreaming) return;
 
     setInputValue("");
+    setChatError(null);
+    shouldAutoScrollRef.current = true;
     const userMsgId = `user-${Date.now()}`;
     const assistantMsgId = `asst-${Date.now()}`;
 
-    // Append user message and placeholder assistant message
     setMessages((prev) => [
       ...prev,
       { id: userMsgId, role: "user", content: text },
@@ -383,6 +566,8 @@ export function AICopilotDrawer({
     ]);
 
     setIsStreaming(true);
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
 
     try {
       const res = await fetch("/api/ai/copilot/chat", {
@@ -393,22 +578,18 @@ export function AICopilotDrawer({
           message: text,
           conversationId,
         }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsgId
-              ? { ...m, content: `⚠️ ${errJson.error || "Failed to reach AI Copilot. Please try again."}` }
-              : m
-          )
-        );
+        const errMessage = errJson.error || "Failed to reach AI Copilot. Please try again.";
+        setChatError({ message: errMessage, isUpgrade: res.status === 403 });
+        setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
         setIsStreaming(false);
         return;
       }
 
-      // Read SSE stream
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response body stream.");
 
@@ -465,13 +646,7 @@ export function AICopilotDrawer({
                       : m
                   )
                 );
-                applyBoardActionsToStore(activeBoardActions);
-                if (typeof window !== "undefined") {
-                  window.dispatchEvent(
-                    new CustomEvent("visionboard:board-updated", { detail: { actions: activeBoardActions } })
-                  );
-                }
-                router.refresh();
+                applyBoardActionsDeduped(activeBoardActions);
               } else if (data.type === "done") {
                 if (data.conversationId) setConversationId(data.conversationId);
                 if (data.boardActions && data.boardActions.length > 0) {
@@ -483,13 +658,7 @@ export function AICopilotDrawer({
                         : m
                     )
                   );
-                  applyBoardActionsToStore(activeBoardActions);
-                  if (typeof window !== "undefined") {
-                    window.dispatchEvent(
-                      new CustomEvent("visionboard:board-updated", { detail: { actions: activeBoardActions } })
-                    );
-                  }
-                  router.refresh();
+                  applyBoardActionsDeduped(activeBoardActions);
                 }
               } else if (data.type === "error") {
                 accumulatedText += `\n\n⚠️ ${data.error}`;
@@ -505,15 +674,27 @@ export function AICopilotDrawer({
           }
         }
       }
-    } catch {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantMsgId
-            ? { ...m, content: "⚠️ Network connection interrupted. Please try again." }
-            : m
-        )
-      );
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId && !m.content
+              ? { ...m, content: "_Generation stopped._" }
+              : m
+          )
+        );
+      } else {
+        setChatError({ message: "Network connection interrupted. Please try again." });
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId && !m.content
+              ? { ...m, content: "⚠️ Network connection interrupted. Please try again." }
+              : m
+          )
+        );
+      }
     } finally {
+      chatAbortRef.current = null;
       setIsStreaming(false);
     }
   };
@@ -522,38 +703,63 @@ export function AICopilotDrawer({
   const handleGenerateExecutiveSummary = async () => {
     setExecLoading(true);
     setExecSavedDocId(null);
+    setExecError(null);
+    const controller = new AbortController();
+    execAbortRef.current = controller;
     try {
       const res = await fetch("/api/ai/copilot/executive-summary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspaceId }),
+        signal: controller.signal,
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setExecSummary(data.summary);
         setCreditsUsed((c) => c + 1);
+      } else {
+        setExecError({
+          message: data.error || "Failed to generate executive briefing.",
+          isUpgrade: res.status === 403,
+        });
       }
-    } catch {
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setExecError({ message: "Network error while generating executive briefing." });
+      }
     } finally {
+      execAbortRef.current = null;
       setExecLoading(false);
     }
   };
 
-  // Save Executive Summary to Docs
+  // Save already-generated Executive Summary directly to POST /api/documents (0 extra AI credits!)
   const handleSaveExecToDoc = async () => {
     if (!execSummary || savingDoc) return;
     setSavingDoc(true);
+    setExecError(null);
     try {
-      const res = await fetch("/api/ai/copilot/executive-summary", {
+      const docTitle = `Executive Briefing — ${new Date().toISOString().split("T")[0]}`;
+      const res = await fetch("/api/documents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, saveAsDoc: true }),
+        body: JSON.stringify({
+          workspaceId,
+          title: docTitle,
+          content: markdownToTiptapDoc(execSummary),
+        }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setExecSavedDocId(data.createdDocId);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.document?.id) {
+        setExecSavedDocId(data.document.id);
+      } else {
+        setExecError({
+          message: data.error || "Failed to save briefing to Docs.",
+          isUpgrade: res.status === 403,
+        });
       }
     } catch {
+      setExecError({ message: "Network error while saving briefing to Docs." });
     } finally {
       setSavingDoc(false);
     }
@@ -562,19 +768,32 @@ export function AICopilotDrawer({
   // Generate Standup
   const handleGenerateStandup = async () => {
     setStandupLoading(true);
+    setStandupError(null);
+    const controller = new AbortController();
+    standupAbortRef.current = controller;
     try {
       const res = await fetch("/api/ai/copilot/standup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspaceId }),
+        signal: controller.signal,
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        const data = await res.json();
         setStandupText(data.standup);
         setCreditsUsed((c) => c + 1);
+      } else {
+        setStandupError({
+          message: data.error || "Failed to generate daily standup.",
+          isUpgrade: res.status === 403,
+        });
       }
-    } catch {
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setStandupError({ message: "Network error while generating daily standup." });
+      }
     } finally {
+      standupAbortRef.current = null;
       setStandupLoading(false);
     }
   };
@@ -614,22 +833,28 @@ export function AICopilotDrawer({
 
   const handleGenerateRoadmap = async () => {
     const description = roadmapInput.trim();
-    if (!description || roadmapLoading) return;
+    if (!description || description.length < 20 || roadmapLoading) return;
 
     setRoadmapLoading(true);
     setRoadmapError("");
+    setRoadmapIsUpgrade(false);
     setRoadmapAppliedGoal(null);
     setRoadmapResult(null);
+
+    const controller = new AbortController();
+    roadmapAbortRef.current = controller;
 
     try {
       const res = await fetch("/api/ai/roadmap-generator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspaceId, text: description }),
+        signal: controller.signal,
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setRoadmapError(data.error ?? "Failed to generate roadmap.");
+        setRoadmapIsUpgrade(res.status === 403);
       } else {
         setRoadmapResult({
           goalTitle: data.goalTitle,
@@ -639,9 +864,12 @@ export function AICopilotDrawer({
         });
         setCreditsUsed((c) => c + 1);
       }
-    } catch {
-      setRoadmapError("Network error while generating roadmap.");
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === "AbortError")) {
+        setRoadmapError("Network error while generating roadmap.");
+      }
     } finally {
+      roadmapAbortRef.current = null;
       setRoadmapLoading(false);
     }
   };
@@ -744,6 +972,12 @@ export function AICopilotDrawer({
 
       {/* ── Slide-Over Drawer ── */}
       <div
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="AI Copilot"
+        aria-hidden={!isOpen}
+        inert={!isOpen}
         className={`fixed top-0 right-0 bottom-0 z-50 w-full sm:w-[460px] md:w-[500px] bg-white border-l border-border shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
@@ -752,7 +986,7 @@ export function AICopilotDrawer({
         <div className="p-4 border-b border-border bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue to-indigo-600 flex items-center justify-center text-white shadow-sm shadow-blue/30">
-              <Bot size={18} />
+              <Bot size={18} aria-hidden="true" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -768,85 +1002,145 @@ export function AICopilotDrawer({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {activeTab === "chat" && messages.length > 0 && (
+              <button
+                type="button"
+                onClick={handleNewChat}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-slate hover:text-blue hover:bg-blue-50/70 transition-colors cursor-pointer"
+                title="Start a new chat conversation"
+              >
+                <MessageSquarePlus size={14} aria-hidden="true" />
+                <span className="hidden sm:inline">New Chat</span>
+              </button>
+            )}
             <button
+              type="button"
               onClick={handleClose}
+              aria-label="Close AI Copilot"
               className="p-1.5 rounded-lg text-slate-400 hover:text-ink hover:bg-black/5 transition-colors cursor-pointer"
               title="Close Copilot (Esc)"
             >
-              <X size={18} />
+              <X size={18} aria-hidden="true" />
             </button>
           </div>
         </div>
 
         {/* ── Context & Navigation Sub-header ── */}
         <div className="px-4 py-2 bg-offwhite border-b border-border/80 flex items-center justify-between text-xs shrink-0 gap-2">
-          {/* Tabs */}
-          <div
-            className="flex items-center gap-1 overflow-x-auto no-scrollbar min-w-0 flex-1 py-0.5"
-            onWheel={(e) => {
-              if (e.deltaY !== 0 && e.deltaX === 0) {
-                e.currentTarget.scrollLeft += e.deltaY;
-              }
-            }}
-          >
-            <button
-              onClick={() => setActiveTab("chat")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
-                activeTab === "chat"
-                  ? "bg-blue text-white shadow-xs"
-                  : "text-slate hover:text-ink hover:bg-slate-200/60"
-              }`}
+          {/* Tabs with subtle right-edge scroll fade affordance */}
+          <div className="relative min-w-0 flex-1">
+            <div
+              role="tablist"
+              aria-label="Copilot tools"
+              className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 pr-6"
+              onWheel={(e) => {
+                if (e.deltaY !== 0 && e.deltaX === 0) {
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
             >
-              <Bot size={13} /> Chat
-            </button>
-            <button
-              onClick={() => setActiveTab("executive")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
-                activeTab === "executive"
-                  ? "bg-blue text-white shadow-xs"
-                  : "text-slate hover:text-ink hover:bg-slate-200/60"
-              }`}
-            >
-              <TrendingUp size={13} /> Executive
-            </button>
-            <button
-              onClick={() => setActiveTab("standup")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
-                activeTab === "standup"
-                  ? "bg-blue text-white shadow-xs"
-                  : "text-slate hover:text-ink hover:bg-slate-200/60"
-              }`}
-            >
-              <ListTodo size={13} /> Standup
-            </button>
-            <button
-              onClick={() => setActiveTab("knowledge")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
-                activeTab === "knowledge"
-                  ? "bg-blue text-white shadow-xs"
-                  : "text-slate hover:text-ink hover:bg-slate-200/60"
-              }`}
-            >
-              <Database size={13} /> Sync
-            </button>
-            <button
-              onClick={() => setActiveTab("roadmap")}
-              className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
-                activeTab === "roadmap"
-                  ? "bg-blue text-white shadow-xs"
-                  : "text-slate hover:text-ink hover:bg-slate-200/60"
-              }`}
-            >
-              <Rocket size={13} /> Roadmap
-            </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "chat"}
+                onClick={() => setActiveTab("chat")}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                  activeTab === "chat"
+                    ? "bg-blue text-white shadow-xs"
+                    : "text-slate hover:text-ink hover:bg-slate-200/60"
+                }`}
+              >
+                <Bot size={13} aria-hidden="true" /> Chat
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "executive"}
+                onClick={() => setActiveTab("executive")}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                  activeTab === "executive"
+                    ? "bg-blue text-white shadow-xs"
+                    : "text-slate hover:text-ink hover:bg-slate-200/60"
+                }`}
+              >
+                <TrendingUp size={13} aria-hidden="true" /> Executive
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "standup"}
+                onClick={() => setActiveTab("standup")}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                  activeTab === "standup"
+                    ? "bg-blue text-white shadow-xs"
+                    : "text-slate hover:text-ink hover:bg-slate-200/60"
+                }`}
+              >
+                <ListTodo size={13} aria-hidden="true" /> Standup
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "knowledge"}
+                onClick={() => setActiveTab("knowledge")}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                  activeTab === "knowledge"
+                    ? "bg-blue text-white shadow-xs"
+                    : "text-slate hover:text-ink hover:bg-slate-200/60"
+                }`}
+              >
+                <Database size={13} aria-hidden="true" /> Sync
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === "roadmap"}
+                onClick={() => setActiveTab("roadmap")}
+                className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                  activeTab === "roadmap"
+                    ? "bg-blue text-white shadow-xs"
+                    : "text-slate hover:text-ink hover:bg-slate-200/60"
+                }`}
+              >
+                <Rocket size={13} aria-hidden="true" /> Roadmap
+              </button>
+            </div>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute top-0 right-0 bottom-0 w-6 bg-gradient-to-l from-offwhite to-transparent"
+            />
           </div>
 
           {/* Credits Counter */}
-          <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium shrink-0 pl-1">
-            <Zap size={11} className="text-amber-500" />
-            <span>
-              {aiCreditsMax < 0 ? "Unlimited" : `${creditsUsed}/${aiCreditsMax}`}
-            </span>
+          <div
+            className={`flex items-center gap-1 text-[11px] font-semibold shrink-0 px-2 py-0.5 rounded-full border ${
+              isCreditsExhausted
+                ? "bg-red-50 text-danger border-red-200"
+                : isCreditsLow
+                ? "bg-amber-50 text-amber-700 border-amber-200"
+                : "border-transparent text-slate-500"
+            }`}
+          >
+            <Zap
+              size={11}
+              className={
+                isCreditsExhausted
+                  ? "text-danger"
+                  : isCreditsLow
+                  ? "text-amber-600"
+                  : "text-amber-500"
+              }
+              aria-hidden="true"
+            />
+            <span>{isUnlimitedCredits ? "Unlimited" : `${creditsUsed}/${aiCreditsMax}`}</span>
+            {(isCreditsLow || isCreditsExhausted) && (
+              <Link
+                href={`/workspace/${workspaceId}/settings`}
+                className="ml-1 underline text-blue hover:text-blue-mid"
+              >
+                Upgrade
+              </Link>
+            )}
           </div>
         </div>
 
@@ -856,7 +1150,11 @@ export function AICopilotDrawer({
         {activeTab === "chat" && (
           <div className="flex-1 flex flex-col min-h-0 bg-white">
             {/* Message History */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+            <div
+              ref={messagesScrollRef}
+              onScroll={handleMessagesScroll}
+              className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar"
+            >
               {messages.length === 0 && (
                 <div className="h-full flex flex-col justify-center items-center text-center p-6 space-y-4 my-auto">
                   <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue shadow-inner">
@@ -987,18 +1285,36 @@ export function AICopilotDrawer({
                               </button>
                             </div>
                             <div className="flex items-center gap-1">
-                              <button
-                                title="Helpful"
-                                className="p-1 hover:text-blue hover:bg-blue-50 rounded transition-colors cursor-pointer"
-                              >
-                                <ThumbsUp size={11} />
-                              </button>
-                              <button
-                                title="Not helpful"
-                                className="p-1 hover:text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
-                              >
-                                <ThumbsDown size={11} />
-                              </button>
+                              {feedbackByMsg[msg.id] ? (
+                                <span className="text-[10px] text-emerald-600 font-medium">
+                                  Thanks for the feedback
+                                </span>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    title="Helpful"
+                                    aria-label="Mark response as helpful"
+                                    onClick={() =>
+                                      setFeedbackByMsg((prev) => ({ ...prev, [msg.id]: "up" }))
+                                    }
+                                    className="p-1 hover:text-blue hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                  >
+                                    <ThumbsUp size={11} aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Not helpful"
+                                    aria-label="Mark response as not helpful"
+                                    onClick={() =>
+                                      setFeedbackByMsg((prev) => ({ ...prev, [msg.id]: "down" }))
+                                    }
+                                    className="p-1 hover:text-red-500 hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                  >
+                                    <ThumbsDown size={11} aria-hidden="true" />
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </div>
                         )}
@@ -1016,11 +1332,43 @@ export function AICopilotDrawer({
                 </div>
               ))}
 
+              {chatError && (
+                <div
+                  role="alert"
+                  className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start justify-between gap-2"
+                >
+                  <div className="flex items-start gap-2">
+                    <AlertCircle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>{chatError.message}</span>
+                  </div>
+                  {chatError.isUpgrade && (
+                    <Link
+                      href={`/workspace/${workspaceId}/settings`}
+                      className="font-semibold text-blue hover:underline shrink-0"
+                    >
+                      Upgrade →
+                    </Link>
+                  )}
+                </div>
+              )}
+
               <div ref={messagesEndRef} />
             </div>
 
             {/* Input Bar */}
             <div className="p-3 border-t border-border bg-offwhite shrink-0">
+              {isStreaming && (
+                <div className="flex justify-center mb-2">
+                  <button
+                    type="button"
+                    onClick={handleStopChat}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-white border border-border text-xs font-medium text-ink hover:bg-red-50 hover:text-danger hover:border-red-200 rounded-full shadow-2xs transition-colors cursor-pointer"
+                  >
+                    <Square size={10} className="fill-current" aria-hidden="true" />
+                    Stop generating
+                  </button>
+                </div>
+              )}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -1045,13 +1393,14 @@ export function AICopilotDrawer({
                 <button
                   type="submit"
                   disabled={!inputValue.trim() || isStreaming}
+                  aria-label="Send message"
                   className="absolute bottom-2 right-2 p-1.5 bg-blue text-white rounded-lg hover:bg-blue-mid disabled:opacity-40 disabled:hover:bg-blue transition-colors cursor-pointer"
                   title="Send message (Enter)"
                 >
                   {isStreaming ? (
-                    <Loader2 size={13} className="animate-spin" />
+                    <Loader2 size={13} className="animate-spin" aria-hidden="true" />
                   ) : (
-                    <Send size={13} />
+                    <Send size={13} aria-hidden="true" />
                   )}
                 </button>
               </form>
@@ -1067,7 +1416,7 @@ export function AICopilotDrawer({
         {activeTab === "executive" && (
           <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
             <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 flex items-start gap-3">
-              <TrendingUp size={20} className="text-blue shrink-0 mt-0.5" />
+              <TrendingUp size={20} className="text-blue shrink-0 mt-0.5" aria-hidden="true" />
               <div>
                 <h3 className="text-xs font-bold text-ink">Weekly Executive Briefing</h3>
                 <p className="text-[11px] text-slate mt-0.5">
@@ -1078,32 +1427,65 @@ export function AICopilotDrawer({
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={handleGenerateExecutiveSummary}
                 disabled={execLoading}
                 className="flex-1 flex items-center justify-center gap-2 bg-blue text-white text-xs font-semibold py-2.5 px-4 rounded-xl hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
               >
                 {execLoading ? (
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
                 ) : (
-                  <Sparkles size={14} />
+                  <Sparkles size={14} aria-hidden="true" />
                 )}
                 {execSummary ? "Regenerate Briefing" : "Generate Executive Briefing"}
               </button>
 
-              {execSummary && (
+              {execLoading && (
                 <button
+                  type="button"
+                  onClick={() => execAbortRef.current?.abort()}
+                  className="flex items-center gap-1.5 border border-border px-3 py-2.5 rounded-xl text-xs font-medium text-danger hover:bg-red-50 transition-colors cursor-pointer"
+                >
+                  <Square size={11} className="fill-current" aria-hidden="true" /> Stop
+                </button>
+              )}
+
+              {execSummary && !execLoading && (
+                <button
+                  type="button"
                   onClick={() => copyToClipboard(execSummary, "exec")}
+                  aria-label="Copy briefing to clipboard"
                   className="flex items-center gap-1.5 border border-border px-3 py-2.5 rounded-xl text-xs text-slate hover:text-ink hover:bg-offwhite transition-colors cursor-pointer"
                   title="Copy to Clipboard"
                 >
                   {copiedId === "exec" ? (
-                    <Check size={14} className="text-emerald-600" />
+                    <Check size={14} className="text-emerald-600" aria-hidden="true" />
                   ) : (
-                    <Copy size={14} />
+                    <Copy size={14} aria-hidden="true" />
                   )}
                 </button>
               )}
             </div>
+
+            {execError && (
+              <div
+                role="alert"
+                className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start justify-between gap-2"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{execError.message}</span>
+                </div>
+                {execError.isUpgrade && (
+                  <Link
+                    href={`/workspace/${workspaceId}/settings`}
+                    className="font-semibold text-blue hover:underline shrink-0"
+                  >
+                    Upgrade →
+                  </Link>
+                )}
+              </div>
+            )}
 
             {execLoading && (
               <ProgressiveStepIndicator
@@ -1123,26 +1505,31 @@ export function AICopilotDrawer({
                 </div>
 
                 {/* Save as Document Action */}
-                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-center justify-between">
+                <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 text-xs text-blue">
-                    <FileText size={16} />
-                    <span className="font-medium">Save report directly to Docs</span>
+                    <FileText size={16} aria-hidden="true" />
+                    <span className="font-medium">Save report directly to Docs (0 credits)</span>
                   </div>
 
                   {execSavedDocId ? (
                     <Link
                       href={`/workspace/${workspaceId}/docs/${execSavedDocId}`}
-                      className="flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:underline"
+                      className="flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:underline shrink-0"
                     >
-                      <FileCheck size={14} /> View Doc →
+                      <FileCheck size={14} aria-hidden="true" /> View Doc →
                     </Link>
                   ) : (
                     <button
+                      type="button"
                       onClick={handleSaveExecToDoc}
                       disabled={savingDoc}
-                      className="flex items-center gap-1 text-xs font-semibold bg-blue text-white px-3 py-1.5 rounded-lg hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer"
+                      className="flex items-center gap-1 text-xs font-semibold bg-blue text-white px-3 py-1.5 rounded-lg hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer shrink-0"
                     >
-                      {savingDoc ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+                      {savingDoc ? (
+                        <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <FileText size={12} aria-hidden="true" />
+                      )}
                       Save to PRD / Docs
                     </button>
                   )}
@@ -1156,7 +1543,7 @@ export function AICopilotDrawer({
         {activeTab === "standup" && (
           <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
             <div className="p-4 rounded-2xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-100 flex items-start gap-3">
-              <ListTodo size={20} className="text-emerald-600 shrink-0 mt-0.5" />
+              <ListTodo size={20} className="text-emerald-600 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
                 <h3 className="text-xs font-bold text-ink">Daily Team Standup & Blocker Digest</h3>
                 <p className="text-[11px] text-slate mt-0.5">
@@ -1167,32 +1554,65 @@ export function AICopilotDrawer({
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={handleGenerateStandup}
                 disabled={standupLoading}
                 className="flex-1 flex items-center justify-center gap-2 bg-emerald-600 text-white text-xs font-semibold py-2.5 px-4 rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 cursor-pointer shadow-xs"
               >
                 {standupLoading ? (
-                  <Loader2 size={14} className="animate-spin" />
+                  <Loader2 size={14} className="animate-spin" aria-hidden="true" />
                 ) : (
-                  <Sparkles size={14} />
+                  <Sparkles size={14} aria-hidden="true" />
                 )}
                 {standupText ? "Regenerate Standup" : "Generate Daily Standup"}
               </button>
 
-              {standupText && (
+              {standupLoading && (
                 <button
+                  type="button"
+                  onClick={() => standupAbortRef.current?.abort()}
+                  className="flex items-center gap-1.5 border border-border px-3 py-2.5 rounded-xl text-xs font-medium text-danger hover:bg-red-50 transition-colors cursor-pointer"
+                >
+                  <Square size={11} className="fill-current" aria-hidden="true" /> Stop
+                </button>
+              )}
+
+              {standupText && !standupLoading && (
+                <button
+                  type="button"
                   onClick={() => copyToClipboard(standupText, "standup")}
+                  aria-label="Copy standup to clipboard"
                   className="flex items-center gap-1.5 border border-border px-3 py-2.5 rounded-xl text-xs text-slate hover:text-ink hover:bg-offwhite transition-colors cursor-pointer"
                   title="Copy to Clipboard (for Slack / Teams)"
                 >
                   {copiedId === "standup" ? (
-                    <Check size={14} className="text-emerald-600" />
+                    <Check size={14} className="text-emerald-600" aria-hidden="true" />
                   ) : (
-                    <Copy size={14} />
+                    <Copy size={14} aria-hidden="true" />
                   )}
                 </button>
               )}
             </div>
+
+            {standupError && (
+              <div
+                role="alert"
+                className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start justify-between gap-2"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{standupError.message}</span>
+                </div>
+                {standupError.isUpgrade && (
+                  <Link
+                    href={`/workspace/${workspaceId}/settings`}
+                    className="font-semibold text-blue hover:underline shrink-0"
+                  >
+                    Upgrade →
+                  </Link>
+                )}
+              </div>
+            )}
 
             {standupLoading && (
               <ProgressiveStepIndicator
@@ -1216,7 +1636,7 @@ export function AICopilotDrawer({
         {activeTab === "knowledge" && (
           <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
             <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 flex items-start gap-3">
-              <Database size={20} className="text-purple-600 shrink-0 mt-0.5" />
+              <Database size={20} className="text-purple-600 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
                 <h3 className="text-xs font-bold text-ink">Workspace Knowledge Index</h3>
                 <p className="text-[11px] text-slate mt-0.5">
@@ -1225,82 +1645,145 @@ export function AICopilotDrawer({
               </div>
             </div>
 
-            {/* Stats Breakdown */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-offwhite border border-border rounded-xl">
-                <div className="text-[11px] text-slate">Documents & PRDs</div>
-                <div className="text-lg font-bold text-ink mt-0.5">
-                  {indexStats?.documentsCount ?? 0}
+            {indexError ? (
+              <div
+                role="alert"
+                className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 space-y-2.5"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                  <span className="flex-1">{indexError.message}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void fetchIndexStats()}
+                    disabled={indexLoading}
+                    className="inline-flex items-center gap-1.5 bg-white border border-red-200 text-red-700 font-semibold px-3 py-1.5 rounded-lg hover:bg-red-100/50 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw size={12} className={indexLoading ? "animate-spin" : ""} aria-hidden="true" />
+                    Retry
+                  </button>
+                  {indexError.isUpgrade && (
+                    <Link
+                      href={`/workspace/${workspaceId}/settings`}
+                      className="font-semibold text-blue hover:underline"
+                    >
+                      Upgrade plan →
+                    </Link>
+                  )}
                 </div>
               </div>
-              <div className="p-3 bg-offwhite border border-border rounded-xl">
-                <div className="text-[11px] text-slate">Goals & OKRs</div>
-                <div className="text-lg font-bold text-ink mt-0.5">
-                  {indexStats?.goalsCount ?? 0}
-                </div>
+            ) : indexLoading && !indexStats ? (
+              <div className="grid grid-cols-2 gap-3 animate-pulse">
+                {[0, 1, 2, 3].map((k) => (
+                  <div key={k} className="p-3 bg-offwhite border border-border rounded-xl h-16" />
+                ))}
               </div>
-              <div className="p-3 bg-offwhite border border-border rounded-xl">
-                <div className="text-[11px] text-slate">Milestones</div>
-                <div className="text-lg font-bold text-ink mt-0.5">
-                  {indexStats?.milestonesCount ?? 0}
+            ) : (
+              <>
+                {/* Stats Breakdown */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 bg-offwhite border border-border rounded-xl">
+                    <div className="text-[11px] text-slate">Documents & PRDs</div>
+                    <div className="text-lg font-bold text-ink mt-0.5">
+                      {indexStats?.documentsCount ?? 0}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-offwhite border border-border rounded-xl">
+                    <div className="text-[11px] text-slate">Goals & OKRs</div>
+                    <div className="text-lg font-bold text-ink mt-0.5">
+                      {indexStats?.goalsCount ?? 0}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-offwhite border border-border rounded-xl">
+                    <div className="text-[11px] text-slate">Milestones</div>
+                    <div className="text-lg font-bold text-ink mt-0.5">
+                      {indexStats?.milestonesCount ?? 0}
+                    </div>
+                  </div>
+                  <div className="p-3 bg-offwhite border border-border rounded-xl">
+                    <div className="text-[11px] text-slate">Tasks & Comments</div>
+                    <div className="text-lg font-bold text-ink mt-0.5">
+                      {indexStats?.tasksCount ?? 0}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="p-3 bg-offwhite border border-border rounded-xl">
-                <div className="text-[11px] text-slate">Tasks & Comments</div>
-                <div className="text-lg font-bold text-ink mt-0.5">
-                  {indexStats?.tasksCount ?? 0}
-                </div>
-              </div>
-            </div>
 
-            {/* Total Chunks Card */}
-            <div className="p-4 bg-purple-50/50 border border-purple-100 rounded-2xl flex items-center justify-between">
-              <div>
-                <div className="text-xs font-semibold text-purple-900">
-                  Vector Chunks in Database
+                {/* Total Chunks Card */}
+                <div className="p-4 bg-purple-50/50 border border-purple-100 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-semibold text-purple-900">
+                      Vector Chunks in Database
+                    </div>
+                    <div className="text-[11px] text-purple-700 mt-0.5">
+                      {indexStats?.totalChunks ?? 0} embedded vector slices
+                    </div>
+                  </div>
+                  <div className="text-xl font-bold text-purple-700">
+                    {indexStats?.totalChunks ?? 0}
+                  </div>
                 </div>
-                <div className="text-[11px] text-purple-700 mt-0.5">
-                  {indexStats?.totalChunks ?? 0} embedded vector slices
-                </div>
-              </div>
-              <div className="text-xl font-bold text-purple-700">
-                {indexStats?.totalChunks ?? 0}
-              </div>
-            </div>
 
-            {/* Last Synced */}
-            {indexStats?.lastIndexedAt && (
-              <div className="text-[11px] text-slate-500 flex items-center gap-1.5 px-1">
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span>
-                  Last indexed:{" "}
-                  {new Date(indexStats.lastIndexedAt).toLocaleString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "numeric",
-                  })}
-                </span>
-              </div>
+                {/* Last Synced */}
+                {indexStats?.lastIndexedAt && (
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5 px-1">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span>
+                      Last indexed:{" "}
+                      {new Date(indexStats.lastIndexedAt).toLocaleString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "numeric",
+                      })}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Sync Action */}
             <button
+              type="button"
               onClick={handleSyncKnowledge}
               disabled={isSyncingKnowledge}
               className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-semibold py-3 px-4 rounded-xl hover:from-purple-700 hover:to-indigo-700 transition-all disabled:opacity-50 cursor-pointer shadow-xs"
             >
-              {isSyncingKnowledge ? (
-                <RefreshCw size={14} className="animate-spin" />
-              ) : (
-                <RefreshCw size={14} />
-              )}
+              <RefreshCw
+                size={14}
+                className={isSyncingKnowledge ? "animate-spin" : ""}
+                aria-hidden="true"
+              />
               {isSyncingKnowledge ? "Vectorizing Workspace Knowledge…" : "Re-index Workspace Knowledge"}
             </button>
 
+            {syncError && (
+              <div
+                role="alert"
+                className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start justify-between gap-2"
+              >
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>{syncError.message}</span>
+                </div>
+                {syncError.isUpgrade && (
+                  <Link
+                    href={`/workspace/${workspaceId}/settings`}
+                    className="font-semibold text-blue hover:underline shrink-0"
+                  >
+                    Upgrade →
+                  </Link>
+                )}
+              </div>
+            )}
+
             {syncSuccess && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2">
-                <Check size={14} className="shrink-0" />
+              <div
+                role="status"
+                className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2"
+              >
+                <Check size={14} className="shrink-0" aria-hidden="true" />
                 <span>Knowledge base synchronized and vectorized successfully!</span>
               </div>
             )}
@@ -1341,25 +1824,50 @@ export function AICopilotDrawer({
                     rows={6}
                     className="w-full text-xs text-ink placeholder:text-slate-400 p-3 border border-border rounded-xl bg-white shadow-2xs focus:outline-none focus:border-orange focus:ring-1 focus:ring-orange/40 resize-none"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1 px-1">
-                    {roadmapInput.length}/2000 characters · Ctrl+Enter to generate
-                  </p>
+                  <div className="flex items-center justify-between gap-2 text-[10px] mt-1 px-1">
+                    <span
+                      className={
+                        roadmapInput.trim().length > 0 && roadmapInput.trim().length < 20
+                          ? "text-amber-600 font-medium"
+                          : "text-slate-400"
+                      }
+                    >
+                      {roadmapInput.trim().length < 20
+                        ? `Enter at least 20 characters to generate a roadmap (${roadmapInput.trim().length}/20)`
+                        : "Ctrl+Enter to generate"}
+                    </span>
+                    <span className="text-slate-400 tabular-nums shrink-0">
+                      {roadmapInput.length}/2000
+                    </span>
+                  </div>
                 </div>
 
-                <button
-                  onClick={handleGenerateRoadmap}
-                  disabled={roadmapLoading || roadmapInput.trim().length < 20}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-semibold py-3 px-4 rounded-xl hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-                >
-                  {roadmapLoading ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={14} />
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleGenerateRoadmap}
+                    disabled={roadmapLoading || roadmapInput.trim().length < 20}
+                    className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-semibold py-3 px-4 rounded-xl hover:from-orange-600 hover:to-amber-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                  >
+                    {roadmapLoading ? (
+                      <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <Sparkles size={14} aria-hidden="true" />
+                    )}
+                    {roadmapLoading
+                      ? "Synthesizing Roadmap with AI…"
+                      : "Generate Structured Roadmap"}
+                  </button>
+                  {roadmapLoading && (
+                    <button
+                      type="button"
+                      onClick={() => roadmapAbortRef.current?.abort()}
+                      className="flex items-center gap-1.5 border border-border px-3 py-3 rounded-xl text-xs font-medium text-danger hover:bg-red-50 transition-colors cursor-pointer"
+                    >
+                      <Square size={11} className="fill-current" aria-hidden="true" /> Stop
+                    </button>
                   )}
-                  {roadmapLoading
-                    ? "Synthesizing Roadmap with AI…"
-                    : "Generate Structured Roadmap"}
-                </button>
+                </div>
 
                 {roadmapLoading && (
                   <ProgressiveStepIndicator
@@ -1373,9 +1881,22 @@ export function AICopilotDrawer({
                 )}
 
                 {roadmapError && !roadmapResult && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start gap-2">
-                    <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                    <span>{roadmapError}</span>
+                  <div
+                    role="alert"
+                    className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start justify-between gap-2"
+                  >
+                    <div className="flex items-start gap-2">
+                      <AlertCircle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+                      <span>{roadmapError}</span>
+                    </div>
+                    {roadmapIsUpgrade && (
+                      <Link
+                        href={`/workspace/${workspaceId}/settings`}
+                        className="font-semibold text-blue hover:underline shrink-0"
+                      >
+                        Upgrade →
+                      </Link>
+                    )}
                   </div>
                 )}
               </div>
@@ -1537,11 +2058,11 @@ export function AICopilotDrawer({
                       Roadmap applied to board successfully
                     </div>
                     <Link
-                      href={`/goals/${roadmapAppliedGoal.id}`}
+                      href={`/workspace/${workspaceId}/goals/${roadmapAppliedGoal.id}`}
                       className="text-emerald-700 hover:text-emerald-800 underline underline-offset-2 flex items-center gap-1"
                     >
                       Open Goal: {roadmapAppliedGoal.title}
-                      <ExternalLink size={11} />
+                      <ExternalLink size={11} aria-hidden="true" />
                     </Link>
                   </div>
                 )}

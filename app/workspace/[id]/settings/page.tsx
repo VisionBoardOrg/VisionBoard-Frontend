@@ -4,10 +4,15 @@ import { prisma } from "@/lib/prisma";
 import { Suspense } from "react";
 import { InviteMemberModal } from "@/components/settings/InviteMemberModal";
 import { PendingInvitesList } from "@/components/settings/PendingInvitesList";
-import { WorkspaceRenameInline } from "@/components/settings/WorkspaceRenameInline";
+import {
+  WorkspaceRenameInline,
+  WorkspaceIdCopy,
+  WorkspaceExportButton,
+} from "@/components/settings/WorkspaceRenameInline";
 import { InviteLinkSection } from "@/components/settings/InviteLinkSection";
 import { BillingSection } from "@/components/settings/BillingSection";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
+import { formatRoleLabel } from "@/lib/roles";
 import {
   Users, Plug, Shield, ChevronRight,
   MessageSquare, GitBranch, Kanban, Layout, Layers, Building2, Download,
@@ -34,7 +39,18 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
       include: {
         workspace: {
           include: {
-            owner: { select: { id: true, name: true, email: true, plan: true, stripeCustomerId: true, stripeCurrentPeriodEnd: true, stripeCancelAtPeriodEnd: true } },
+            owner: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                plan: true,
+                aiCreditsUsed: true,
+                stripeCustomerId: true,
+                stripeCurrentPeriodEnd: true,
+                stripeCancelAtPeriodEnd: true,
+              },
+            },
             members: { include: { user: { select: { id: true, name: true, email: true, image: true } } } },
             invites: { where: { status: "pending" }, orderBy: { createdAt: "desc" } },
           },
@@ -43,7 +59,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
     }),
     prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { id: true, plan: true, aiCreditsUsed: true, stripeCustomerId: true, stripeCurrentPeriodEnd: true, stripeCancelAtPeriodEnd: true },
+      select: { id: true, aiCreditsUsed: true },
     }),
   ]);
   if (!member || !currentUser) redirect("/dashboard");
@@ -58,10 +74,12 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
   }
 
   const workspace = member.workspace;
-  const plan = currentUser.plan;
-  const limits = PLAN_LIMITS[plan];
+  // Workspace limits and billing always follow the workspace owner's plan, never the viewer's plan.
+  const ownerPlan = workspace.owner.plan;
+  const limits = PLAN_LIMITS[ownerPlan];
   const isOwner = workspace.ownerId === session.user.id;
   const canManage = isOwner || member.role === "admin" || member.role === "pm";
+  const canManageInviteLink = isOwner || member.role === "admin";
   const canRename = isOwner || member.role === "admin";
 
   const pendingInvites = workspace.invites
@@ -72,7 +90,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
     }));
 
   const openInvite = workspace.invites.find((inv) => inv.email === "__invite_link__");
-  const openInviteToken = openInvite?.token ?? null;
+  const openInviteToken = canManageInviteLink ? (openInvite?.token ?? null) : null;
 
   return (
     <div className="max-w-3xl mx-auto space-y-8">
@@ -86,7 +104,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
       {/* ── Workspace identity ── */}
       <section className="bg-white rounded-2xl border border-border p-6">
         <div className="flex items-center gap-2 mb-5">
-          <Building2 size={18} className="text-blue" />
+          <Building2 size={18} className="text-blue" aria-hidden="true" />
           <h2 className="font-semibold text-ink">Workspace</h2>
         </div>
         <WorkspaceRenameInline
@@ -94,15 +112,13 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
           currentName={workspace.name}
           canRename={canRename}
         />
-        <p className="text-xs text-muted mt-3">
-          Workspace ID: <span className="font-mono">{id}</span>
-        </p>
+        <WorkspaceIdCopy workspaceId={id} />
       </section>
 
       {/* ── Team Members ── */}
       <section className="bg-white rounded-2xl border border-border p-6">
         <div className="flex items-center gap-2 mb-5">
-          <Users size={18} className="text-blue" />
+          <Users size={18} className="text-blue" aria-hidden="true" />
           <h2 className="font-semibold text-ink">Team Members</h2>
           <span className="ml-auto text-xs text-muted">
             {workspace.members.length + pendingInvites.length}
@@ -125,15 +141,19 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
                   </div>
                   <div className="text-xs text-muted truncate">{m.user.email}</div>
                 </div>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-faint text-blue font-medium capitalize shrink-0">
-                  {m.role}
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-faint text-blue font-medium shrink-0">
+                  {formatRoleLabel(m.role)}
                 </span>
               </div>
             );
           })}
         </div>
 
-        <PendingInvitesList workspaceId={id} invites={pendingInvites} />
+        <PendingInvitesList
+          workspaceId={id}
+          invites={pendingInvites}
+          canManage={canManage}
+        />
 
         {canManage ? (
           <div className="mt-5 pt-5 border-t border-border">
@@ -164,22 +184,22 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
           <InviteLinkSection
             workspaceId={id}
             initialToken={openInviteToken}
-            canManage={canManage}
-            canAdmin={canRename}
+            canManageInviteLink={canManageInviteLink}
           />
         </div>
       </section>
 
-      {/* ── Plan & Billing ── */}
+      {/* ── Plan & Billing (owner-scoped) ── */}
       <Suspense fallback={<div className="bg-white rounded-2xl border border-border p-6 h-48 animate-pulse" />}>
         <BillingSection
           workspaceId={id}
-          plan={plan}
+          plan={ownerPlan}
           limits={limits}
-          isOwnerOrAdmin={isOwner || member.role === "admin"}
-          stripeCustomerId={currentUser.stripeCustomerId ?? null}
-          stripeCurrentPeriodEnd={currentUser.stripeCurrentPeriodEnd?.toISOString() ?? null}
-          stripeCancelAtPeriodEnd={currentUser.stripeCancelAtPeriodEnd}
+          canManageBilling={isOwner}
+          workspaceOwnerName={workspace.owner.name ?? workspace.owner.email}
+          stripeCustomerId={workspace.owner.stripeCustomerId ?? null}
+          stripeCurrentPeriodEnd={workspace.owner.stripeCurrentPeriodEnd?.toISOString() ?? null}
+          stripeCancelAtPeriodEnd={workspace.owner.stripeCancelAtPeriodEnd}
           aiCreditsUsed={currentUser.aiCreditsUsed}
         />
       </Suspense>
@@ -187,25 +207,25 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
       {/* ── Integrations ── */}
       <section className="bg-white rounded-2xl border border-border p-6">
         <div className="flex items-center gap-2 mb-5">
-          <Plug size={18} className="text-blue" />
+          <Plug size={18} className="text-blue" aria-hidden="true" />
           <h2 className="font-semibold text-ink">Integrations</h2>
-          {!limits.integrations && (
-            <span className="ml-auto text-xs bg-amber-50 border border-amber-200 text-amber-700 px-2 py-0.5 rounded-full">
-              Growth plan required
-            </span>
-          )}
+          <span className="ml-auto text-xs bg-offwhite border border-border text-muted px-2.5 py-0.5 rounded-full">
+            Coming soon
+          </span>
         </div>
         <div className="space-y-3">
           {INTEGRATIONS.map(({ name, icon: Icon, description }) => (
-            <div key={name} className="flex items-center gap-4 p-4 rounded-xl border border-border">
-              <div className="w-9 h-9 rounded-xl bg-blue/10 text-blue flex items-center justify-center shrink-0">
-                <Icon size={18} />
+            <div key={name} className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 rounded-xl border border-border">
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-blue/10 text-blue flex items-center justify-center shrink-0">
+                  <Icon size={18} aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-medium text-ink text-sm">{name}</div>
+                  <div className="text-xs text-muted">{description}</div>
+                </div>
               </div>
-              <div className="flex-1">
-                <div className="font-medium text-ink text-sm">{name}</div>
-                <div className="text-xs text-muted">{description}</div>
-              </div>
-              <span className="text-xs text-muted bg-offwhite border border-border px-2.5 py-1 rounded-full">
+              <span className="text-xs text-muted bg-offwhite border border-border px-2.5 py-1 rounded-full self-start sm:self-auto shrink-0">
                 Coming soon
               </span>
             </div>
@@ -216,7 +236,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
       {/* ── SSO ── */}
       <section className="bg-white rounded-2xl border border-border p-6 opacity-75">
         <div className="flex items-center gap-2 mb-3">
-          <Shield size={18} className="text-muted" />
+          <Shield size={18} className="text-muted" aria-hidden="true" />
           <h2 className="font-semibold text-ink">SSO / SAML</h2>
           <span className="ml-auto text-xs bg-violet-50 border border-violet-200 text-violet-700 px-2 py-0.5 rounded-full">
             Enterprise only
@@ -226,40 +246,19 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
           Single Sign-On with Okta, Azure AD, or Google Workspace. Available on Enterprise plan.
         </p>
         <a href="mailto:sales@vision-board.tech" className="mt-3 inline-flex items-center gap-1 text-sm text-blue hover:underline">
-          Contact sales <ChevronRight size={13} />
+          Contact sales <ChevronRight size={13} aria-hidden="true" />
         </a>
       </section>
 
       {/* ── Workspace Data Export ── */}
-      <WorkspaceExportSection workspaceId={id} workspaceName={workspace.name} />
+      <section className="bg-white rounded-2xl border border-border p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Download size={18} className="text-blue" aria-hidden="true" />
+          <h2 className="font-semibold text-ink">Export Workspace Data</h2>
+        </div>
+        <WorkspaceExportButton workspaceId={id} workspaceName={workspace.name} />
+      </section>
 
     </div>
-  );
-}
-
-function WorkspaceExportSection({ workspaceId, workspaceName }: { workspaceId: string; workspaceName: string }) {
-  return (
-    <section className="bg-white rounded-2xl border border-border p-6">
-      <div className="flex items-center gap-2 mb-4">
-        <Download size={18} className="text-blue" />
-        <h2 className="font-semibold text-ink">Export Workspace Data</h2>
-      </div>
-      <div className="flex items-start justify-between gap-4 p-4 rounded-xl bg-offwhite border border-border">
-        <div>
-          <p className="text-sm font-semibold text-ink">Export {workspaceName}</p>
-          <p className="text-xs text-muted mt-0.5">
-            A portable JSON file with all goals, milestones, tasks, documents, and sprints for this workspace.
-          </p>
-        </div>
-        <a
-          href={`/api/workspaces/${workspaceId}/export`}
-          download
-          className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border border-border text-ink hover:bg-white transition-colors shrink-0 cursor-pointer"
-        >
-          <Download size={13} />
-          Export
-        </a>
-      </div>
-    </section>
   );
 }

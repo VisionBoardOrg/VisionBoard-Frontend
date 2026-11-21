@@ -19,16 +19,40 @@ const patchSchema = z.object({
   linkedTaskId: z.string().nullable().optional(),
 });
 
-// Minimal task shape returned in board item responses — only what the canvas
-// needs for rendering, not full task objects.
+// Full entity shapes needed by BoardCanvas & CardDetailPanel so PATCH saves
+// never strip fields (objective, targetDate, keyResults, description, storyPoints, etc.)
 const BOARD_ITEM_INCLUDE = {
   linkedGoal: {
-    select: { id: true, title: true, status: true, healthScore: true },
+    select: {
+      id: true,
+      title: true,
+      objective: true,
+      status: true,
+      healthScore: true,
+      targetDate: true,
+      keyResults: true,
+    },
   },
   linkedMilestone: {
     select: {
-      id: true, title: true, status: true, goalId: true,
-      tasks: { select: { id: true, title: true, status: true, priority: true, dueDate: true, assignees: { select: { userId: true, role: true } } } },
+      id: true,
+      title: true,
+      description: true,
+      status: true,
+      goalId: true,
+      startDate: true,
+      targetDate: true,
+      tasks: {
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          priority: true,
+          storyPoints: true,
+          dueDate: true,
+          assignees: { select: { userId: true, role: true } },
+        },
+      },
     },
   },
 } as const;

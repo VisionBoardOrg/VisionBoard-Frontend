@@ -3,23 +3,28 @@
 import { useState } from "react";
 import { Link2, Copy, Check, RefreshCw, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { useConfirm } from "@/context/ConfirmContext";
+import { useClipboard } from "@/hooks/useClipboard";
 
 interface InviteLinkSectionProps {
   workspaceId: string;
   initialToken: string | null;
-  canManage: boolean;
-  canAdmin: boolean;
+  canManageInviteLink?: boolean;
+  /** Backwards-compatible aliases */
+  canManage?: boolean;
+  canAdmin?: boolean;
 }
 
 export function InviteLinkSection({
   workspaceId,
   initialToken,
+  canManageInviteLink,
   canManage,
   canAdmin,
 }: InviteLinkSectionProps) {
+  const canOperate = canManageInviteLink ?? canAdmin ?? canManage ?? false;
   const { confirm: confirmDialog } = useConfirm();
+  const { copied, copyError, copy } = useClipboard();
   const [token, setToken] = useState<string | null>(initialToken);
-  const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState<"generate" | "regenerate" | "revoke" | null>(null);
   const [error, setError] = useState("");
   const [origin] = useState(() => (typeof window !== "undefined" ? window.location.origin : ""));
@@ -31,9 +36,11 @@ export function InviteLinkSection({
     setError("");
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/invite-link`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error ?? "Failed to generate link."); return; }
       setToken(data.token);
+    } catch {
+      setError("Network error. Please try again.");
     } finally {
       setLoading(null);
     }
@@ -51,9 +58,11 @@ export function InviteLinkSection({
     setError("");
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/invite-link`, { method: "POST" });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) { setError(data.error ?? "Failed to regenerate link."); return; }
       setToken(data.token);
+    } catch {
+      setError("Network error. Please try again.");
     } finally {
       setLoading(null);
     }
@@ -71,8 +80,14 @@ export function InviteLinkSection({
     setError("");
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/invite-link`, { method: "DELETE" });
-      if (!res.ok) { const d = await res.json(); setError(d.error ?? "Failed to revoke link."); return; }
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? "Failed to revoke link.");
+        return;
+      }
       setToken(null);
+    } catch {
+      setError("Network error. Please try again.");
     } finally {
       setLoading(null);
     }
@@ -85,10 +100,10 @@ export function InviteLinkSection({
       : typeof window !== "undefined"
       ? `${window.location.origin}/invite/${token}`
       : `/invite/${token}`;
-    navigator.clipboard.writeText(fullUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    void copy(fullUrl);
   }
+
+  const displayedError = error || copyError;
 
   return (
     <div className="space-y-3">
@@ -99,72 +114,74 @@ export function InviteLinkSection({
             Anyone with this link can join the workspace as a member.
           </p>
         </div>
-        {token && canAdmin && (
+        {token && canOperate && (
           <button
+            type="button"
             onClick={handleRevoke}
             disabled={loading === "revoke"}
             title="Disable invite link"
-            className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors shrink-0 disabled:opacity-50"
+            className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
           >
             {loading === "revoke"
-              ? <Loader2 size={13} className="animate-spin" />
-              : <Trash2 size={13} />}
+              ? <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+              : <Trash2 size={13} aria-hidden="true" />}
             Disable
           </button>
         )}
       </div>
 
-      {error && (
-        <div className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">
-          <AlertCircle size={14} className="shrink-0" />
-          {error}
+      {displayedError && (
+        <div role="alert" className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">
+          <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+          <span>{displayedError}</span>
         </div>
       )}
 
-      {token ? (
+      {token && canOperate ? (
         <div className="space-y-2">
           {/* Link display + copy */}
           <div className="flex items-center gap-2">
             <div className="flex-1 flex items-center gap-2 bg-offwhite border border-border rounded-xl px-3 py-2.5 min-w-0">
-              <Link2 size={14} className="text-muted shrink-0" />
+              <Link2 size={14} className="text-muted shrink-0" aria-hidden="true" />
               <span className="text-xs font-mono text-slate truncate">{inviteUrl}</span>
             </div>
             <button
+              type="button"
               onClick={handleCopy}
-              className="flex items-center gap-1.5 px-3 py-2.5 bg-blue text-white rounded-xl text-xs font-semibold hover:bg-blue-mid transition-colors shrink-0"
+              className="flex items-center gap-1.5 px-3 py-2.5 bg-blue text-white rounded-xl text-xs font-semibold hover:bg-blue-mid transition-colors shrink-0 cursor-pointer"
             >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
 
           {/* Regenerate — admin/owner only */}
-          {canAdmin && (
-            <button
-              onClick={handleRegenerate}
-              disabled={loading === "regenerate"}
-              className="flex items-center gap-1.5 text-xs text-muted hover:text-ink transition-colors disabled:opacity-50"
-            >
-              {loading === "regenerate"
-                ? <Loader2 size={13} className="animate-spin" />
-                : <RefreshCw size={13} />}
-              Regenerate link
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleRegenerate}
+            disabled={loading === "regenerate"}
+            className="flex items-center gap-1.5 text-xs text-muted hover:text-ink transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {loading === "regenerate"
+              ? <Loader2 size={13} className="animate-spin" aria-hidden="true" />
+              : <RefreshCw size={13} aria-hidden="true" />}
+            Regenerate link
+          </button>
         </div>
-      ) : canManage ? (
+      ) : canOperate ? (
         <button
+          type="button"
           onClick={handleGenerate}
           disabled={loading === "generate"}
-          className="w-full flex items-center justify-center gap-2 border border-dashed border-border text-sm text-muted hover:border-blue/40 hover:text-blue py-2.5 rounded-xl transition-colors font-medium disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 border border-dashed border-border text-sm text-muted hover:border-blue/40 hover:text-blue py-2.5 rounded-xl transition-colors font-medium disabled:opacity-50 cursor-pointer"
         >
           {loading === "generate"
-            ? <Loader2 size={15} className="animate-spin" />
-            : <Link2 size={15} />}
+            ? <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+            : <Link2 size={15} aria-hidden="true" />}
           Generate invite link
         </button>
       ) : (
-        <p className="text-xs text-muted">Only admins and product managers can create invite links.</p>
+        <p className="text-xs text-muted">Only workspace admins can manage invite links.</p>
       )}
     </div>
   );

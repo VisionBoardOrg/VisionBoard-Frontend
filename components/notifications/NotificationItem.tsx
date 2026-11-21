@@ -107,6 +107,10 @@ function getNotificationIcon(type: string) {
         bg: "bg-purple-50 text-purple-600 border-purple-200",
       };
     case "billing_payment_failed":
+      return {
+        icon: CreditCard,
+        bg: "bg-red-50 text-danger border-red-200",
+      };
     case "billing_payment_succeeded":
       return {
         icon: CreditCard,
@@ -140,22 +144,16 @@ export function NotificationItem({
   const { icon: Icon, bg } = getNotificationIcon(notification.type);
   const timeAgo = formatRelativeTime(notification.createdAt);
 
-  const handleClick = () => {
+  const handleActivate = () => {
     if (!notification.read) {
       onMarkRead(notification.id);
     }
     onCloseDropdown?.();
   };
 
-  const itemContent = (
-    <div
-      className={`group relative flex items-start gap-3 p-3.5 transition-all rounded-xl cursor-pointer ${
-        notification.read
-          ? "bg-white hover:bg-offwhite/60 text-slate"
-          : "bg-blue-faint/40 hover:bg-blue-faint/70 text-ink border-l-2 border-blue"
-      }`}
-      onClick={handleClick}
-    >
+  const body = (
+    <>
+      {!notification.read && <span className="sr-only">Unread notification: </span>}
       {/* Type Icon / Avatar */}
       <div className="relative shrink-0">
         {notification.actor?.image ? (
@@ -170,19 +168,23 @@ export function NotificationItem({
         ) : (
           <div
             className={`w-8 h-8 rounded-xl flex items-center justify-center border shadow-2xs ${bg}`}
+            aria-hidden="true"
           >
-            <Icon size={16} />
+            <Icon size={16} aria-hidden="true" />
           </div>
         )}
 
         {/* Unread indicator dot */}
         {!notification.read && (
-          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-blue ring-2 ring-white" />
+          <span
+            aria-hidden="true"
+            className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-blue ring-2 ring-white"
+          />
         )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-w-0 pr-6">
+      <div className="flex-1 min-w-0 pr-8">
         <div className="flex items-center justify-between gap-1 mb-0.5">
           <p
             className={`text-xs font-semibold truncate ${
@@ -191,7 +193,7 @@ export function NotificationItem({
           >
             {notification.title}
           </p>
-          <span className="text-[10px] text-muted shrink-0 font-medium">{timeAgo}</span>
+          <span className="text-[11px] text-slate shrink-0 font-medium">{timeAgo}</span>
         </div>
 
         <p className="text-xs text-slate/90 line-clamp-2 leading-relaxed">
@@ -200,35 +202,48 @@ export function NotificationItem({
 
         {notification.workspace && (
           <div className="mt-1 flex items-center gap-1.5">
-            <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+            <span className="text-[11px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
               {notification.workspace.name}
             </span>
           </div>
         )}
       </div>
+    </>
+  );
 
-      {/* Delete / Dismiss button */}
+  const surfaceClass = `flex items-start gap-3 p-3.5 w-full text-left transition-all rounded-xl cursor-pointer ${
+    notification.read
+      ? "bg-white hover:bg-offwhite/60 text-slate"
+      : "bg-blue-faint/40 hover:bg-blue-faint/70 text-ink border-l-2 border-blue"
+  }`;
+
+  return (
+    <div className="group relative rounded-xl">
+      {notification.link ? (
+        <Link
+          href={notification.link}
+          prefetch={false}
+          onClick={handleActivate}
+          className={`${surfaceClass} no-underline`}
+        >
+          {body}
+        </Link>
+      ) : (
+        <button type="button" onClick={handleActivate} className={surfaceClass}>
+          {body}
+        </button>
+      )}
+
+      {/* Sibling Delete / Dismiss button — outside Link/button so no interactive nesting */}
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete(notification.id);
-        }}
-        className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 p-1 text-muted hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+        type="button"
+        onClick={() => onDelete(notification.id)}
+        className="absolute top-2.5 right-2.5 min-w-7 min-h-7 flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus:opacity-100 text-slate hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
         title="Dismiss notification"
-        aria-label="Dismiss notification"
+        aria-label={`Dismiss notification: ${notification.title}`}
       >
-        <Trash2 size={13} />
+        <Trash2 size={13} aria-hidden="true" />
       </button>
     </div>
   );
-
-  if (notification.link) {
-    return (
-      <Link href={notification.link} prefetch={false} className="block no-underline">
-        {itemContent}
-      </Link>
-    );
-  }
-
-  return itemContent;
 }

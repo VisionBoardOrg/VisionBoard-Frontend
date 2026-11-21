@@ -2,25 +2,60 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, Loader2 } from "lucide-react";
+import { Upload, Loader2, X } from "lucide-react";
 
 interface ImportDocButtonProps {
   workspaceId: string;
   /** Visual variant: "button" (default, full pill) | "toolbar" (icon-only toolbar button) */
   variant?: "button" | "toolbar";
+  /** Optional callback to propagate errors to parent (especially in toolbar variant) */
+  onError?: (msg: string) => void;
+  /** Optional gate called before opening file picker (e.g. warn if current doc has unsaved changes) */
+  onBeforeImport?: () => Promise<boolean> | boolean;
 }
 
-const ACCEPTED = ".pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.txt,.text,.md,.markdown,.json,.html,.htm,.rtf";
-const ALLOWED_EXTS = ["pdf", "docx", "doc", "xlsx", "xls", "csv", "tsv", "txt", "text", "md", "markdown", "json", "html", "htm", "rtf"];
+const ACCEPTED =
+  ".pdf,.docx,.doc,.xlsx,.xls,.csv,.tsv,.txt,.text,.md,.markdown,.json,.html,.htm,.rtf";
+const ALLOWED_EXTS = [
+  "pdf",
+  "docx",
+  "doc",
+  "xlsx",
+  "xls",
+  "csv",
+  "tsv",
+  "txt",
+  "text",
+  "md",
+  "markdown",
+  "json",
+  "html",
+  "htm",
+  "rtf",
+];
 
-export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocButtonProps) {
+export function ImportDocButton({
+  workspaceId,
+  variant = "button",
+  onError,
+  onBeforeImport,
+}: ImportDocButtonProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  function openPicker() {
+  function reportError(msg: string) {
+    setError(msg);
+    onError?.(msg);
+  }
+
+  async function openPicker() {
     setError("");
+    if (onBeforeImport) {
+      const proceed = await onBeforeImport();
+      if (!proceed) return;
+    }
     inputRef.current?.click();
   }
 
@@ -33,11 +68,13 @@ export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocBu
 
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
     if (!ALLOWED_EXTS.includes(ext)) {
-      setError("Unsupported file format. Please upload a .pdf, .docx, .xlsx, .csv, .txt, .md, .html, .json, or .rtf file.");
+      reportError(
+        "Unsupported file format. Please upload a .pdf, .docx, .xlsx, .csv, .txt, .md, .html, .json, or .rtf file."
+      );
       return;
     }
     if (file.size > 15 * 1024 * 1024) {
-      setError("File must be smaller than 15 MB.");
+      reportError("File must be smaller than 15 MB.");
       return;
     }
 
@@ -54,10 +91,10 @@ export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocBu
         body: form,
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setError(data.error ?? "Import failed. Please try again.");
+        reportError(data.error ?? "Import failed. Please try again.");
         return;
       }
 
@@ -65,7 +102,7 @@ export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocBu
       router.push(`/workspace/${workspaceId}/docs/${data.document.id}`);
       router.refresh();
     } catch {
-      setError("Network error. Please try again.");
+      reportError("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -87,31 +124,51 @@ export function ImportDocButton({ workspaceId, variant = "button" }: ImportDocBu
         /* Compact toolbar button used inside DocEditor */
         <button
           type="button"
-          onClick={openPicker}
+          onClick={() => void openPicker()}
           disabled={loading}
-          title="Import document from device (.pdf, .docx, .xlsx, .csv, .txt, .md, .html, .json)"
+          aria-label="Import document from device"
+          title="Import document from device (.pdf, .docx, .xlsx, .csv, .txt, .md, .html, .json, .rtf)"
           className="p-1.5 rounded-md text-slate hover:text-ink hover:bg-offwhite transition-colors cursor-pointer disabled:opacity-50"
         >
-          {loading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+          {loading ? (
+            <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload size={15} aria-hidden="true" />
+          )}
         </button>
       ) : (
         /* Full pill button used on the docs list page */
         <button
           type="button"
-          onClick={openPicker}
+          onClick={() => void openPicker()}
           disabled={loading}
           className="flex items-center gap-2 bg-white border border-border text-ink rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-offwhite transition-colors disabled:opacity-50 cursor-pointer"
         >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+          {loading ? (
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload size={14} aria-hidden="true" />
+          )}
           Import doc
         </button>
       )}
 
-      {/* Inline error toast (only shown in "button" variant; toolbar errors go to DocEditor) */}
+      {/* Inline error popover (only shown in "button" variant; toolbar errors go to DocEditor via onError) */}
       {error && variant === "button" && (
-        <p className="absolute top-full mt-1.5 right-0 text-xs text-danger bg-red-50 border border-red-200 rounded-lg px-3 py-2 whitespace-nowrap z-10">
-          {error}
-        </p>
+        <div
+          role="alert"
+          className="absolute top-full mt-1.5 right-0 flex items-start gap-2 text-xs text-danger bg-red-50 border border-red-200 rounded-xl px-3 py-2 shadow-md whitespace-normal w-max max-w-[280px] sm:max-w-sm z-20"
+        >
+          <span className="flex-1 leading-relaxed">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError("")}
+            aria-label="Dismiss import error"
+            className="p-0.5 text-danger/70 hover:text-danger shrink-0 cursor-pointer"
+          >
+            <X size={13} aria-hidden="true" />
+          </button>
+        </div>
       )}
     </div>
   );

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { emitLiveNotification } from "@/lib/notification-events";
+import { invalidateUserNotificationCache } from "@/lib/notification-cache";
 import { sendEmailWithRetry } from "@/lib/email/email-service";
 import { renderNotificationEmail } from "@/lib/email/templates/notification-email-template";
 import {
@@ -200,6 +201,8 @@ export async function createNotification(input: CreateNotificationInput) {
         actor: { select: { id: true, name: true, image: true, email: true } },
       },
     });
+
+    invalidateUserNotificationCache(input.userId);
 
     // Emit live event to SSE subscribers (fire-and-forget — async, non-blocking)
     emitLiveNotification({

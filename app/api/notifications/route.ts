@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { leanAuth } from "@/lib/auth/lean";
 import { prisma } from "@/lib/prisma";
+import {
+  buildNotificationCacheKey,
+  getOrFetchNotifications,
+  invalidateUserNotificationCache,
+  type CachedNotificationsResult,
+} from "@/lib/notification-cache";
 import { z } from "zod";
-import type { NotificationType, Prisma } from "@prisma/client";
+import { Prisma, type NotificationType } from "@prisma/client";
 
 const patchSchema = z.object({
   notificationIds: z.array(z.string()).optional(),
@@ -32,77 +39,245 @@ const SYSTEM_TYPES: NotificationType[] = [
   "system_alert",
 ];
 
+type RawCombinedRow = {
+  unreadCount: number | bigint;
+  rows: Array<{ id: string; [key: string]: unknown }> | null;
+};
+
+function getCategoryTypes(category: string): NotificationType[] | null {
+  if (category === "mentions") return MENTION_TYPES;
+  if (category === "tasks") return TASK_TYPES;
+  if (category === "system") return SYSTEM_TYPES;
+  return null;
+}
+
+async function fetchNotificationsSingleQuery(params: {
+  userId: string;
+  workspaceId: string | null;
+  typeList: NotificationType[] | null;
+  unreadOnly: boolean;
+  limit: number;
+}): Promise<CachedNotificationsResult> {
+  const { userId, workspaceId, typeList, unreadOnly, limit } = params;
+
+  const conditions: Prisma.Sql[] = [Prisma.sql`n."userId" = ${userId}`];
+  if (workspaceId) {
+    conditions.push(Prisma.sql`n."workspaceId" = ${workspaceId}`);
+  }
+  if (unreadOnly) {
+    conditions.push(Prisma.sql`n."read" = false`);
+  }
+  if (typeList && typeList.length > 0) {
+    conditions.push(Prisma.sql`n."type"::text IN (${Prisma.join(typeList)})`);
+  }
+
+  const whereClause = Prisma.join(conditions, " AND ");
+  const unreadWorkspaceClause = workspaceId
+    ? Prisma.sql`AND "workspaceId" = ${workspaceId}`
+    : Prisma.empty;
+
+  const result = await prisma.$queryRaw<RawCombinedRow[]>`
+    WITH filtered AS (
+      SELECT
+        n."id",
+        n."userId",
+        n."workspaceId",
+        n."actorId",
+        n."type"::text AS "type",
+        n."title",
+        n."message",
+        n."entityType",
+        n."entityId",
+        n."link",
+        n."read",
+        CASE WHEN n."readAt" IS NOT NULL
+          THEN to_char(n."readAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+          ELSE NULL
+        END AS "readAt",
+        n."metadata",
+        to_char(n."createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "createdAt",
+        CASE WHEN u."id" IS NOT NULL
+          THEN json_build_object(
+            'id', u."id",
+            'name', u."name",
+            'image', u."image",
+            'email', u."email"
+          )
+          ELSE NULL
+        END AS "actor",
+        CASE WHEN w."id" IS NOT NULL
+          THEN json_build_object(
+            'id', w."id",
+            'name', w."name",
+            'slug', w."slug"
+          )
+          ELSE NULL
+        END AS "workspace",
+        n."createdAt" AS "_sortCreatedAt"
+      FROM "Notification" n
+      LEFT JOIN "User" u ON u."id" = n."actorId"
+      LEFT JOIN "Workspace" w ON w."id" = n."workspaceId"
+      WHERE ${whereClause}
+      ORDER BY n."createdAt" DESC, n."id" DESC
+      LIMIT ${limit + 1}
+    ),
+    unread AS (
+      SELECT COUNT(*)::int AS "unreadCount"
+      FROM "Notification"
+      WHERE "userId" = ${userId}
+        AND "read" = false
+        ${unreadWorkspaceClause}
+    )
+    SELECT
+      (SELECT "unreadCount" FROM unread) AS "unreadCount",
+      COALESCE(
+        (
+          SELECT json_agg(
+            json_build_object(
+              'id', f."id",
+              'userId', f."userId",
+              'workspaceId', f."workspaceId",
+              'actorId', f."actorId",
+              'type', f."type",
+              'title', f."title",
+              'message', f."message",
+              'entityType', f."entityType",
+              'entityId', f."entityId",
+              'link', f."link",
+              'read', f."read",
+              'readAt', f."readAt",
+              'metadata', f."metadata",
+              'createdAt', f."createdAt",
+              'actor', f."actor",
+              'workspace', f."workspace"
+            )
+            ORDER BY f."_sortCreatedAt" DESC, f."id" DESC
+          )
+          FROM filtered f
+        ),
+        '[]'::json
+      ) AS "rows"
+  `;
+
+  const row = result[0];
+  const notifications = Array.isArray(row?.rows) ? [...row.rows] : [];
+  let nextCursor: string | null = null;
+  if (notifications.length > limit) {
+    const nextItem = notifications.pop();
+    nextCursor = nextItem?.id ?? null;
+  }
+
+  return {
+    notifications,
+    unreadCount: Number(row?.unreadCount ?? 0),
+    nextCursor,
+  };
+}
+
 export async function GET(request: NextRequest) {
-  const session = await auth();
+  const tStart = performance.now();
+  // Lean JWT-only auth: verifies encrypted session cookie locally (0 DB queries).
+  const session = await leanAuth();
+  const authMs = performance.now() - tStart;
+
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const userId = session.user.id;
   const { searchParams } = new URL(request.url);
   const workspaceId = searchParams.get("workspaceId");
   const category = searchParams.get("category") || "all";
   const unreadOnly = searchParams.get("unreadOnly") === "true";
-  const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "30", 10)));
+  const countOnly = searchParams.get("countOnly") === "true";
+  const parsedLimit = parseInt(searchParams.get("limit") || "30", 10);
+  const limit = Math.min(100, Math.max(1, Number.isFinite(parsedLimit) ? parsedLimit : 30));
   const cursor = searchParams.get("cursor");
+  const typeList = getCategoryTypes(category);
 
-  const where: Prisma.NotificationWhereInput = {
-    userId: session.user.id,
-  };
-
-  if (workspaceId) {
-    where.workspaceId = workspaceId;
-  }
-
-  if (unreadOnly) {
-    where.read = false;
-  }
-
-  if (category === "mentions") {
-    where.type = { in: MENTION_TYPES };
-  } else if (category === "tasks") {
-    where.type = { in: TASK_TYPES };
-  } else if (category === "system") {
-    where.type = { in: SYSTEM_TYPES };
-  }
+  const cacheKey = buildNotificationCacheKey({
+    userId,
+    workspaceId,
+    category,
+    unreadOnly,
+    limit,
+    cursor,
+    countOnly,
+  });
 
   try {
-    const [notifications, unreadCount] = await Promise.all([
-      prisma.notification.findMany({
-        relationLoadStrategy: "join",
-        where,
-        take: limit + 1,
-        cursor: cursor ? { id: cursor } : undefined,
-        skip: cursor ? 1 : 0,
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        include: {
-          actor: { select: { id: true, name: true, image: true, email: true } },
-          workspace: { select: { id: true, name: true, slug: true } },
-        },
-      }),
-      cursor
-        ? Promise.resolve(null)
-        : prisma.notification.count({
-            where: {
-              userId: session.user.id,
-              read: false,
-              ...(workspaceId ? { workspaceId } : {}),
-            },
-          }),
-    ]);
+    const dbStart = performance.now();
+    const { data, cacheStatus } = await getOrFetchNotifications(cacheKey, async () => {
+      if (countOnly) {
+        const unreadCount = await prisma.notification.count({
+          where: {
+            userId,
+            read: false,
+            ...(workspaceId ? { workspaceId } : {}),
+          },
+        });
+        return { notifications: [], unreadCount, nextCursor: null };
+      }
 
-    let nextCursor: string | null = null;
-    let items = notifications;
-    if (notifications.length > limit) {
-      const nextItem = notifications.pop();
-      nextCursor = nextItem?.id ?? null;
-      items = notifications;
+      if (cursor) {
+        const where: Prisma.NotificationWhereInput = {
+          userId,
+          ...(workspaceId ? { workspaceId } : {}),
+          ...(unreadOnly ? { read: false } : {}),
+          ...(typeList ? { type: { in: typeList } } : {}),
+        };
+
+        const notifications = await prisma.notification.findMany({
+          relationLoadStrategy: "join",
+          where,
+          take: limit + 1,
+          cursor: { id: cursor },
+          skip: 1,
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          include: {
+            actor: { select: { id: true, name: true, image: true, email: true } },
+            workspace: { select: { id: true, name: true, slug: true } },
+          },
+        });
+
+        let nextCursor: string | null = null;
+        if (notifications.length > limit) {
+          const nextItem = notifications.pop();
+          nextCursor = nextItem?.id ?? null;
+        }
+
+        return { notifications, unreadCount: null, nextCursor };
+      }
+
+      // Single-query CTE: fetches notifications + unreadCount in 1 DB round-trip & 1 pool slot.
+      return fetchNotificationsSingleQuery({
+        userId,
+        workspaceId,
+        typeList,
+        unreadOnly,
+        limit,
+      });
+    });
+
+    const dbMs = performance.now() - dbStart;
+    const totalMs = performance.now() - tStart;
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log(
+        `[GET /api/notifications] timing: cache=${cacheStatus} | total=${totalMs.toFixed(1)}ms | auth=${authMs.toFixed(1)}ms | db=${dbMs.toFixed(1)}ms | rows=${data.notifications.length}`
+      );
     }
 
-    return NextResponse.json({
-      notifications: items,
-      unreadCount,
-      nextCursor,
-    });
+    const response = NextResponse.json(data);
+
+    if (process.env.NODE_ENV !== "production") {
+      response.headers.set(
+        "Server-Timing",
+        `auth;dur=${authMs.toFixed(1)}, db;dur=${dbMs.toFixed(1)};desc="${cacheStatus}", total;dur=${totalMs.toFixed(1)}`
+      );
+    }
+
+    return response;
   } catch (err) {
     console.error("[GET /api/notifications] Failed to fetch notifications:", err);
     return NextResponse.json({ error: "Failed to fetch notifications" }, { status: 500 });
@@ -139,6 +314,7 @@ export async function PATCH(request: NextRequest) {
         },
       });
 
+      invalidateUserNotificationCache(session.user.id);
       return NextResponse.json({ success: true, count: result.count });
     }
 
@@ -154,6 +330,7 @@ export async function PATCH(request: NextRequest) {
         },
       });
 
+      invalidateUserNotificationCache(session.user.id);
       return NextResponse.json({ success: true, count: result.count });
     }
 
@@ -184,6 +361,7 @@ export async function DELETE(request: NextRequest) {
           ...(workspaceId ? { workspaceId } : {}),
         },
       });
+      invalidateUserNotificationCache(session.user.id);
       return NextResponse.json({ success: true, count: result.count });
     }
 
@@ -198,6 +376,7 @@ export async function DELETE(request: NextRequest) {
       },
     });
 
+    invalidateUserNotificationCache(session.user.id);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("[DELETE /api/notifications] Failed to delete notification:", err);

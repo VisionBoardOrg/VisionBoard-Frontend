@@ -1,13 +1,18 @@
 "use client";
 
-import { useNotificationContext, type NotificationCategory, type NotificationContextType, NotificationProvider } from "@/context/NotificationContext";
+import {
+  useNotificationContext,
+  type NotificationCategory,
+  type NotificationContextType,
+  NotificationProvider,
+} from "@/context/NotificationContext";
 
 export type { NotificationCategory, NotificationContextType };
 export { NotificationProvider };
 
 /**
- * useNotifications hook - consumes the centralized NotificationContext.
- * Guaranteed single network request and single SSE stream per workspace.
+ * useNotifications hook — consumes the centralized NotificationContext.
+ * Shares polling state, deduplication, and optimistic mutations per workspace.
  */
 export function useNotifications(_workspaceId?: string | null): NotificationContextType {
   return useNotificationContext();

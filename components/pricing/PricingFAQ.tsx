@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 export default function PricingFAQ() {
-  const [openIndex, setOpenIndex] = useState<number | null>(0); // First item open by default like in screenshot
+  const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   const faqs = [
     {
@@ -17,7 +17,7 @@ export default function PricingFAQ() {
         "We accept all major credit cards including Visa, Mastercard, American Express, and Discover. For Enterprise plans, we also support ACH bank transfers and invoicing.",
     },
     {
-      question: "Does unused AI credits roll over to the next month?",
+      question: "Do unused AI credits roll over to the next month?",
       answer:
         "No, AI credits reset at the beginning of each billing cycle and do not roll over to subsequent months.",
     },
@@ -47,7 +47,14 @@ export default function PricingFAQ() {
           Frequently asked questions.
         </h2>
         <p className="text-sm md:text-base text-slate-600 mt-2">
-          Can&apos;t find what you&apos;re looking for? Reach out to our support team.
+          Can&apos;t find what you&apos;re looking for?{" "}
+          <a
+            href="mailto:support@vision-board.tech"
+            className="text-blue hover:underline font-medium"
+          >
+            Reach out to our support team
+          </a>
+          .
         </p>
       </div>
 
@@ -59,35 +66,40 @@ export default function PricingFAQ() {
             <div
               key={index}
               className={`border rounded-2xl bg-white transition-all duration-200 ${
-                isOpen ? "border-blue-200 shadow-md ring-1 ring-blue-500/10" : "border-slate-200 hover:border-slate-300 shadow-sm"
+                isOpen
+                  ? "border-blue-200 shadow-md ring-1 ring-blue-500/10"
+                  : "border-slate-200 hover:border-slate-300 shadow-sm"
               }`}
             >
-              <button
-                type="button"
-                id={`faq-button-${index}`}
-                aria-expanded={isOpen}
-                aria-controls={`faq-panel-${index}`}
-                onClick={() => toggleFAQ(index)}
-                className="w-full py-4 px-6 text-left flex items-center justify-between gap-4 font-semibold text-slate-900 text-sm md:text-base focus:outline-none cursor-pointer"
-              >
-                <span>{faq.question}</span>
-                <svg
-                  className={`w-5 h-5 text-blue-600 shrink-0 transition-transform duration-200 ${
-                    isOpen ? "rotate-180" : ""
-                  }`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth="2.5"
-                  aria-hidden="true"
+              <h3 className="m-0">
+                <button
+                  type="button"
+                  id={`faq-button-${index}`}
+                  aria-expanded={isOpen}
+                  aria-controls={`faq-panel-${index}`}
+                  onClick={() => toggleFAQ(index)}
+                  className="w-full py-4 px-6 text-left flex items-center justify-between gap-4 font-semibold text-slate-900 text-sm md:text-base rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue/40 focus-visible:ring-inset cursor-pointer"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
+                  <span>{faq.question}</span>
+                  <svg
+                    className={`w-5 h-5 text-blue-600 shrink-0 transition-transform duration-200 ${
+                      isOpen ? "rotate-180" : ""
+                    }`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    aria-hidden="true"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </h3>
 
               {isOpen && (
                 <div
                   id={`faq-panel-${index}`}
+                  role="region"
                   aria-labelledby={`faq-button-${index}`}
                   className="px-6 pb-5 pt-1 text-xs md:text-sm text-slate-600 leading-relaxed border-t border-slate-100"
                 >

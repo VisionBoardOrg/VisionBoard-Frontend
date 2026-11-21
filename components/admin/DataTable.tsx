@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { ChevronUp, ChevronDown, ChevronsUpDown, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
 export interface Column<T> {
   key: string;
@@ -17,6 +24,10 @@ interface DataTableProps<T> {
   getRowKey: (row: T) => string;
   searchable?: boolean;
   searchPlaceholder?: string;
+  /** Additional object keys to match in client-side search (e.g. "email") */
+  searchableKeys?: string[];
+  /** When provided, delegates search to the parent (server-side search mode) without client-side filtering */
+  onSearchChange?: (query: string) => void;
   pageSize?: number;
   onRowClick?: (row: T) => void;
   emptyMessage?: string;
@@ -41,6 +52,8 @@ export default function DataTable<T>({
   getRowKey,
   searchable = true,
   searchPlaceholder = "Search…",
+  searchableKeys,
+  onSearchChange,
   pageSize: clientPageSize = 20,
   onRowClick,
   emptyMessage = "No records found.",
@@ -52,13 +65,18 @@ export default function DataTable<T>({
   const [sortDir, setSortDir] = useState<SortDir>(null);
   const [clientPage, setClientPage] = useState(1);
 
-  // Search
+  const isServerSearch = Boolean(onSearchChange);
+
+  // Client-side search (skipped when server search is delegated via onSearchChange)
   const filtered = useMemo(() => {
-    if (!query.trim()) return data;
+    if (isServerSearch || !query.trim()) return data;
     const q = query.toLowerCase();
+    const keysToSearch = Array.from(
+      new Set([...columns.map((c) => c.key), ...(searchableKeys ?? [])])
+    );
     return data.filter((row) =>
-      columns.some((col) => {
-        const v = getValue(row, col.key);
+      keysToSearch.some((key) => {
+        const v = getValue(row, key);
         return typeof v === "string"
           ? v.toLowerCase().includes(q)
           : typeof v === "number"
@@ -66,7 +84,7 @@ export default function DataTable<T>({
           : false;
       })
     );
-  }, [data, query, columns]);
+  }, [data, query, columns, searchableKeys, isServerSearch]);
 
   // Sort
   const sorted = useMemo(() => {
@@ -84,15 +102,6 @@ export default function DataTable<T>({
     });
   }, [filtered, sortKey, sortDir]);
 
-  // Pagination
-  //
-  // When serverPagination is provided:
-  //   - The parent component fetches a single server-rendered page.
-  //   - We render ALL of `data` as-is (skip client-side slicing).
-  //   - Page controls are driven by the server totals and call onPageChange.
-  //
-  // Otherwise (client-only mode):
-  //   - Keep the original behaviour: slice `sorted` client-side.
   const effectivePageSize = serverPagination?.pageSize ?? clientPageSize;
   const totalPages = serverPagination
     ? Math.max(1, Math.ceil(serverPagination.totalItems / effectivePageSize))
@@ -114,14 +123,19 @@ export default function DataTable<T>({
       setSortKey(null);
       setSortDir(null);
     }
-    setClientPage(1);
-    serverPagination?.onPageChange(1);
+    if (!serverPagination) {
+      setClientPage(1);
+    }
   }
 
   function handleSearch(v: string) {
     setQuery(v);
-    setClientPage(1);
-    serverPagination?.onPageChange(1);
+    if (onSearchChange) {
+      onSearchChange(v);
+    } else {
+      setClientPage(1);
+      serverPagination?.onPageChange(1);
+    }
   }
 
   function handlePrevPage() {
@@ -147,9 +161,13 @@ export default function DataTable<T>({
       {searchable && (
         <div className="p-4 border-b border-border">
           <div className="relative max-w-xs">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-muted" />
+            <Search
+              className="absolute left-3 top-2.5 w-4 h-4 text-muted pointer-events-none"
+              aria-hidden="true"
+            />
             <input
-              type="text"
+              type="search"
+              aria-label="Search table"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
               placeholder={searchPlaceholder}
@@ -163,29 +181,45 @@ export default function DataTable<T>({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-offwhite/60">
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className={`px-4 py-3 text-left text-xs font-bold text-slate uppercase tracking-wide whitespace-nowrap ${col.className ?? ""} ${
-                    col.sortable ? "cursor-pointer select-none hover:text-ink" : ""
-                  }`}
-                  onClick={col.sortable ? () => handleSort(col.key) : undefined}
-                >
-                  <span className="flex items-center gap-1">
-                    {col.header}
-                    {col.sortable &&
-                      (sortKey === col.key ? (
-                        sortDir === "asc" ? (
-                          <ChevronUp className="w-3.5 h-3.5 text-blue" />
+              {columns.map((col) => {
+                const ariaSort = col.sortable
+                  ? sortKey === col.key
+                    ? sortDir === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                  : undefined;
+
+                return (
+                  <th
+                    key={col.key}
+                    scope="col"
+                    aria-sort={ariaSort}
+                    className={`px-4 py-3 text-left text-xs font-bold text-slate uppercase tracking-wide whitespace-nowrap ${col.className ?? ""}`}
+                  >
+                    {col.sortable ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSort(col.key)}
+                        className="inline-flex items-center gap-1 uppercase tracking-wide font-bold text-slate hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-blue/40 rounded cursor-pointer select-none"
+                      >
+                        <span>{col.header}</span>
+                        {sortKey === col.key ? (
+                          sortDir === "asc" ? (
+                            <ChevronUp className="w-3.5 h-3.5 text-blue" aria-hidden="true" />
+                          ) : (
+                            <ChevronDown className="w-3.5 h-3.5 text-blue" aria-hidden="true" />
+                          )
                         ) : (
-                          <ChevronDown className="w-3.5 h-3.5 text-blue" />
-                        )
-                      ) : (
-                        <ChevronsUpDown className="w-3.5 h-3.5 text-muted" />
-                      ))}
-                  </span>
-                </th>
-              ))}
+                          <ChevronsUpDown className="w-3.5 h-3.5 text-muted" aria-hidden="true" />
+                        )}
+                      </button>
+                    ) : (
+                      <span>{col.header}</span>
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -212,9 +246,22 @@ export default function DataTable<T>({
               paged.map((row) => (
                 <tr
                   key={getRowKey(row)}
+                  tabIndex={onRowClick ? 0 : undefined}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onRowClick(row);
+                          }
+                        }
+                      : undefined
+                  }
                   className={`border-b border-border last:border-0 transition-colors ${
-                    onRowClick ? "cursor-pointer hover:bg-blue-faint/40" : ""
+                    onRowClick
+                      ? "cursor-pointer hover:bg-blue-faint/40 focus:outline-none focus-visible:bg-blue-faint/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue/40"
+                      : ""
                   }`}
                 >
                   {columns.map((col) => (
@@ -243,18 +290,22 @@ export default function DataTable<T>({
           </span>
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={handlePrevPage}
               disabled={currentPage === 1}
+              aria-label="Previous page"
               className="p-1.5 rounded-lg hover:bg-offwhite disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </button>
             <button
+              type="button"
               onClick={handleNextPage}
               disabled={currentPage === totalPages}
+              aria-label="Next page"
               className="p-1.5 rounded-lg hover:bg-offwhite disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
             </button>
           </div>
         </div>

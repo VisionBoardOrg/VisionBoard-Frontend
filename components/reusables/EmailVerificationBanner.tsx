@@ -22,7 +22,7 @@ function EmailVerificationBannerInner() {
       updateSession();
       setStatusMessage({
         type: "success",
-        text: "Your email address has been successfully verified! 🎉",
+        text: "Your email address has been successfully verified.",
       });
       const timer = setTimeout(() => {
         const url = new URL(window.location.href);
@@ -40,7 +40,10 @@ function EmailVerificationBannerInner() {
     }
   }, [verifiedParam, reasonParam, updateSession, router]);
 
-  if (!session?.user || session.user.emailVerified || dismissed) {
+  // Always honor manual dismissal first, even when a status message is active
+  if (dismissed) return null;
+
+  if (!session?.user || session.user.emailVerified) {
     if (!statusMessage) return null;
   }
 
@@ -61,7 +64,7 @@ function EmailVerificationBannerInner() {
       } else {
         setStatusMessage({
           type: "success",
-          text: data.message || "Verification link sent to your inbox!",
+          text: data.message || "Verification link sent to your inbox.",
         });
       }
     } catch {
@@ -75,23 +78,23 @@ function EmailVerificationBannerInner() {
   }
 
   return (
-    <div className="w-full bg-amber-50/90 dark:bg-amber-950/30 border-b border-amber-200/80 dark:border-amber-900/50 px-4 py-2.5 transition-all">
-      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs sm:text-sm text-amber-900 dark:text-amber-200">
-        <div className="flex items-center gap-2.5 min-w-0">
+    <div className="w-full bg-amber-50 border-b border-amber-200 px-4 py-2.5 transition-all">
+      <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs sm:text-sm text-amber-950">
+        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
           {statusMessage?.type === "success" ? (
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5 sm:mt-0" aria-hidden="true" />
           ) : statusMessage?.type === "error" ? (
-            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0 mt-0.5 sm:mt-0" aria-hidden="true" />
           ) : (
-            <Mail className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <Mail className="w-4 h-4 text-amber-700 shrink-0 mt-0.5 sm:mt-0" aria-hidden="true" />
           )}
-          <span className="truncate">
+          <span className="leading-snug break-words" aria-live="polite">
             {statusMessage ? (
               <strong
                 className={
                   statusMessage.type === "success"
-                    ? "text-black dark:text-emerald-300 font-medium"
-                    : "text-rose-800 dark:text-rose-300 font-medium"
+                    ? "text-emerald-900 font-medium"
+                    : "text-rose-800 font-medium"
                 }
               >
                 {statusMessage.text}
@@ -104,34 +107,36 @@ function EmailVerificationBannerInner() {
           </span>
         </div>
 
-        {!session?.user.emailVerified && (
-          <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+          {!session?.user?.emailVerified && (
             <button
+              type="button"
               onClick={handleResend}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white font-medium text-xs rounded-lg transition-colors shadow-sm disabled:opacity-60 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-medium text-xs rounded-lg transition-colors shadow-sm disabled:opacity-60 cursor-pointer"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                   <span>Sending…</span>
                 </>
               ) : (
                 <>
-                  <RefreshCw className="w-3 h-3" />
+                  <RefreshCw className="w-3 h-3" aria-hidden="true" />
                   <span>Resend Verification Email</span>
                 </>
               )}
             </button>
-            <button
-              onClick={() => setDismissed(true)}
-              className="p-1 text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200 rounded-md hover:bg-amber-100/60 dark:hover:bg-amber-900/50 transition-colors"
-              aria-label="Dismiss banner"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+          )}
+          <button
+            type="button"
+            onClick={() => setDismissed(true)}
+            className="min-w-8 min-h-8 flex items-center justify-center text-amber-800 hover:text-amber-950 rounded-md hover:bg-amber-100 transition-colors cursor-pointer"
+            aria-label="Dismiss banner"
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -67,8 +67,11 @@ export default function AdminLoginPage() {
 
           {/* Error Message */}
           {error && (
-            <div className="bg-danger/10 border border-danger/30 rounded-xl p-3.5 flex items-start gap-2.5 text-xs text-danger font-medium animate-in fade-in duration-200">
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div
+              role="alert"
+              className="bg-danger/10 border border-danger/30 rounded-xl p-3.5 flex items-start gap-2.5 text-xs text-danger font-medium animate-in fade-in duration-200"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
               <span>{error}</span>
             </div>
           )}
@@ -76,12 +79,16 @@ export default function AdminLoginPage() {
           {/* Form */}
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-ink mb-1.5">Username</label>
+              <label htmlFor="admin-username" className="block text-xs font-bold text-ink mb-1.5">
+                Username
+              </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate absolute left-3.5 top-3" />
+                <User className="w-4 h-4 text-slate absolute left-3.5 top-3" aria-hidden="true" />
                 <input
+                  id="admin-username"
                   type="text"
                   required
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="admin"
@@ -91,12 +98,16 @@ export default function AdminLoginPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-ink mb-1.5">Password</label>
+              <label htmlFor="admin-password" className="block text-xs font-bold text-ink mb-1.5">
+                Password
+              </label>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate absolute left-3.5 top-3" />
+                <Lock className="w-4 h-4 text-slate absolute left-3.5 top-3" aria-hidden="true" />
                 <input
+                  id="admin-password"
                   type={showPassword ? "text" : "password"}
                   required
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"

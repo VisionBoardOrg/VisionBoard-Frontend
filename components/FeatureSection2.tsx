@@ -1,4 +1,5 @@
-import { Target, FileText, Users, Activity } from "lucide-react";
+import Link from "next/link";
+import { Target, FileText, Users, Activity, ArrowRight } from "lucide-react";
 
 export default function FeatureSection2() {
   return (
@@ -39,6 +40,21 @@ export default function FeatureSection2() {
             Monitor milestones, blockers, and progress across every initiative from one intelligent dashboard.
           </p>
         </div>
+      </div>
+
+      <div className="mt-10 flex flex-wrap items-center justify-center gap-6">
+        <Link
+          href="/features"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue hover:text-blue-mid hover:underline transition-colors"
+        >
+          See how VisionBoard works <ArrowRight size={15} aria-hidden="true" />
+        </Link>
+        <Link
+          href="/solutions"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate hover:text-blue hover:underline transition-colors"
+        >
+          Explore solutions by role <ArrowRight size={15} aria-hidden="true" />
+        </Link>
       </div>
     </section>
   );

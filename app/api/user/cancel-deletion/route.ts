@@ -1,32 +1,42 @@
 /**
  * POST /api/user/cancel-deletion
  *
- * Two paths:
+ * Three paths:
  *
  * 1. Authenticated (session present):
  *    The user is still logged in and clicks "Cancel deletion" from the account
- *    page.  We trust the session and clear scheduledDeletion directly.
+ *    page. We trust the session and clear scheduledDeletion directly.
  *
- * 2. Token-based (session absent, ?token= query param):
+ * 2. Token-based (session absent, { token }):
  *    The user has been signed out (sessions are invalidated on deletion
  *    scheduling) and arrives via the link in the confirmation email.
  *    We verify the HMAC-signed, time-limited token from lib/deletion-token.ts.
- *    The token encodes the userId and an expiry — no email address is exposed
- *    in the URL, and only the holder of a valid signed token can cancel.
  *
- * The old path accepted a raw email address with no authentication, which
- * allowed anyone who knew the target's email to prevent them from deleting
- * their account (GDPR right-to-erasure violation).
+ * 3. Resend restoration link ({ action: "resend", email }):
+ *    Rate-limited flow for users redirected from sign-in or with an expired
+ *    email link. Sends a fresh signed HMAC restoration link if the email
+ *    belongs to an account with a pending deletion, while always returning a
+ *    generic success message to prevent account enumeration.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { verifyCancelDeletionToken } from "@/lib/deletion-token";
+import {
+  signCancelDeletionToken,
+  verifyCancelDeletionToken,
+} from "@/lib/deletion-token";
+import { sendAccountDeletionNoticeEmail } from "@/lib/account-deletion-email";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
-const bodySchema = z.object({
-  token: z.string().min(1).optional(),
+const tokenSchema = z.object({
+  token: z.string().min(1),
+});
+
+const resendSchema = z.object({
+  action: z.literal("resend"),
+  email: z.string().trim().toLowerCase().pipe(z.string().email().max(255)),
 });
 
 export async function POST(request: NextRequest) {
@@ -43,25 +53,72 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // ── Path 2: signed token from email link ───────────────────────────────────
   const body = await request.json().catch(() => ({}));
-  const parsed = bodySchema.safeParse(body);
 
-  if (parsed.success && parsed.data.token) {
-    const userId = await verifyCancelDeletionToken(parsed.data.token);
-
-    if (userId) {
-      // Only cancel if the account is actually scheduled — avoids a write on
-      // already-cleared or non-existent accounts.
-      await prisma.user.updateMany({
-        where: { id: userId, scheduledDeletion: { not: null } },
-        data: { scheduledDeletion: null },
-      });
+  // ── Path 2: resend signed restoration link ────────────────────────────────
+  const parsedResend = resendSchema.safeParse(body);
+  if (parsedResend.success) {
+    const rl = await checkRateLimit(request, "cancel-deletion-resend", {
+      windowMs: 15 * 60 * 1000,
+      max: 5,
+    });
+    if (!rl.allowed && rl.response) {
+      return rl.response;
     }
 
-    // Always return a uniform success response to prevent user-ID enumeration.
-    // (The caller can't distinguish "token valid, deletion cancelled" from
-    // "token valid but account wasn't scheduled" — both are benign.)
+    const { email } = parsedResend.data;
+    try {
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, name: true, scheduledDeletion: true },
+      });
+
+      if (user && user.scheduledDeletion) {
+        const token = await signCancelDeletionToken(user.id);
+        const origin = new URL(request.url).origin;
+        const cancelUrl = `${origin}/auth/cancel-deletion?token=${encodeURIComponent(token)}`;
+        await sendAccountDeletionNoticeEmail({
+          email: user.email,
+          name: user.name,
+          scheduledDeletionDate: user.scheduledDeletion,
+          cancelUrl,
+        });
+      }
+    } catch (err) {
+      console.error("[POST /api/user/cancel-deletion] Resend failed:", err);
+    }
+
+    return NextResponse.json({
+      success: true,
+      resent: true,
+      message:
+        "If an account with that email is scheduled for deletion, we've sent a secure restoration link to your inbox.",
+    });
+  }
+
+  // ── Path 3: signed token from email link ──────────────────────────────────
+  const parsedToken = tokenSchema.safeParse(body);
+  if (parsedToken.success) {
+    const userId = await verifyCancelDeletionToken(parsedToken.data.token);
+
+    if (!userId) {
+      return NextResponse.json(
+        {
+          error:
+            "This restoration link is invalid or has expired. Enter your email below to request a new restoration link.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Only cancel if the account is actually scheduled — avoids a write on
+    // already-cleared or non-existent accounts.
+    await prisma.user.updateMany({
+      where: { id: userId, scheduledDeletion: { not: null } },
+      data: { scheduledDeletion: null },
+    });
+
+    // Uniform success response prevents user-ID enumeration.
     return NextResponse.json({
       success: true,
       message:
@@ -72,8 +129,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(
     {
       error:
-        "Invalid or expired cancellation link. Please log in to cancel your account deletion, " +
-        "or contact support if your link has expired.",
+        "Invalid or expired cancellation link. Enter your email below to receive a fresh restoration link.",
     },
     { status: 400 }
   );

@@ -1,14 +1,15 @@
 "use client";
 
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useModalA11y } from "@/hooks/useModalA11y";
 
 export interface ConfirmOptions {
   title: string;
   description?: string;
   confirmLabel?: string;
   cancelLabel?: string;
-  /** Destructive confirmations render a red confirm button */
+  /** Destructive confirmations render a high-contrast red confirm button and default focus to Cancel */
   danger?: boolean;
 }
 
@@ -23,16 +24,14 @@ interface PendingConfirm extends ConfirmOptions {
 }
 
 /**
- * App-wide styled replacement for window.confirm(). Returns a promise that
- * resolves true when confirmed, false when cancelled/dismissed.
- *
- *   const { confirm } = useConfirm();
- *   if (!(await confirm({ title: "Delete goal?", danger: true }))) return;
+ * App-wide accessible confirmation dialog (role="alertdialog", focus trap,
+ * focus restoration, Escape-to-cancel, safe initial focus on Cancel for danger asks).
  */
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const resolverRef = useRef<((value: boolean) => void) | null>(null);
   const nextId = useRef(1);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
@@ -53,29 +52,10 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  // Focus the safe action when the dialog opens (confirm button only for
-  // non-destructive asks; cancel button for danger asks)
-  useEffect(() => {
-    if (!pending) return;
-    const target = pending.danger ? cancelRef.current : confirmRef.current;
-    requestAnimationFrame(() => target?.focus());
-  }, [pending]);
-
-  // Keyboard: Escape cancels, Enter confirms
-  useEffect(() => {
-    if (!pending) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        settle(false);
-      } else if (e.key === "Enter" && document.activeElement !== cancelRef.current) {
-        e.preventDefault();
-        settle(true);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [pending, settle]);
+  // Focus trap, Escape dismissal, scroll lock, and safe initial focus
+  useModalA11y(dialogRef, () => settle(false), Boolean(pending), {
+    initialFocusRef: pending?.danger ? cancelRef : confirmRef,
+  });
 
   return (
     <ConfirmContext.Provider value={{ confirm }}>
@@ -84,14 +64,18 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       {pending && (
         <div
           className="fixed inset-0 z-[85] flex items-center justify-center p-4"
-          role="dialog"
+          role="alertdialog"
           aria-modal="true"
           aria-labelledby="confirm-dialog-title"
+          aria-describedby={pending.description ? "confirm-dialog-description" : undefined}
         >
           {/* Backdrop */}
           <div className="absolute inset-0 bg-ink/40" onClick={() => settle(false)} aria-hidden="true" />
 
-          <div className="relative w-full max-w-md bg-white rounded-2xl border border-border shadow-2xl p-6">
+          <div
+            ref={dialogRef}
+            className="relative w-full max-w-md bg-white rounded-2xl border border-border shadow-2xl p-6"
+          >
             <div className="flex items-start gap-3">
               {pending.danger && (
                 <div className="w-10 h-10 rounded-full bg-red-50 border border-red-100 flex items-center justify-center shrink-0">
@@ -103,25 +87,29 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   {pending.title}
                 </h2>
                 {pending.description && (
-                  <p className="text-sm text-slate mt-1.5 leading-relaxed">{pending.description}</p>
+                  <p id="confirm-dialog-description" className="text-sm text-slate mt-1.5 leading-relaxed">
+                    {pending.description}
+                  </p>
                 )}
               </div>
             </div>
 
             <div className="flex justify-end gap-2 mt-6">
               <button
+                type="button"
                 ref={cancelRef}
                 onClick={() => settle(false)}
-                className="h-10 px-4 rounded-xl border-[1.5px] border-border bg-white text-sm font-semibold text-slate hover:bg-offwhite transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue/40"
+                className="h-10 px-4 rounded-xl border-[1.5px] border-border bg-white text-sm font-semibold text-slate hover:bg-offwhite transition-colors cursor-pointer"
               >
                 {pending.cancelLabel ?? "Cancel"}
               </button>
               <button
+                type="button"
                 ref={confirmRef}
                 onClick={() => settle(true)}
-                className={`h-10 px-4 rounded-xl text-sm font-semibold text-white transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue/40 ${
+                className={`h-10 px-4 rounded-xl text-sm font-semibold text-white transition-colors cursor-pointer ${
                   pending.danger
-                    ? "bg-danger hover:bg-red-600"
+                    ? "bg-danger hover:bg-red-700"
                     : "bg-blue hover:bg-blue-mid"
                 }`}
               >

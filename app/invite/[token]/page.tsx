@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth";
+import { auth, signOut } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
@@ -15,7 +15,8 @@ interface InvitePageProps {
 }
 
 export default async function InvitePage({ params }: InvitePageProps) {
-  const { token: rawToken } = await params;
+  const [{ token: rawToken }, session] = await Promise.all([params, auth()]);
+  const isAuthenticated = Boolean(session?.user?.id);
 
   // SECURITY (HIGH-7): Raw tokens never go into the DB where they'd be
   // readable by anyone with SELECT. Hash the incoming URL token and look up
@@ -37,16 +38,13 @@ export default async function InvitePage({ params }: InvitePageProps) {
   });
 
   if (!invite || invite.status !== "pending") {
-    return <InvalidInvite />;
+    return <InvalidInvite isAuthenticated={isAuthenticated} />;
   }
 
-  // Enforce expiry for open links too (even though they're set far future,
-  // the check catches any manually-shortened expiries)
+  // Enforce expiry for open links too
   if (invite.expiresAt < new Date()) {
-    return <InvalidInvite />;
+    return <InvalidInvite isAuthenticated={isAuthenticated} />;
   }
-
-  const session = await auth();
 
   // ── Open / workspace-level invite link ──────────────────────────────────
   if (invite.email === LINK_SENTINEL) {
@@ -75,7 +73,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
         "invite_member"
       );
       if (!limitCheck.allowed) {
-        return <MemberLimitReached />;
+        return <MemberLimitReached isAuthenticated={isAuthenticated} />;
       }
 
       await prisma.workspaceMember.create({
@@ -106,7 +104,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
 
   // Enforce that the logged-in user's email matches the invite recipient
   if (session.user.email?.toLowerCase() !== invite.email.toLowerCase()) {
-    return <WrongAccountInvite inviteEmail={invite.email} />;
+    return <WrongAccountInvite inviteEmail={invite.email} rawToken={rawToken} />;
   }
 
   const existingMembership = await prisma.workspaceMember.findUnique({
@@ -129,7 +127,7 @@ export default async function InvitePage({ params }: InvitePageProps) {
       "invite_member"
     );
     if (!limitCheck.allowed) {
-      return <MemberLimitReached />;
+      return <MemberLimitReached isAuthenticated={isAuthenticated} />;
     }
 
     await prisma.workspaceMember.create({
@@ -155,66 +153,88 @@ export default async function InvitePage({ params }: InvitePageProps) {
   redirect(`/workspace/${invite.workspaceId}/board`);
 }
 
-function InvalidInvite() {
+function InvalidInvite({ isAuthenticated }: { isAuthenticated: boolean }) {
   return (
     <div className="min-h-screen bg-offwhite flex flex-col items-center justify-center p-4">
       <div className="bg-white rounded-2xl border border-border p-8 max-w-md w-full text-center space-y-4 shadow-sm">
         <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
-          <AlertTriangle size={24} />
+          <AlertTriangle size={24} aria-hidden="true" />
         </div>
         <h1 className="text-xl font-bold text-ink">Invitation Invalid or Expired</h1>
         <p className="text-sm text-slate">
           This invitation link is either invalid, already accepted, or has expired.
         </p>
         <Link
-          href="/dashboard"
+          href={isAuthenticated ? "/dashboard" : "/"}
           className="inline-flex items-center justify-center gap-2 bg-blue text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-mid transition-colors w-full"
         >
-          Go to Dashboard
+          {isAuthenticated ? "Go to Dashboard" : "Return Home"}
         </Link>
       </div>
     </div>
   );
 }
 
-function MemberLimitReached() {
+function MemberLimitReached({ isAuthenticated }: { isAuthenticated: boolean }) {
   return (
     <div className="min-h-screen bg-offwhite flex flex-col items-center justify-center p-4">
       <div className="bg-white rounded-2xl border border-border p-8 max-w-md w-full text-center space-y-4 shadow-sm">
         <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
-          <AlertTriangle size={24} />
+          <AlertTriangle size={24} aria-hidden="true" />
         </div>
         <h1 className="text-xl font-bold text-ink">Workspace Member Limit Reached</h1>
         <p className="text-sm text-slate">
           This workspace has reached its member limit on the current plan. Ask the workspace owner to upgrade.
         </p>
         <Link
-          href="/dashboard"
+          href={isAuthenticated ? "/dashboard" : "/"}
           className="inline-flex items-center justify-center gap-2 bg-blue text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-mid transition-colors w-full"
         >
-          Go to Dashboard
+          {isAuthenticated ? "Go to Dashboard" : "Return Home"}
         </Link>
       </div>
     </div>
   );
 }
 
-function WrongAccountInvite({ inviteEmail }: { inviteEmail: string }) {
+function WrongAccountInvite({
+  inviteEmail,
+  rawToken,
+}: {
+  inviteEmail: string;
+  rawToken: string;
+}) {
+  async function switchAccountAction() {
+    "use server";
+    const callbackUrl = `/invite/${rawToken}`;
+    await signOut({
+      redirectTo: `/auth/login?callbackUrl=${encodeURIComponent(callbackUrl)}`,
+    });
+  }
+
   return (
     <div className="min-h-screen bg-offwhite flex flex-col items-center justify-center p-4">
       <div className="bg-white rounded-2xl border border-border p-8 max-w-md w-full text-center space-y-4 shadow-sm">
         <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
-          <AlertTriangle size={24} />
+          <AlertTriangle size={24} aria-hidden="true" />
         </div>
         <h1 className="text-xl font-bold text-ink">Wrong Account</h1>
         <p className="text-sm text-slate">
-          This invitation was sent to <strong>{maskEmail(inviteEmail)}</strong>. Please sign in with that email address to accept it.
+          This invitation was sent to <strong>{maskEmail(inviteEmail)}</strong>. Sign out of your current account and sign in with that email address to accept it.
         </p>
+        <form action={switchAccountAction} className="space-y-2.5">
+          <button
+            type="submit"
+            className="inline-flex items-center justify-center gap-2 bg-blue text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-mid transition-colors w-full cursor-pointer"
+          >
+            Sign out &amp; switch account
+          </button>
+        </form>
         <Link
-          href="/auth/login"
-          className="inline-flex items-center justify-center gap-2 bg-blue text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-mid transition-colors w-full"
+          href="/dashboard"
+          className="inline-block text-xs text-slate hover:text-ink hover:underline"
         >
-          Sign in with correct account
+          Back to Dashboard
         </Link>
       </div>
     </div>

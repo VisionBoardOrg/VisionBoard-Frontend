@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import {
@@ -21,28 +22,39 @@ export default async function WorkspaceLayout({
   const { id } = await params;
   const userId = session.user.id;
 
-  // Two parallel queries, each deduped (React.cache within request,
-  // process-level inflight+TTL across requests). If workspace sub-page also
-  // calls getUserPlanAndCredits or getSlimWorkspaceMembership below, it gets
-  // the already-computed value — zero extra DB round-trips.
-  const [member, currentUser] = await Promise.all([
+  const [member, currentUser, memberships] = await Promise.all([
     getSlimWorkspaceMembership(id, userId),
     getUserPlanAndCredits(userId),
+    prisma.workspaceMember.findMany({
+      where: { userId },
+      select: { workspace: { select: { id: true, name: true } } },
+      orderBy: { joinedAt: "asc" },
+    }),
   ]);
 
   if (!member || !currentUser) redirect("/dashboard");
 
-  const plan = currentUser.plan;
   const isOwner = member.workspace.ownerId === userId;
+  const ownerPlanData = isOwner
+    ? currentUser
+    : await getUserPlanAndCredits(member.workspace.ownerId);
+
+  const workspaceOwnerPlan = ownerPlanData?.plan ?? currentUser.plan;
+  const workspaces = memberships.map((m) => m.workspace);
 
   return (
     <AppShell
       workspaceId={id}
-      role={session.user.role}
-      plan={plan}
+      workspaceName={member.workspace.name}
+      workspaces={workspaces}
+      role={member.role}
+      plan={workspaceOwnerPlan}
       aiCreditsUsed={currentUser.aiCreditsUsed}
-      aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
+      aiCreditsMax={PLAN_LIMITS[workspaceOwnerPlan].aiCreditsPerMonth ?? -1}
       userId={userId}
+      userName={session.user.name}
+      userEmail={session.user.email}
+      userImage={session.user.image}
       isOwner={isOwner}
     >
       {children}

@@ -154,13 +154,6 @@ export default function RootLayout({
           "price": "0",
           "priceCurrency": "USD",
         },
-        "aggregateRating": {
-          "@type": "AggregateRating",
-          "ratingValue": "4.9",
-          "reviewCount": "128",
-          "bestRating": "5",
-          "worstRating": "1",
-        },
         "featureList": [
           "AI Goal Deconstruction",
           "Interactive 2D Canvas Boards",

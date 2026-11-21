@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import type { NotificationResponseItem } from "@/lib/notifications";
 
 export type NotificationCategory = "all" | "mentions" | "tasks" | "system";
@@ -9,6 +9,7 @@ export interface NotificationContextType {
   notifications: NotificationResponseItem[];
   unreadCount: number;
   isLoading: boolean;
+  fetchError: string | null;
   category: NotificationCategory;
   setCategory: (cat: NotificationCategory) => void;
   markAsRead: (notificationIds: string[]) => Promise<void>;
@@ -47,8 +48,21 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
   const [notifications, setNotifications] = useState<NotificationResponseItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [category, setCategory] = useState<NotificationCategory>("all");
   const [latestLiveEvent, setLatestLiveEvent] = useState<NotificationResponseItem | null>(null);
+
+  // Refs for reading current state synchronously in mutation callbacks (avoiding nested setState calls)
+  const notificationsRef = useRef<NotificationResponseItem[]>(notifications);
+  const unreadCountRef = useRef<number>(unreadCount);
+
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
+
+  useEffect(() => {
+    unreadCountRef.current = unreadCount;
+  }, [unreadCount]);
 
   // Centralized fetch with module-level deduplication
   const fetchNotifications = useCallback(
@@ -65,6 +79,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
           if (cached && Date.now() - cached.ts < DEDUPE_TTL_MS) {
             setNotifications(cached.data.notifications || []);
             setUnreadCount(cached.data.unreadCount || 0);
+            setFetchError(null);
             return;
           }
         }
@@ -88,11 +103,17 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
         if (data) {
           setNotifications(data.notifications || []);
           setUnreadCount(data.unreadCount || 0);
+          setFetchError(null);
+        } else {
+          setFetchError("Unable to load notifications right now.");
         }
       } catch (err: unknown) {
         const error = err as Error;
-        if (error?.name !== "AbortError" && error?.message !== "Failed to fetch") {
-          console.warn("[NotificationContext] Transient error loading notifications:", error?.message || error);
+        if (error?.name !== "AbortError") {
+          setFetchError("Unable to load notifications. Check your connection and try again.");
+          if (error?.message !== "Failed to fetch") {
+            console.warn("[NotificationContext] Transient error loading notifications:", error?.message || error);
+          }
         }
       } finally {
         setIsLoading(false);
@@ -116,7 +137,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
       if (!pollTimer) {
         pollTimer = setInterval(() => {
           if (typeof document === "undefined" || document.visibilityState !== "hidden") {
-            fetchNotifications();
+            void fetchNotifications();
           }
         }, 30_000); // Poll every 30 seconds
       }
@@ -132,11 +153,9 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
     const handleVisibilityChange = () => {
       if (typeof document === "undefined") return;
       if (document.visibilityState === "visible") {
-        // Tab became active again — immediately refresh and resume polling
-        fetchNotifications();
+        void fetchNotifications();
         startPolling();
       } else {
-        // Tab is hidden in background — suspend polling to save client battery and server resources
         stopPolling();
       }
     };
@@ -155,74 +174,114 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
     };
   }, [fetchNotifications]);
 
-  // Mark single or multiple notifications as read
+  // Mark single or multiple notifications as read (only decrementing by currently unread IDs)
   const markAsRead = useCallback(async (notificationIds: string[]) => {
+    if (notificationIds.length === 0) return;
     invalidateNotificationCache();
+
+    const prevNotifications = notificationsRef.current;
+    const prevUnreadCount = unreadCountRef.current;
+    const idSet = new Set(notificationIds);
+    const unreadDelta = prevNotifications.filter((n) => idSet.has(n.id) && !n.read).length;
+
     // Optimistic local state update
     setNotifications((prev) =>
-      prev.map((n) => (notificationIds.includes(n.id) ? { ...n, read: true, readAt: new Date().toISOString() } : n))
+      prev.map((n) => (idSet.has(n.id) ? { ...n, read: true, readAt: new Date().toISOString() } : n))
     );
-    setUnreadCount((prev) => Math.max(0, prev - notificationIds.length));
+    if (unreadDelta > 0) {
+      setUnreadCount((prev) => Math.max(0, prev - unreadDelta));
+    }
 
     try {
-      await fetch("/api/notifications", {
+      const res = await fetch("/api/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notificationIds }),
       });
+      if (!res.ok) {
+        setNotifications(prevNotifications);
+        setUnreadCount(prevUnreadCount);
+      }
     } catch (err) {
+      setNotifications(prevNotifications);
+      setUnreadCount(prevUnreadCount);
       console.error("[NotificationContext] Failed to mark as read:", err);
     }
   }, []);
 
-  // Mark all as read
+  // Mark all as read with rollback on failure
   const markAllAsRead = useCallback(async () => {
     invalidateNotificationCache();
-    // Optimistic local state update
+
+    const prevNotifications = notificationsRef.current;
+    const prevUnreadCount = unreadCountRef.current;
+
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true, readAt: new Date().toISOString() })));
     setUnreadCount(0);
 
     try {
-      await fetch("/api/notifications", {
+      const res = await fetch("/api/notifications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ all: true, workspaceId: workspaceId || undefined }),
       });
+      if (!res.ok) {
+        setNotifications(prevNotifications);
+        setUnreadCount(prevUnreadCount);
+      }
     } catch (err) {
+      setNotifications(prevNotifications);
+      setUnreadCount(prevUnreadCount);
       console.error("[NotificationContext] Failed to mark all read:", err);
     }
   }, [workspaceId]);
 
-  // Delete/dismiss notification
+  // Delete/dismiss notification (separate state updates + rollback on failure)
   const deleteNotification = useCallback(async (id: string) => {
     invalidateNotificationCache();
-    setNotifications((prev) => {
-      const target = prev.find((n) => n.id === id);
-      if (target && !target.read) {
-        setUnreadCount((c) => Math.max(0, c - 1));
-      }
-      return prev.filter((n) => n.id !== id);
-    });
+
+    const prevNotifications = notificationsRef.current;
+    const prevUnreadCount = unreadCountRef.current;
+    const target = prevNotifications.find((n) => n.id === id);
+    const wasUnread = Boolean(target && !target.read);
+
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (wasUnread) {
+      setUnreadCount((c) => Math.max(0, c - 1));
+    }
 
     try {
-      await fetch(`/api/notifications?id=${id}`, {
+      const res = await fetch(`/api/notifications?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
+      if (!res.ok) {
+        setNotifications(prevNotifications);
+        setUnreadCount(prevUnreadCount);
+      }
     } catch (err) {
+      setNotifications(prevNotifications);
+      setUnreadCount(prevUnreadCount);
       console.error("[NotificationContext] Failed to delete notification:", err);
     }
   }, []);
 
-  // Clear all read notifications
+  // Clear all read notifications with rollback on failure
   const clearReadNotifications = useCallback(async () => {
     invalidateNotificationCache();
+
+    const prevNotifications = notificationsRef.current;
     setNotifications((prev) => prev.filter((n) => !n.read));
 
     try {
-      await fetch(`/api/notifications?clearRead=true${workspaceId ? `&workspaceId=${workspaceId}` : ""}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/notifications?clearRead=true${workspaceId ? `&workspaceId=${encodeURIComponent(workspaceId)}` : ""}`,
+        { method: "DELETE" }
+      );
+      if (!res.ok) {
+        setNotifications(prevNotifications);
+      }
     } catch (err) {
+      setNotifications(prevNotifications);
       console.error("[NotificationContext] Failed to clear read notifications:", err);
     }
   }, [workspaceId]);
@@ -232,18 +291,16 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
   }, []);
 
   const refresh = useCallback(async () => {
+    setIsLoading(true);
     await fetchNotifications(true);
   }, [fetchNotifications]);
 
-  // Memoized context value — every consumer re-renders when this object's
-  // identity changes, so it must only be recreated when the underlying data
-  // or one of the (already useCallback'd) action functions changes.
-  // setCategory is a useState setter and inherently stable.
   const value: NotificationContextType = useMemo(
     () => ({
       notifications,
       unreadCount,
       isLoading,
+      fetchError,
       category,
       setCategory,
       markAsRead,
@@ -258,6 +315,7 @@ export function NotificationProvider({ workspaceId, children }: NotificationProv
       notifications,
       unreadCount,
       isLoading,
+      fetchError,
       category,
       markAsRead,
       markAllAsRead,

@@ -1,9 +1,10 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Building2, ArrowRight } from "lucide-react";
+import { Building2, ArrowRight, Kanban } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
+import { formatRoleLabel } from "@/lib/roles";
 import { UserSummaryCards } from "@/components/dashboard/UserSummaryCards";
 import { AppShell } from "@/components/layout/AppShell";
 import { getUserPlanAndCredits } from "@/lib/workspace-data";
@@ -11,6 +12,13 @@ import { getUserPlanAndCredits } from "@/lib/workspace-data";
 export const metadata = {
   title: "Dashboard — VisionBoard",
   robots: { index: false, follow: false },
+};
+
+const PLAN_LABELS: Record<string, string> = {
+  free: "Free",
+  startup: "Startup",
+  growth: "Growth",
+  enterprise: "Enterprise",
 };
 
 export default async function DashboardPage() {
@@ -67,6 +75,7 @@ export default async function DashboardPage() {
   // User display name with email fallback
   const userDisplayName =
     (session.user.name?.trim() || "") !== "" ? session.user.name! : session.user.email ?? "";
+  const firstName = session.user.name?.trim().split(/\s+/)[0] || userDisplayName;
   const userEmail = session.user.email ?? "";
 
   return (
@@ -77,16 +86,19 @@ export default async function DashboardPage() {
       aiCreditsUsed={user?.aiCreditsUsed ?? 0}
       aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
       userId={session.user.id}
+      userName={session.user.name}
+      userEmail={session.user.email}
+      userImage={session.user.image}
       isOwner={primaryWorkspace.ownerId === session.user.id}
     >
       <div className="max-w-4xl mx-auto space-y-8">
         {/* Welcome Section */}
         <div>
           <h1 className="text-2xl font-bold text-ink">
-            Welcome back, {userDisplayName}
+            Welcome back, {firstName}
           </h1>
           <p className="text-slate text-sm mt-1">
-            Signed in as <span className="font-semibold text-ink">{userEmail}</span>
+            Here&apos;s an overview of your workspaces and assigned tasks.
           </p>
         </div>
 
@@ -116,30 +128,43 @@ export default async function DashboardPage() {
             {userMemberships.map((m) => (
               <div
                 key={m.workspace.id}
-                className="bg-white rounded-2xl border border-border p-5 flex flex-col justify-between space-y-4 hover:border-blue/40 hover:shadow-sm transition-all group"
+                className="relative bg-white rounded-2xl border border-border p-5 flex flex-col justify-between space-y-4 hover:border-blue/40 hover:shadow-sm transition-all group"
               >
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-blue-faint flex items-center justify-center text-blue shrink-0 font-bold">
-                    <Building2 size={20} />
+                    <Building2 size={20} aria-hidden="true" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <h3 className="font-semibold text-ink group-hover:text-blue transition-colors truncate">
-                      {m.workspace.name}
+                      <Link
+                        href={`/workspace/${m.workspace.id}/workspace`}
+                        className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:underline"
+                      >
+                        {m.workspace.name}
+                      </Link>
                     </h3>
-                    <p className="text-xs text-slate capitalize mt-0.5">
-                      Role: {m.role} • {m.workspace.owner.plan} plan
+                    <p className="text-xs text-slate mt-0.5 truncate">
+                      {formatRoleLabel(m.role)} · {PLAN_LABELS[m.workspace.owner.plan] ?? m.workspace.owner.plan} plan
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-3 border-t border-border/60 text-xs text-slate">
-                  <span>{m.workspace._count.members} member{m.workspace._count.members !== 1 ? "s" : ""}</span>
-                  <Link
-                    href={`/workspace/${m.workspace.id}/board`}
-                    className="font-semibold text-blue flex items-center gap-1 hover:underline"
-                  >
-                    Open Workspace <ArrowRight size={13} />
-                  </Link>
+                <div className="flex items-center justify-between gap-2 pt-3 border-t border-border/60 text-xs text-slate">
+                  <span>
+                    {m.workspace._count.members} member{m.workspace._count.members !== 1 ? "s" : ""} · {m.workspace._count.goals} goal{m.workspace._count.goals !== 1 ? "s" : ""}
+                  </span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <Link
+                      href={`/workspace/${m.workspace.id}/board`}
+                      className="relative z-10 inline-flex items-center gap-1 text-slate hover:text-blue font-medium transition-colors"
+                    >
+                      <Kanban size={12} aria-hidden="true" />
+                      Board
+                    </Link>
+                    <span className="font-semibold text-blue inline-flex items-center gap-1 group-hover:translate-x-0.5 transition-transform" aria-hidden="true">
+                      Overview <ArrowRight size={13} />
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

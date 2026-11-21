@@ -8,6 +8,7 @@ import {
   CreditCard,
   Trash2,
   TrendingUp,
+  RefreshCw,
 } from "lucide-react";
 import MetricCard from "@/components/admin/MetricCard";
 import { getAdminOverview } from "@/lib/admin/admin-data";
@@ -39,8 +40,18 @@ export default async function OverviewPage() {
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center h-48">
+      <div
+        role="alert"
+        className="flex flex-col items-center justify-center gap-3 h-48 bg-white border border-border rounded-2xl p-6 text-center"
+      >
         <p className="text-slate text-sm font-medium">Failed to load overview data.</p>
+        <a
+          href="/admin/overview"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue text-white text-xs font-semibold hover:bg-blue-mid transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+          Retry
+        </a>
       </div>
     );
   }

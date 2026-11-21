@@ -80,6 +80,9 @@ export default async function WorkspacesPage() {
       aiCreditsUsed={user?.aiCreditsUsed ?? 0}
       aiCreditsMax={PLAN_LIMITS[plan].aiCreditsPerMonth ?? -1}
       userId={session.user.id}
+      userName={session.user.name}
+      userEmail={session.user.email}
+      userImage={session.user.image}
       isOwner={activeWorkspace?.ownerId === session.user.id}
     >
       <WorkspacesClient

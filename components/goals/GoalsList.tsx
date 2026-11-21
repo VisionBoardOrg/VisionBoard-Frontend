@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -49,6 +49,10 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
   const router = useRouter();
   const [goals, setGoals] = useState<Goal[]>(initialGoals);
   const [showCreate, setShowCreate] = useState(false);
+
+  useEffect(() => {
+    setGoals(initialGoals);
+  }, [initialGoals]);
 
   const statusFilter = ["all", "active", "draft", "completed", "cancelled"] as const;
   const [filter, setFilter] = useState<"all" | "active" | "draft" | "completed" | "cancelled">("all");

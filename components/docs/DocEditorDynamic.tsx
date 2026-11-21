@@ -13,7 +13,8 @@ interface DocEditorProps {
     linkedTaskId?: string | null;
   };
   goals?: { id: string; title: string }[];
-  milestones?: { id: string; title: string }[];
+  milestones?: { id: string; title: string; goalTitle?: string | null }[];
+  tasks?: { id: string; title: string }[];
 }
 
 /**

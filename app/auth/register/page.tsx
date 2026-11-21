@@ -2,16 +2,18 @@
 
 import { useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Check, Circle, Loader2 } from "lucide-react";
 import Logo from "@/components/reusables/Logo";
 import { getSafeCallbackUrl } from "@/lib/safe-redirect";
 
 function RegisterForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   // Preserve callbackUrl so invite tokens survive the post-registration redirect
-  const callbackUrl = getSafeCallbackUrl(searchParams.get("callbackUrl"), "/onboarding");
+  const rawCallbackUrl = searchParams.get("callbackUrl");
+  const callbackUrl = getSafeCallbackUrl(rawCallbackUrl, "/onboarding");
   const prefillEmail = searchParams.get("email") || "";
   // Waitlist invite token passed via query string from the invite email link
   const inviteToken = searchParams.get("inviteToken") || "";
@@ -19,42 +21,82 @@ function RegisterForm() {
   const [form, setForm] = useState({ name: "", email: prefillEmail, password: "", confirmPassword: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
+  const hasMinLength = form.password.length >= 12;
+  const hasNumberOrSymbol = /[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(form.password);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loading || googleLoading) return;
+
+    if (!hasMinLength || !hasNumberOrSymbol) {
+      setError("Password must be at least 12 characters and include a number or symbol.");
+      return;
+    }
     if (form.password !== form.confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
+
     setLoading(true);
     setError("");
 
-    const res = await fetch("/api/auth/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: form.name, email: form.email, password: form.password, inviteToken: inviteToken || undefined }),
-    });
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          inviteToken: inviteToken || undefined,
+        }),
+      });
 
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || "Registration failed.");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Registration failed. Please try again.");
+        return;
+      }
+
+      // Auto sign in after registration — redirect to callbackUrl (preserves invite token)
+      const signInRes = await signIn("credentials", {
+        email: form.email,
+        password: form.password,
+        redirect: false,
+      });
+
+      if (signInRes?.error) {
+        setError("Account created, but automatic sign-in failed. Please sign in manually.");
+        return;
+      }
+
+      router.push(callbackUrl);
+    } catch {
+      setError("Network error while creating your account. Please try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    // Auto sign in after registration — redirect to callbackUrl (preserves invite token)
-    await signIn("credentials", {
-      email: form.email,
-      password: form.password,
-      callbackUrl,
-    });
   }
 
   async function handleGoogle() {
-    await signIn("google", { callbackUrl });
+    if (loading || googleLoading) return;
+    setGoogleLoading(true);
+    setError("");
+    try {
+      await signIn("google", { callbackUrl });
+    } catch {
+      setError("Could not start Google sign-in. Please try again.");
+      setGoogleLoading(false);
+    }
   }
+
+  const loginHref = rawCallbackUrl
+    ? `/auth/login?callbackUrl=${encodeURIComponent(callbackUrl)}`
+    : "/auth/login";
 
   return (
     <div className="min-h-screen bg-offwhite flex items-center justify-center p-4">
@@ -65,17 +107,18 @@ function RegisterForm() {
             <Logo markSize={36} textSize={22} />
           </div>
           <h1 className="text-2xl font-bold text-ink">Create your account</h1>
-          <p className="text-slate text-sm mt-1">Start your 14-day free trial — no credit card needed</p>
+          <p className="text-slate text-sm mt-1">Start free — 10 AI credits/month, no credit card needed</p>
         </div>
 
         <div className="bg-white rounded-2xl border border-border p-8 shadow-sm">
           <button
             onClick={handleGoogle}
             type="button"
-            className="w-full flex items-center justify-center gap-3 border border-border rounded-xl px-4 py-3 text-sm font-medium text-ink hover:bg-offwhite transition-colors"
+            disabled={loading || googleLoading}
+            className="w-full flex items-center justify-center gap-3 border border-border rounded-xl px-4 py-3 text-sm font-medium text-ink hover:bg-offwhite transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
           >
-            <GoogleIcon />
-            Continue with Google
+            {googleLoading ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <GoogleIcon />}
+            {googleLoading ? "Redirecting to Google…" : "Continue with Google"}
           </button>
 
           <div className="relative my-6">
@@ -89,7 +132,7 @@ function RegisterForm() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
+              <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
                 {error}
               </div>
             )}
@@ -124,19 +167,29 @@ function RegisterForm() {
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
-                  placeholder="Minimum 12 characters, include a number or symbol"
+                  placeholder="Create a strong password"
                   minLength={12}
+                  aria-describedby="reg-password-rules"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors cursor-pointer"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                 </button>
               </div>
-              <p className="text-xs text-slate mt-1.5">At least 12 characters, including a number or symbol.</p>
+              <ul id="reg-password-rules" className="mt-2 space-y-1 text-xs">
+                <li className={`flex items-center gap-1.5 ${hasMinLength ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                  {hasMinLength ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                  <span>At least 12 characters</span>
+                </li>
+                <li className={`flex items-center gap-1.5 ${hasNumberOrSymbol ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                  {hasNumberOrSymbol ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                  <span>Includes a number or symbol</span>
+                </li>
+              </ul>
             </div>
 
             <div>
@@ -152,7 +205,7 @@ function RegisterForm() {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors cursor-pointer"
                   aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
                 >
                   {showConfirmPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
@@ -162,9 +215,10 @@ function RegisterForm() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60"
+              disabled={loading || googleLoading}
+              className="w-full bg-blue text-white rounded-xl px-4 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer inline-flex items-center justify-center gap-2"
             >
+              {loading && <Loader2 size={15} className="animate-spin" aria-hidden="true" />}
               {loading ? "Creating account…" : "Create account"}
             </button>
 
@@ -178,7 +232,7 @@ function RegisterForm() {
 
         <p className="text-center text-sm text-slate mt-6">
           Already have an account?{" "}
-          <Link href="/auth/login" className="text-blue font-medium hover:underline">
+          <Link href={loginHref} className="text-blue font-medium hover:underline">
             Sign in
           </Link>
         </p>
@@ -189,7 +243,14 @@ function RegisterForm() {
 
 export default function RegisterPage() {
   return (
-    <Suspense>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-offwhite flex items-center justify-center gap-2 text-sm text-slate">
+          <Loader2 size={16} className="animate-spin text-blue" aria-hidden="true" />
+          <span>Loading…</span>
+        </div>
+      }
+    >
       <RegisterForm />
     </Suspense>
   );

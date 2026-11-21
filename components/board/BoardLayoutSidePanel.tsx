@@ -1,6 +1,8 @@
 "use client";
 
-import { X, LayoutGrid, Kanban, Layers, ArrowRight, Settings2 } from "lucide-react";
+import { useRef } from "react";
+import { X, LayoutGrid, Kanban, Layers, Settings2 } from "lucide-react";
+import { useModalA11y } from "@/hooks/useModalA11y";
 
 export type BoardLayoutMode = "canvas" | "kanban";
 
@@ -18,74 +20,86 @@ export function BoardLayoutSidePanel({
   onClose,
   currentLayout,
   onSelectLayout,
-  columnCount = 3,
+  columnCount = 4,
   totalItemsCount = 0,
 }: BoardLayoutSidePanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalA11y(panelRef, onClose, isOpen);
+
   if (!isOpen) return null;
 
   return (
     <>
-      {/* Backdrop overlay for mobile / focus */}
+      {/* Backdrop overlay */}
       <div
         className="fixed inset-0 bg-slate-900/20 backdrop-blur-xs z-40 transition-opacity"
         onClick={onClose}
-        aria-hidden
+        aria-hidden="true"
       />
 
       {/* Side Panel Drawer */}
       <div
+        ref={panelRef}
         className="fixed top-0 right-0 bottom-0 w-80 sm:w-96 bg-white border-l border-slate-200 shadow-2xl z-50 flex flex-col transform transition-transform duration-300 ease-in-out"
         role="dialog"
-        aria-label="Board Layout Switcher"
+        aria-modal="true"
+        aria-labelledby="board-layout-panel-title"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-              <Layers size={18} />
+              <Layers size={18} aria-hidden="true" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Board Layouts</h2>
-              <p className="text-xs text-slate-500">Switch workspace views & columns</p>
+              <h2 id="board-layout-panel-title" className="text-base font-semibold text-slate-900">
+                Board Layouts
+              </h2>
+              <p className="text-xs text-slate-500">Switch workspace views &amp; columns</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
             aria-label="Close panel"
           >
-            <X size={18} />
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 block">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3">
               Select Active Layout
-            </label>
+            </p>
             <div className="space-y-4">
               {/* Option 1: Canvas View */}
-              <div
+              <button
+                type="button"
+                aria-pressed={currentLayout === "canvas"}
                 onClick={() => onSelectLayout("canvas")}
-                className={`group relative p-4 rounded-xl border-2 cursor-pointer transition-all ${currentLayout === "canvas"
-                  ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
-                  : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
-                  }`}
+                className={`w-full text-left group relative p-4 rounded-xl border-2 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                  currentLayout === "canvas"
+                    ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
+                    : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
+                }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`p-2.5 rounded-lg ${currentLayout === "canvas"
-                        ? "bg-indigo-600 text-white"
-                        : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
-                        }`}
+                      className={`p-2.5 rounded-lg ${
+                        currentLayout === "canvas"
+                          ? "bg-indigo-600 text-white"
+                          : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
+                      }`}
                     >
-                      <LayoutGrid size={20} />
+                      <LayoutGrid size={20} aria-hidden="true" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-slate-900">Canvas</h3>
+                        <span className="text-sm font-semibold text-slate-900">Canvas</span>
                         {currentLayout === "canvas" && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white uppercase tracking-wider">
                             Active
@@ -93,14 +107,14 @@ export function BoardLayoutSidePanel({
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Freeform 2D interactive canvas with connected goals, milestones & zoom
+                        Freeform 2D interactive canvas with connected goals, milestones &amp; zoom
                       </p>
                     </div>
                   </div>
                 </div>
 
                 {/* Preview Graphic - Canvas */}
-                <div className="mt-3.5 p-3 bg-white rounded-lg border border-slate-200/80 relative h-20 overflow-hidden">
+                <div className="mt-3.5 p-3 bg-white rounded-lg border border-slate-200/80 relative h-20 overflow-hidden" aria-hidden="true">
                   <div className="absolute inset-0 opacity-40 bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:10px_10px]" />
                   <div className="absolute left-3 top-3 w-14 h-8 bg-blue-500/20 border border-blue-500 rounded text-[8px] p-1 font-mono text-blue-700 font-medium">
                     Goal #1
@@ -118,29 +132,33 @@ export function BoardLayoutSidePanel({
                     />
                   </svg>
                 </div>
-              </div>
+              </button>
 
               {/* Option 2: Status Kanban Columns View */}
-              <div
+              <button
+                type="button"
+                aria-pressed={currentLayout === "kanban"}
                 onClick={() => onSelectLayout("kanban")}
-                className={`group relative p-4 rounded-xl border-2 cursor-pointer transition-all ${currentLayout === "kanban"
-                  ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
-                  : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
-                  }`}
+                className={`w-full text-left group relative p-4 rounded-xl border-2 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                  currentLayout === "kanban"
+                    ? "border-indigo-600 bg-indigo-50/40 shadow-sm"
+                    : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
+                }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div
-                      className={`p-2.5 rounded-lg ${currentLayout === "kanban"
-                        ? "bg-indigo-600 text-white"
-                        : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
-                        }`}
+                      className={`p-2.5 rounded-lg ${
+                        currentLayout === "kanban"
+                          ? "bg-indigo-600 text-white"
+                          : "bg-slate-100 text-slate-600 group-hover:bg-indigo-100 group-hover:text-indigo-600"
+                      }`}
                     >
-                      <Kanban size={20} />
+                      <Kanban size={20} aria-hidden="true" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-slate-900">Kanban</h3>
+                        <span className="text-sm font-semibold text-slate-900">Kanban</span>
                         {currentLayout === "kanban" && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-600 text-white uppercase tracking-wider">
                             Active
@@ -148,58 +166,55 @@ export function BoardLayoutSidePanel({
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Structured Kanban (To Do, In Progress, Complete) with drag-and-drop
+                        Structured Kanban (To Do, In Progress, Delayed, Complete) with drag-and-drop
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Preview Graphic - Kanban Columns matching user image design */}
-                <div className="mt-3.5 p-2 bg-slate-50 rounded-lg border border-slate-200 flex gap-2 h-20 overflow-hidden">
+                {/* Preview Graphic - Kanban Columns */}
+                <div className="mt-3.5 p-2 bg-slate-50 rounded-lg border border-slate-200 flex gap-1.5 h-20 overflow-hidden" aria-hidden="true">
                   <div className="flex-1 bg-slate-200/60 rounded-md p-1 flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[8px] font-bold bg-slate-300 px-1 py-0.5 rounded text-slate-700">
-                        TO DO
-                      </span>
-                      <span className="text-[8px] text-slate-500">0</span>
-                    </div>
-                    <span className="text-[7px] text-slate-400 font-medium">+ Task</span>
+                    <span className="text-[7px] font-bold bg-slate-300 px-1 py-0.5 rounded text-slate-700 truncate">
+                      TO DO
+                    </span>
+                    <span className="text-[7px] text-slate-500 font-medium">+ Milestone</span>
                   </div>
                   <div className="flex-1 bg-purple-100/50 rounded-md p-1 flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[8px] font-bold bg-purple-600 px-1 py-0.5 rounded text-white">
-                        IN PROGRESS
-                      </span>
-                      <span className="text-[8px] text-purple-700">0</span>
-                    </div>
-                    <span className="text-[7px] text-purple-600 font-medium">+ Task</span>
+                    <span className="text-[7px] font-bold bg-purple-600 px-1 py-0.5 rounded text-white truncate">
+                      IN PROGRESS
+                    </span>
+                    <span className="text-[7px] text-purple-600 font-medium">+ Milestone</span>
+                  </div>
+                  <div className="flex-1 bg-amber-100/60 rounded-md p-1 flex flex-col justify-between">
+                    <span className="text-[7px] font-bold bg-amber-500 px-1 py-0.5 rounded text-white truncate">
+                      DELAYED
+                    </span>
+                    <span className="text-[7px] text-amber-700 font-medium">+ Milestone</span>
                   </div>
                   <div className="flex-1 bg-emerald-100/50 rounded-md p-1 flex flex-col justify-between">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[8px] font-bold bg-emerald-600 px-1 py-0.5 rounded text-white">
-                        COMPLETE
-                      </span>
-                      <span className="text-[8px] text-emerald-700">0</span>
-                    </div>
-                    <span className="text-[7px] text-emerald-600 font-medium">+ Task</span>
+                    <span className="text-[7px] font-bold bg-emerald-600 px-1 py-0.5 rounded text-white truncate">
+                      COMPLETE
+                    </span>
+                    <span className="text-[7px] text-emerald-600 font-medium">+ Milestone</span>
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
           </div>
 
-          {/* Layout Summary / Options */}
+          {/* Layout Summary */}
           <div className="pt-4 border-t border-slate-100 space-y-3">
             <div className="flex items-center justify-between text-xs text-slate-600">
               <span className="flex items-center gap-1.5">
-                <Settings2 size={14} className="text-slate-400" />
-                Active Columns
+                <Settings2 size={14} className="text-slate-400" aria-hidden="true" />
+                Kanban Columns
               </span>
               <span className="font-semibold text-slate-900">{columnCount} Groups</span>
             </div>
             <div className="flex items-center justify-between text-xs text-slate-600">
               <span className="flex items-center gap-1.5">
-                <Layers size={14} className="text-slate-400" />
+                <Layers size={14} className="text-slate-400" aria-hidden="true" />
                 Total Board Items
               </span>
               <span className="font-semibold text-slate-900">{totalItemsCount} Cards</span>
@@ -210,10 +225,11 @@ export function BoardLayoutSidePanel({
         {/* Footer */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/50">
           <button
+            type="button"
             onClick={onClose}
-            className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-sm transition-colors flex items-center justify-center gap-2"
+            className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold shadow-sm transition-colors cursor-pointer"
           >
-            Apply Layout <ArrowRight size={16} />
+            Done
           </button>
         </div>
       </div>

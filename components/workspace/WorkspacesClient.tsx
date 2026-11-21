@@ -1,14 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Logo from "@/components/reusables/Logo";
 import { useConfirm } from "@/context/ConfirmContext";
+import { useModalA11y } from "@/hooks/useModalA11y";
+import {
+  dashboardViewCookieName,
+  formatRoleLabel,
+  type DashboardView,
+} from "@/lib/roles";
 import {
   Building2, Plus, Trash2, Pencil, Check, X, Loader2,
   Users, Target, FileText, Crown, ExternalLink, ChevronRight,
-  AlertTriangle, LogOut,
+  AlertTriangle, LogOut, AlertCircle,
 } from "lucide-react";
 
 interface WorkspaceItem {
@@ -54,19 +60,24 @@ const ROLE_COLORS: Record<string, string> = {
 
 export function WorkspacesClient({
   workspaces: initialWorkspaces,
-  ownedCount,
+  ownedCount: initialOwnedCount,
   workspaceLimit,
   plan,
   inAppShell = false,
 }: WorkspacesClientProps) {
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
+  const newModalRef = useRef<HTMLDivElement>(null);
+  const deleteModalRef = useRef<HTMLDivElement>(null);
+
   const [workspaces, setWorkspaces] = useState(initialWorkspaces);
+  const [ownedCount, setOwnedCount] = useState(initialOwnedCount);
+  const [actionError, setActionError] = useState("");
 
   // ── New workspace modal ──
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newRole, setNewRole] = useState<"pm" | "exec" | "eng" | "marketing" | "admin">("pm");
+  const [newView, setNewView] = useState<DashboardView>("pm");
   const [newTemplate, setNewTemplate] = useState<"blank" | "okr_board" | "product_roadmap" | "quarterly_plan">("blank");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -80,26 +91,34 @@ export function WorkspacesClient({
   // ── Delete confirmation ──
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
+  // ── Leave state ──
+  const [leavingId, setLeavingId] = useState<string | null>(null);
 
   const atLimit = workspaceLimit !== null && ownedCount >= workspaceLimit;
+
+  useModalA11y(newModalRef, () => { if (!creating) setShowNew(false); }, showNew);
+  useModalA11y(deleteModalRef, () => { if (!deleteLoading) { setDeleteId(null); setDeleteError(""); } }, Boolean(deleteId));
 
   // ── Create workspace ──
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (!newName.trim() || creating) return;
     setCreating(true);
     setCreateError("");
     try {
       const res = await fetch("/api/workspaces", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName.trim(), role: newRole, template: newTemplate }),
+        body: JSON.stringify({ name: newName.trim(), role: newView, template: newTemplate }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setCreateError(data.error || "Failed to create workspace.");
-      } else {
-        router.push(`/workspace/${data.workspace.id}/board`);
+      } else if (data?.workspace?.id) {
+        document.cookie = `${dashboardViewCookieName(data.workspace.id)}=${newView}; path=/; max-age=31536000; SameSite=Lax`;
+        router.push(`/workspace/${data.workspace.id}/workspace`);
       }
     } catch {
       setCreateError("Network error. Please try again.");
@@ -116,7 +135,7 @@ export function WorkspacesClient({
   }
 
   async function commitRename(id: string) {
-    if (!renameValue.trim()) return;
+    if (!renameValue.trim() || renameLoading) return;
     setRenameLoading(true);
     setRenameError("");
     try {
@@ -125,7 +144,7 @@ export function WorkspacesClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: renameValue.trim() }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setRenameError(data.error || "Rename failed.");
       } else {
@@ -135,7 +154,7 @@ export function WorkspacesClient({
         setRenamingId(null);
       }
     } catch {
-      setRenameError("Network error.");
+      setRenameError("Network error. Please try again.");
     } finally {
       setRenameLoading(false);
     }
@@ -143,18 +162,59 @@ export function WorkspacesClient({
 
   // ── Delete workspace ──
   async function handleDelete(id: string) {
+    if (deleteLoading) return;
     setDeleteLoading(true);
+    setDeleteError("");
     try {
       const res = await fetch(`/api/workspaces/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setWorkspaces((prev) => prev.filter((w) => w.id !== id));
-        setDeleteId(null);
-        // If no workspaces left, redirect to onboarding
-        if (workspaces.length === 1) router.push("/onboarding");
-        else router.refresh();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeleteError(data.error || "Failed to delete workspace. Please try again.");
+        return;
       }
+
+      const deletedWs = workspaces.find((w) => w.id === id);
+      const remainingCount = workspaces.length - 1;
+      setWorkspaces((prev) => prev.filter((w) => w.id !== id));
+      if (deletedWs?.isOwner) {
+        setOwnedCount((c) => Math.max(0, c - 1));
+      }
+      setDeleteId(null);
+      if (remainingCount === 0) router.push("/onboarding");
+      else router.refresh();
+    } catch {
+      setDeleteError("Network error while deleting workspace. Please try again.");
     } finally {
       setDeleteLoading(false);
+    }
+  }
+
+  // ── Leave workspace ──
+  async function handleLeave(ws: WorkspaceItem) {
+    if (leavingId) return;
+    const ok = await confirmDialog({
+      title: `Leave "${ws.name}"?`,
+      description: "You'll lose access to this workspace's board, goals, and docs. An admin can re-invite you later.",
+      confirmLabel: "Leave workspace",
+      danger: true,
+    });
+    if (!ok) return;
+
+    setLeavingId(ws.id);
+    setActionError("");
+    try {
+      const res = await fetch(`/api/workspaces/${ws.id}/members/leave`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionError(data.error || "Failed to leave workspace. Please try again.");
+        return;
+      }
+      setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));
+      router.refresh();
+    } catch {
+      setActionError("Network error while leaving workspace. Please try again.");
+    } finally {
+      setLeavingId(null);
     }
   }
 
@@ -170,14 +230,14 @@ export function WorkspacesClient({
           <span className="text-sm font-semibold text-ink">Workspaces</span>
           <div className="flex-1" />
           <Link href="/dashboard" className="text-sm text-slate hover:text-ink transition-colors flex items-center gap-1.5">
-            <ChevronRight size={14} className="rotate-180" /> Dashboard
+            <ChevronRight size={14} className="rotate-180" aria-hidden="true" /> Dashboard
           </Link>
         </header>
       )}
 
-      <main className={inAppShell ? "space-y-8" : "max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8"}>
+      <div className={inAppShell ? "space-y-8" : "max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8"}>
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-ink">Your Workspaces</h1>
             <p className="text-slate text-sm mt-1">
@@ -187,6 +247,7 @@ export function WorkspacesClient({
             </p>
           </div>
           <button
+            type="button"
             onClick={() => {
               if (atLimit) return;
               setShowNew(true);
@@ -194,18 +255,34 @@ export function WorkspacesClient({
               setNewName("");
             }}
             disabled={atLimit}
-            className="flex items-center gap-2 bg-blue text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center justify-center gap-2 bg-blue text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer self-start sm:self-auto shrink-0"
           >
-            <Plus size={15} /> New workspace
+            <Plus size={15} aria-hidden="true" /> New workspace
           </button>
         </div>
+
+        {/* Action error banner (e.g. Leave workspace failed) */}
+        {actionError && (
+          <div role="alert" className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700">
+            <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+            <span className="flex-1">{actionError}</span>
+            <button
+              type="button"
+              onClick={() => setActionError("")}
+              aria-label="Dismiss error"
+              className="text-red-400 hover:text-red-700 cursor-pointer"
+            >
+              <X size={15} aria-hidden="true" />
+            </button>
+          </div>
+        )}
 
         {/* Plan limit warning */}
         {atLimit && (
           <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-            <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-500" />
+            <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-500" aria-hidden="true" />
             <div>
-              You&apos;ve reached the {workspaceLimit}-workspace limit on the {PLAN_NAMES[plan]} plan.{" "}
+              You&apos;ve reached the {workspaceLimit}-workspace limit on the {PLAN_NAMES[plan] ?? plan} plan.{" "}
               <Link href="/pricing" className="font-semibold underline hover:no-underline">Upgrade your plan</Link> to create more.
             </div>
           </div>
@@ -214,14 +291,15 @@ export function WorkspacesClient({
         {/* Workspace grid */}
         {workspaces.length === 0 ? (
           <div className="bg-white rounded-2xl border border-border p-12 text-center">
-            <Building2 size={40} className="text-muted mx-auto mb-4" />
-            <h3 className="font-semibold text-ink">No workspaces yet</h3>
+            <Building2 size={40} className="text-muted mx-auto mb-4" aria-hidden="true" />
+            <h2 className="font-semibold text-ink">No workspaces yet</h2>
             <p className="text-sm text-slate mt-1 mb-5">Create your first workspace to get started.</p>
             <button
+              type="button"
               onClick={() => setShowNew(true)}
               className="inline-flex items-center gap-2 bg-blue text-white rounded-xl px-5 py-2.5 text-sm font-semibold hover:bg-blue-mid transition-colors cursor-pointer"
             >
-              <Plus size={14} /> Create workspace
+              <Plus size={14} aria-hidden="true" /> Create workspace
             </button>
           </div>
         ) : (
@@ -234,13 +312,15 @@ export function WorkspacesClient({
                 {/* Card header */}
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-blue-faint flex items-center justify-center shrink-0">
-                    <Building2 size={18} className="text-blue" />
+                    <Building2 size={18} className="text-blue" aria-hidden="true" />
                   </div>
                   <div className="flex-1 min-w-0">
                     {renamingId === ws.id ? (
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
+                          <label htmlFor={`rename-ws-${ws.id}`} className="sr-only">Workspace name</label>
                           <input
+                            id={`rename-ws-${ws.id}`}
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onKeyDown={(e) => {
@@ -249,34 +329,40 @@ export function WorkspacesClient({
                             }}
                             autoFocus
                             maxLength={80}
-                            className="flex-1 text-sm font-semibold text-ink border border-blue rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue/30"
+                            className="flex-1 min-w-0 text-sm font-semibold text-ink border border-blue rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue/30"
                           />
                           <button
+                            type="button"
                             onClick={() => commitRename(ws.id)}
                             disabled={renameLoading || !renameValue.trim()}
-                            className="p-1.5 rounded-lg bg-blue text-white hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer"
+                            aria-label="Save workspace name"
+                            className="p-1.5 rounded-lg bg-blue text-white hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer shrink-0"
                           >
-                            {renameLoading ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                            {renameLoading ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
                           </button>
                           <button
+                            type="button"
                             onClick={() => setRenamingId(null)}
-                            className="p-1.5 rounded-lg text-slate hover:bg-offwhite transition-colors cursor-pointer"
+                            aria-label="Cancel rename"
+                            className="p-1.5 rounded-lg text-slate hover:bg-offwhite transition-colors cursor-pointer shrink-0"
                           >
-                            <X size={13} />
+                            <X size={13} aria-hidden="true" />
                           </button>
                         </div>
-                        {renameError && <p className="text-xs text-danger">{renameError}</p>}
+                        {renameError && <p role="alert" className="text-xs text-danger">{renameError}</p>}
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
                         <h2 className="font-semibold text-ink truncate">{ws.name}</h2>
                         {(ws.isOwner || ws.role === "admin") && (
                           <button
+                            type="button"
                             onClick={() => startRename(ws)}
                             className="shrink-0 p-1 rounded text-muted hover:text-ink hover:bg-offwhite transition-colors cursor-pointer"
                             title="Rename workspace"
+                            aria-label={`Rename ${ws.name}`}
                           >
-                            <Pencil size={12} />
+                            <Pencil size={12} aria-hidden="true" />
                           </button>
                         )}
                       </div>
@@ -285,12 +371,12 @@ export function WorkspacesClient({
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PLAN_COLORS[ws.plan] ?? "bg-slate-100 text-slate-600"}`}>
                         {PLAN_NAMES[ws.plan] ?? ws.plan}
                       </span>
-                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize ${ROLE_COLORS[ws.role] ?? "bg-slate-100 text-slate-600"}`}>
-                        {ws.role}
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${ROLE_COLORS[ws.role] ?? "bg-slate-100 text-slate-600"}`}>
+                        {formatRoleLabel(ws.role)}
                       </span>
                       {ws.isOwner && (
                         <span className="flex items-center gap-0.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-200">
-                          <Crown size={9} /> Owner
+                          <Crown size={9} aria-hidden="true" /> Owner
                         </span>
                       )}
                     </div>
@@ -306,7 +392,7 @@ export function WorkspacesClient({
                   ].map(({ icon: Icon, label, value }) => (
                     <div key={label} className="bg-offwhite rounded-xl px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1 text-muted mb-0.5">
-                        <Icon size={11} />
+                        <Icon size={11} aria-hidden="true" />
                         <span className="text-[10px]">{label}</span>
                       </div>
                       <div className="text-sm font-bold text-ink">{value}</div>
@@ -315,12 +401,12 @@ export function WorkspacesClient({
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 pt-1 border-t border-border">
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
                   <Link
-                    href={`/workspace/${ws.id}/board`}
-                    className="flex-1 flex items-center justify-center gap-1.5 bg-blue text-white rounded-xl py-2 text-xs font-semibold hover:bg-blue-mid transition-colors"
+                    href={`/workspace/${ws.id}/workspace`}
+                    className="flex-1 min-w-[110px] flex items-center justify-center gap-1.5 bg-blue text-white rounded-xl py-2 px-3 text-xs font-semibold hover:bg-blue-mid transition-colors"
                   >
-                    Open <ExternalLink size={11} />
+                    Open <ExternalLink size={11} aria-hidden="true" />
                   </Link>
                   <Link
                     href={`/workspace/${ws.id}/settings`}
@@ -330,31 +416,26 @@ export function WorkspacesClient({
                   </Link>
                   {ws.isOwner ? (
                     <button
-                      onClick={() => setDeleteId(ws.id)}
+                      type="button"
+                      onClick={() => { setDeleteError(""); setDeleteId(ws.id); }}
                       className="p-2 rounded-xl text-muted hover:text-danger hover:bg-red-50 border border-border transition-colors cursor-pointer"
                       title="Delete workspace"
+                      aria-label={`Delete ${ws.name}`}
                     >
-                      <Trash2 size={14} />
+                      <Trash2 size={14} aria-hidden="true" />
                     </button>
                   ) : (
                     <button
-                      onClick={async () => {
-                        const ok = await confirmDialog({
-                          title: "Leave this workspace?",
-                          description: "You'll lose access to this workspace's board, goals, and docs. An admin can re-invite you later.",
-                          confirmLabel: "Leave workspace",
-                          danger: true,
-                        });
-                        if (!ok) return;
-                        // Leave = remove own membership
-                        await fetch(`/api/workspaces/${ws.id}/members/leave`, { method: "POST" });
-                        setWorkspaces((prev) => prev.filter((w) => w.id !== ws.id));
-                        router.refresh();
-                      }}
-                      className="p-2 rounded-xl text-muted hover:text-warning hover:bg-amber-50 border border-border transition-colors cursor-pointer"
+                      type="button"
+                      disabled={leavingId === ws.id}
+                      onClick={() => handleLeave(ws)}
+                      className="p-2 rounded-xl text-muted hover:text-warning hover:bg-amber-50 border border-border transition-colors disabled:opacity-50 cursor-pointer"
                       title="Leave workspace"
+                      aria-label={`Leave ${ws.name}`}
                     >
-                      <LogOut size={14} />
+                      {leavingId === ws.id
+                        ? <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                        : <LogOut size={14} aria-hidden="true" />}
                     </button>
                   )}
                 </div>
@@ -362,37 +443,52 @@ export function WorkspacesClient({
             ))}
           </div>
         )}
-      </main>
+      </div>
 
       {/* ── New workspace modal ── */}
       {showNew && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-workspace-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !creating) setShowNew(false);
+          }}
+        >
+          <div ref={newModalRef} className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg bg-blue-faint text-blue"><Plus size={16} /></div>
+                <div className="p-2 rounded-lg bg-blue-faint text-blue"><Plus size={16} aria-hidden="true" /></div>
                 <div>
-                  <h3 className="font-bold text-ink">New Workspace</h3>
+                  <h2 id="new-workspace-title" className="font-bold text-ink">New Workspace</h2>
                   <p className="text-xs text-muted">Set up your team&apos;s new workspace.</p>
                 </div>
               </div>
-              <button onClick={() => setShowNew(false)} className="text-muted hover:text-ink transition-colors cursor-pointer">
-                <X size={18} />
+              <button
+                type="button"
+                onClick={() => setShowNew(false)}
+                aria-label="Close"
+                className="text-muted hover:text-ink transition-colors cursor-pointer"
+              >
+                <X size={18} aria-hidden="true" />
               </button>
             </div>
 
             <form onSubmit={handleCreate} className="p-6 space-y-4">
               {createError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
+                <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger">
                   {createError}
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-ink mb-1.5">Workspace name</label>
+                <label htmlFor="new-ws-name" className="block text-xs font-semibold text-ink mb-1.5">Workspace name</label>
                 <input
+                  id="new-ws-name"
                   type="text"
                   required
+                  autoFocus
                   maxLength={80}
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
@@ -402,24 +498,25 @@ export function WorkspacesClient({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink mb-0.5">Your dashboard view</label>
+                <label htmlFor="new-ws-view" className="block text-xs font-semibold text-ink mb-0.5">Default dashboard view</label>
                 <p className="text-[11px] text-muted mb-1.5">You&apos;ll always be an <strong>Admin</strong> of any workspace you create.</p>
                 <select
-                  value={newRole}
-                  onChange={(e) => setNewRole(e.target.value as typeof newRole)}
+                  id="new-ws-view"
+                  value={newView}
+                  onChange={(e) => setNewView(e.target.value as DashboardView)}
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink bg-white focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue cursor-pointer"
                 >
                   <option value="pm">Product Manager</option>
                   <option value="exec">Executive / Strategy</option>
                   <option value="eng">Engineering / Ops</option>
                   <option value="marketing">Marketing / Growth</option>
-                  <option value="admin">Admin</option>
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-ink mb-1.5">Starting template</label>
+                <label htmlFor="new-ws-template" className="block text-xs font-semibold text-ink mb-1.5">Starting template</label>
                 <select
+                  id="new-ws-template"
                   value={newTemplate}
                   onChange={(e) => setNewTemplate(e.target.value as typeof newTemplate)}
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink bg-white focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue cursor-pointer"
@@ -443,9 +540,9 @@ export function WorkspacesClient({
                 <button
                   type="submit"
                   disabled={creating || !newName.trim()}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-blue text-white rounded-xl text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue text-white rounded-xl text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  {creating && <Loader2 size={14} className="animate-spin" />}
+                  {creating && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
                   {creating ? "Creating…" : "Create workspace"}
                 </button>
               </div>
@@ -456,33 +553,51 @@ export function WorkspacesClient({
 
       {/* ── Delete confirmation modal ── */}
       {deleteId && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-sm p-6 space-y-4">
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-workspace-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !deleteLoading) {
+              setDeleteId(null);
+              setDeleteError("");
+            }
+          }}
+        >
+          <div ref={deleteModalRef} className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-sm p-6 space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto">
-              <Trash2 size={22} className="text-danger" />
+              <Trash2 size={22} className="text-danger" aria-hidden="true" />
             </div>
             <div className="text-center">
-              <h3 className="font-bold text-ink text-lg">Delete workspace?</h3>
+              <h2 id="delete-workspace-title" className="font-bold text-ink text-lg">Delete workspace?</h2>
               <p className="text-sm text-slate mt-2">
                 This will permanently delete{" "}
                 <strong>{workspaces.find((w) => w.id === deleteId)?.name}</strong>{" "}
                 and all its goals, tasks, and documents. This cannot be undone.
               </p>
             </div>
+            {deleteError && (
+              <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-3.5 py-2.5 text-xs text-danger">
+                {deleteError}
+              </div>
+            )}
             <div className="flex gap-3">
               <button
-                onClick={() => setDeleteId(null)}
+                type="button"
+                onClick={() => { setDeleteId(null); setDeleteError(""); }}
                 disabled={deleteLoading}
                 className="flex-1 border border-border rounded-xl py-2.5 text-sm font-medium text-slate hover:bg-offwhite transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={() => handleDelete(deleteId)}
                 disabled={deleteLoading}
                 className="flex-1 bg-danger text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-60 flex items-center justify-center gap-2 cursor-pointer"
               >
-                {deleteLoading && <Loader2 size={14} className="animate-spin" />}
+                {deleteLoading && <Loader2 size={14} className="animate-spin" aria-hidden="true" />}
                 {deleteLoading ? "Deleting…" : "Delete"}
               </button>
             </div>

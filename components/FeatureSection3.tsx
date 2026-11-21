@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+
 export default function FeatureSection3() {
   return (
     <section className="py-16 md:py-24 px-4 sm:px-6 flex flex-col items-center text-center">
@@ -13,28 +16,53 @@ export default function FeatureSection3() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
           <div className="bg-white border border-border p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
             <h3 className="font-bold text-[18px] mb-2">Plan Smarter</h3>
-            <p className="text-slate text-[14px] leading-[1.6]">Generate strategic roadmaps and execution flows with AI.</p>
+            <p className="text-slate text-[14px] leading-[1.6]">
+              Generate strategic roadmaps and execution flows with AI.
+            </p>
           </div>
           <div className="bg-white border border-border p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
             <h3 className="font-bold text-[18px] mb-2">Stay Connected</h3>
-            <p className="text-slate text-[14px] leading-[1.6]">Link notes, decisions, and workflows directly to your team&apos;s execution plans.</p>
+            <p className="text-slate text-[14px] leading-[1.6]">
+              Link notes, decisions, and workflows directly to your team&apos;s execution plans.
+            </p>
           </div>
           <div className="bg-white border border-border p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow sm:col-span-2 md:col-span-1">
             <h3 className="font-bold text-[18px] mb-2">Collaborate</h3>
-            <p className="text-slate text-[14px] leading-[1.6]">Give teams shared visibility with live collaboration, updates, and comments.</p>
+            <p className="text-slate text-[14px] leading-[1.6]">
+              Give teams shared visibility with live collaboration, updates, and comments.
+            </p>
           </div>
         </div>
         {/* Bottom Row (2 columns) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="bg-white border border-border p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
             <h3 className="font-bold text-[18px] mb-2">Track Execution</h3>
-            <p className="text-slate text-[14px] leading-[1.6]">Monitor progress, blockers, and milestone completion across every initiative in real time.</p>
+            <p className="text-slate text-[14px] leading-[1.6]">
+              Monitor progress, blockers, and milestone completion across every initiative in real time.
+            </p>
           </div>
           <div className="bg-white border border-border p-6 md:p-8 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
             <h3 className="font-bold text-[18px] mb-2">Stay Aligned</h3>
-            <p className="text-slate text-[14px] leading-[1.6]">Bring planning, documentation, and execution into one shared AI-powered workspace.</p>
+            <p className="text-slate text-[14px] leading-[1.6]">
+              Bring planning, documentation, and execution into one shared AI-powered workspace.
+            </p>
           </div>
         </div>
+      </div>
+
+      <div className="mt-10 flex flex-wrap items-center justify-center gap-6">
+        <Link
+          href="/features"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue hover:text-blue-mid hover:underline transition-colors"
+        >
+          View full feature list <ArrowRight size={15} aria-hidden="true" />
+        </Link>
+        <Link
+          href="/pricing"
+          className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate hover:text-blue hover:underline transition-colors"
+        >
+          Compare plans &amp; pricing <ArrowRight size={15} aria-hidden="true" />
+        </Link>
       </div>
     </section>
   );

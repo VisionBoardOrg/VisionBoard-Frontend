@@ -9,7 +9,8 @@ export default function PricingComparisonTable() {
       features: [
         { name: "Workspaces", free: "1", startup: "5", growth: "Unlimited", enterprise: "Unlimited" },
         { name: "Team members", free: "Up to 5", startup: "Up to 25", growth: "Up to 100", enterprise: "Unlimited" },
-        { name: "Cloud storage space", free: "10GB", startup: "100GB", growth: "1TB", enterprise: "Custom" },
+        { name: "Documents per workspace", free: "10", startup: "100", growth: "Unlimited", enterprise: "Unlimited" },
+        { name: "Document storage space", free: "5 MB", startup: "100 MB", growth: "1 GB", enterprise: "Unlimited" },
         { name: "Roadmap views & filtering", free: true, startup: true, growth: true, enterprise: true },
       ],
     },
@@ -18,7 +19,8 @@ export default function PricingComparisonTable() {
       features: [
         { name: "Custom roadmap status", free: "1 filter", startup: true, growth: true, enterprise: true },
         { name: "Milestone management", free: false, startup: true, growth: true, enterprise: true },
-        { name: "Timeline & Gantt view (coming soon)", free: false, startup: false, growth: true, enterprise: true },
+        { name: "Timeline & Gantt view", free: false, startup: true, growth: true, enterprise: true },
+        { name: "Third-party integrations", free: false, startup: false, growth: true, enterprise: true },
       ],
     },
     {
@@ -42,7 +44,7 @@ export default function PricingComparisonTable() {
       name: "Security & Support",
       features: [
         { name: "TLS encryption & secure sessions", free: true, startup: true, growth: true, enterprise: true },
-        { name: "SSO / SAML (coming soon)", free: false, startup: false, growth: false, enterprise: true },
+        { name: "SSO / SAML", free: false, startup: false, growth: false, enterprise: true },
         { name: "Support", free: "Community", startup: "Email", growth: "Priority", enterprise: "Dedicated Manager" },
       ],
     },
@@ -51,11 +53,24 @@ export default function PricingComparisonTable() {
   const renderValue = (val: boolean | string) => {
     if (typeof val === "boolean") {
       return val ? (
-        <svg className="w-5 h-5 text-blue-600 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-        </svg>
+        <>
+          <svg
+            aria-hidden="true"
+            className="w-5 h-5 text-blue-600 mx-auto"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth="2.5"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="sr-only">Included</span>
+        </>
       ) : (
-        <span className="text-slate-300 font-medium">—</span>
+        <>
+          <span aria-hidden="true" className="text-slate-500 font-medium">—</span>
+          <span className="sr-only">Not included</span>
+        </>
       );
     }
     return <span className="text-xs md:text-sm font-medium text-slate-700">{val}</span>;
@@ -71,20 +86,25 @@ export default function PricingComparisonTable() {
           Everything included, side by side.
         </h2>
         <p className="text-sm md:text-base text-slate-600 mt-2 max-w-xl mx-auto">
-          All plan features at a glance. Compare plans and find the right features for your business need.
+          All plan features at a glance. Compare plans and find the right features for your business needs.
         </p>
       </div>
 
       {/* Comparison Table Container */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden overflow-x-auto">
+      <div
+        role="region"
+        aria-label="Plan feature comparison table"
+        tabIndex={0}
+        className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+      >
         <table className="w-full text-left border-collapse min-w-[640px]">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/50">
-              <th className="py-4 px-6 text-sm font-bold text-slate-900 w-2/5">Feature</th>
-              <th className="py-4 px-4 text-sm font-bold text-slate-900 text-center w-3/20">Free</th>
-              <th className="py-4 px-4 text-sm font-bold text-blue-600 text-center w-3/20 bg-blue-50/40">Startup</th>
-              <th className="py-4 px-4 text-sm font-bold text-slate-900 text-center w-3/20">Growth</th>
-              <th className="py-4 px-4 text-sm font-bold text-slate-900 text-center w-3/20">Enterprise</th>
+              <th scope="col" className="py-4 px-6 text-sm font-bold text-slate-900 w-2/5">Feature</th>
+              <th scope="col" className="py-4 px-4 text-sm font-bold text-slate-900 text-center w-3/20">Free</th>
+              <th scope="col" className="py-4 px-4 text-sm font-bold text-blue-600 text-center w-3/20 bg-blue-50/40">Startup</th>
+              <th scope="col" className="py-4 px-4 text-sm font-bold text-slate-900 text-center w-3/20">Growth</th>
+              <th scope="col" className="py-4 px-4 text-sm font-bold text-slate-900 text-center w-3/20">Enterprise</th>
             </tr>
           </thead>
           <tbody>
@@ -92,9 +112,13 @@ export default function PricingComparisonTable() {
               <React.Fragment key={category.name}>
                 {/* Category Header Row */}
                 <tr className="bg-blue-50/40 border-y border-slate-200/80">
-                  <td colSpan={5} className="py-2.5 px-6 text-xs font-bold text-blue-700 tracking-wide">
+                  <th
+                    scope="colgroup"
+                    colSpan={5}
+                    className="py-2.5 px-6 text-xs font-bold text-blue-700 tracking-wide text-left"
+                  >
                     {category.name}
-                  </td>
+                  </th>
                 </tr>
 
                 {/* Category Feature Rows */}
@@ -105,9 +129,9 @@ export default function PricingComparisonTable() {
                       idx % 2 === 1 ? "bg-slate-50/30" : ""
                     }`}
                   >
-                    <td className="py-3.5 px-6 text-xs md:text-sm font-medium text-slate-800">
+                    <th scope="row" className="py-3.5 px-6 text-xs md:text-sm font-medium text-slate-800 text-left">
                       {feature.name}
-                    </td>
+                    </th>
                     <td className="py-3.5 px-4 text-center">{renderValue(feature.free)}</td>
                     <td className="py-3.5 px-4 text-center bg-blue-50/20">{renderValue(feature.startup)}</td>
                     <td className="py-3.5 px-4 text-center">{renderValue(feature.growth)}</td>

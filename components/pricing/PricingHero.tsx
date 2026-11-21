@@ -20,10 +20,15 @@ export default function PricingHero({ isAnnual, setIsAnnual }: PricingHeroProps)
 
       {/* Monthly / Annual Toggle */}
       <div className="mt-8 flex items-center justify-center gap-3">
-        <span className={`text-sm font-semibold transition-colors ${!isAnnual ? "text-slate-900" : "text-slate-500"}`}>
+        <button
+          type="button"
+          onClick={() => setIsAnnual(false)}
+          aria-pressed={!isAnnual}
+          className={`text-sm font-semibold transition-colors cursor-pointer rounded-md px-1.5 py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${!isAnnual ? "text-slate-900" : "text-slate-500 hover:text-slate-700"}`}
+        >
           Monthly
-        </span>
-        
+        </button>
+
         <button
           type="button"
           role="switch"
@@ -33,8 +38,9 @@ export default function PricingHero({ isAnnual, setIsAnnual }: PricingHeroProps)
             isAnnual ? "bg-blue-600" : "bg-slate-300"
           }`}
         >
-          <span className="sr-only">Toggle billing frequency</span>
+          <span className="sr-only">Toggle annual billing</span>
           <span
+            aria-hidden="true"
             className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
               isAnnual ? "translate-x-7" : "translate-x-0"
             }`}
@@ -42,9 +48,14 @@ export default function PricingHero({ isAnnual, setIsAnnual }: PricingHeroProps)
         </button>
 
         <div className="flex items-center gap-2">
-          <span className={`text-sm font-semibold transition-colors ${isAnnual ? "text-slate-900" : "text-slate-500"}`}>
+          <button
+            type="button"
+            onClick={() => setIsAnnual(true)}
+            aria-pressed={isAnnual}
+            className={`text-sm font-semibold transition-colors cursor-pointer rounded-md px-1.5 py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${isAnnual ? "text-slate-900" : "text-slate-500 hover:text-slate-700"}`}
+          >
             Annual
-          </span>
+          </button>
           <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-700 uppercase tracking-wide">
             Save 20%
           </span>

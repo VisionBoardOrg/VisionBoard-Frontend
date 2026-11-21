@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import PricingClient from "@/components/pricing/PricingClient";
 import JsonLd from "@/components/seo/JsonLd";
+import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
 
@@ -39,7 +41,33 @@ export const metadata: Metadata = {
   },
 };
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  let isAuthenticated = false;
+  let workspaceId: string | undefined;
+  let currentPlan: string | undefined;
+
+  try {
+    const session = await auth();
+    if (session?.user?.id) {
+      isAuthenticated = true;
+      const [user, ownedWorkspace] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: session.user.id },
+          select: { plan: true },
+        }),
+        prisma.workspace.findFirst({
+          where: { ownerId: session.user.id },
+          select: { id: true },
+          orderBy: { createdAt: "asc" },
+        }),
+      ]);
+      currentPlan = user?.plan ?? "free";
+      workspaceId = ownedWorkspace?.id;
+    }
+  } catch {
+    // Gracefully fall back to unauthenticated view if session/DB lookup fails
+  }
+
   const breadcrumbJsonLd = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -81,7 +109,7 @@ export default function PricingPage() {
       },
       {
         "@type": "Question",
-        "name": "Does unused AI credits roll over to the next month?",
+        "name": "Do unused AI credits roll over to the next month?",
         "acceptedAnswer": {
           "@type": "Answer",
           "text": "No, AI credits reset at the beginning of each billing cycle and do not roll over to subsequent months.",
@@ -119,7 +147,7 @@ export default function PricingPage() {
       "@type": "AggregateOffer",
       "priceCurrency": "USD",
       "lowPrice": "0",
-      "highPrice": "49",
+      "highPrice": "79",
       "offerCount": "3",
       "offers": [
         {
@@ -132,14 +160,14 @@ export default function PricingPage() {
         {
           "@type": "Offer",
           "name": "Startup Tier",
-          "price": "19",
+          "price": "29",
           "priceCurrency": "USD",
           "url": `${siteUrl}/pricing`,
         },
         {
           "@type": "Offer",
           "name": "Growth Tier",
-          "price": "49",
+          "price": "79",
           "priceCurrency": "USD",
           "url": `${siteUrl}/pricing`,
         },
@@ -150,7 +178,11 @@ export default function PricingPage() {
   return (
     <>
       <JsonLd data={[breadcrumbJsonLd, faqJsonLd, productJsonLd]} />
-      <PricingClient />
+      <PricingClient
+        isAuthenticated={isAuthenticated}
+        workspaceId={workspaceId}
+        currentPlan={currentPlan}
+      />
     </>
   );
 }

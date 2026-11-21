@@ -11,6 +11,7 @@ import {
 
 interface RoadmapPageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ milestoneId?: string }>;
 }
 
 export async function generateMetadata({ params }: RoadmapPageProps) {
@@ -19,11 +20,11 @@ export async function generateMetadata({ params }: RoadmapPageProps) {
   return { title: `Roadmap — ${workspace?.name ?? "VisionBoard"}` };
 }
 
-export default async function RoadmapPage({ params }: RoadmapPageProps) {
+export default async function RoadmapPage({ params, searchParams }: RoadmapPageProps) {
   const session = await auth();
   if (!session) redirect("/auth/login");
 
-  const { id } = await params;
+  const [{ id }, { milestoneId }] = await Promise.all([params, searchParams]);
 
   // getSlimWorkspaceMembership and getUserPlanAndCredits are shared with
   // WorkspaceLayout via React.cache() — zero duplicate DB round-trips.
@@ -67,7 +68,8 @@ export default async function RoadmapPage({ params }: RoadmapPageProps) {
       goals={goals as never}
       isGated={isGated}
       upgradePrompt={limit.reason}
-      userRole={session.user.role}
+      userRole={member.role}
+      initialSelectedMilestoneId={milestoneId}
     />
   );
 }

@@ -48,7 +48,10 @@ export async function POST(
             },
             members: true,
             invites: {
-              where: { status: "pending" },
+              where: {
+                status: "pending",
+                email: { not: "__invite_link__" },
+              },
             },
           },
         },

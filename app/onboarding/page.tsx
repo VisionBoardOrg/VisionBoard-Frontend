@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { MemberRole } from "@prisma/client";
 import { TemplateName } from "@/lib/templates";
+import { dashboardViewCookieName, formatRoleLabel } from "@/lib/roles";
 import Logo from "@/components/reusables/Logo";
-import { Target, Building2, Settings, TrendingUp, Map, ClipboardList, Zap, ArrowRight, LayoutTemplate } from "lucide-react";
+import { Target, Building2, Settings, TrendingUp, Map, ClipboardList, ArrowRight, LayoutTemplate, Loader2 } from "lucide-react";
 
 type Step = 1 | 2 | 3;
 
@@ -26,7 +27,7 @@ const TEMPLATES: { value: TemplateName; label: string; icon: React.ElementType; 
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { data: session, update: updateSession } = useSession();
+  const { data: session, status, update: updateSession } = useSession();
   const [step, setStep] = useState<Step>(1);
   const [selectedRole, setSelectedRole] = useState<MemberRole | null>(null);
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateName | null>(null);
@@ -35,13 +36,27 @@ export default function OnboardingPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (session?.user?.workspaceId) {
+    if (status === "unauthenticated") {
+      router.replace("/auth/login?callbackUrl=/onboarding");
+    } else if (status === "authenticated" && session?.user?.workspaceId) {
       router.replace("/dashboard");
     }
-  }, [session, router]);
+  }, [status, session, router]);
+
+  if (status === "loading" || status === "unauthenticated" || session?.user?.workspaceId) {
+    return (
+      <div className="min-h-screen bg-offwhite flex flex-col items-center justify-center gap-3 px-4">
+        <Logo markSize={36} textSize={20} />
+        <div className="flex items-center gap-2 text-sm text-slate mt-2">
+          <Loader2 size={16} className="animate-spin text-blue" aria-hidden="true" />
+          <span>Preparing your workspace…</span>
+        </div>
+      </div>
+    );
+  }
 
   async function handleComplete() {
-    if (!selectedRole || !selectedTemplate || !workspaceName.trim()) return;
+    if (!selectedRole || !selectedTemplate || !workspaceName.trim() || loading) return;
     setLoading(true);
     setError("");
 
@@ -69,8 +84,9 @@ export default function OnboardingPage() {
       }
 
       if (data?.workspace?.id) {
+        document.cookie = `${dashboardViewCookieName(data.workspace.id)}=${selectedRole}; path=/; max-age=31536000; SameSite=Lax`;
         await updateSession();
-        router.push(`/workspace/${data.workspace.id}/board`);
+        router.push(`/workspace/${data.workspace.id}/workspace`);
       }
     } catch (err: unknown) {
       console.error("[handleComplete]", err);
@@ -80,7 +96,7 @@ export default function OnboardingPage() {
     }
   }
 
-  const progress = ((step - 1) / 2) * 100;
+  const progress = (step / 3) * 100;
 
   return (
     <div className="min-h-screen bg-offwhite flex flex-col">
@@ -91,7 +107,7 @@ export default function OnboardingPage() {
       </header>
 
       {/* Progress bar */}
-      <div className="h-1 bg-border">
+      <div className="h-1 bg-border" role="progressbar" aria-valuenow={Math.round(progress)} aria-valuemin={0} aria-valuemax={100}>
         <div
           className="h-full bg-blue transition-all duration-500 ease-out"
           style={{ width: `${progress}%` }}
@@ -106,7 +122,7 @@ export default function OnboardingPage() {
             <div>
               <h1 className="text-2xl font-bold text-ink mb-2">What&apos;s your primary role?</h1>
               <p className="text-slate mb-1">We&apos;ll set your default dashboard view to match. You&apos;ll be the workspace <strong>admin</strong> so you can invite your team.</p>
-              <p className="text-xs text-muted mb-8">You can change your view role at any time from workspace settings.</p>
+              <p className="text-xs text-muted mb-8">You can switch your dashboard view at any time from your workspace overview.</p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {ROLES.map((role) => {
@@ -115,6 +131,7 @@ export default function OnboardingPage() {
                   return (
                     <button
                       key={role.value}
+                      type="button"
                       onClick={() => setSelectedRole(role.value)}
                       aria-pressed={isSelected}
                       className={`text-left p-5 rounded-2xl border-2 transition-all cursor-pointer ${
@@ -137,9 +154,10 @@ export default function OnboardingPage() {
 
               <div className="mt-8 flex justify-end">
                 <button
+                  type="button"
                   onClick={() => setStep(2)}
                   disabled={!selectedRole}
-                  className="bg-blue text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                  className="bg-blue text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-2"
                 >
                   <span>Continue</span>
                   <ArrowRight size={16} aria-hidden="true" />
@@ -152,7 +170,11 @@ export default function OnboardingPage() {
           {step === 2 && (
             <div>
               <h1 className="text-2xl font-bold text-ink mb-2">Pick a starting template</h1>
-              <p className="text-slate mb-8">Your workspace will be pre-populated with realistic sample data — edit it freely.</p>
+              <p className="text-slate mb-8">
+                {selectedTemplate === "blank"
+                  ? "Start clean with an empty workspace — add goals and milestones whenever you're ready."
+                  : "Your workspace will be pre-populated with realistic sample data — edit it freely."}
+              </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {TEMPLATES.map((t) => {
@@ -161,6 +183,7 @@ export default function OnboardingPage() {
                   return (
                     <button
                       key={t.value}
+                      type="button"
                       onClick={() => setSelectedTemplate(t.value)}
                       aria-pressed={isSelected}
                       className={`text-left p-5 rounded-2xl border-2 transition-all cursor-pointer ${
@@ -190,15 +213,17 @@ export default function OnboardingPage() {
 
               <div className="mt-8 flex justify-between">
                 <button
+                  type="button"
                   onClick={() => setStep(1)}
-                  className="text-sm text-slate hover:text-ink transition-colors"
+                  className="text-sm text-slate hover:text-ink transition-colors cursor-pointer"
                 >
                   ← Back
                 </button>
                 <button
+                  type="button"
                   onClick={() => setStep(3)}
                   disabled={!selectedTemplate}
-                  className="bg-blue text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                  className="bg-blue text-white rounded-xl px-6 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-2"
                 >
                   <span>Continue</span>
                   <ArrowRight size={16} aria-hidden="true" />
@@ -209,13 +234,18 @@ export default function OnboardingPage() {
 
           {/* STEP 3 — Workspace name */}
           {step === 3 && (
-            <div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleComplete();
+              }}
+            >
               <h1 className="text-2xl font-bold text-ink mb-2">Name your workspace</h1>
               <p className="text-slate mb-8">This is usually your company or team name. You can change it any time.</p>
 
               <div className="bg-white rounded-2xl border border-border p-8">
                 {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger mb-4">
+                  <div role="alert" className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-danger mb-4">
                     {error}
                   </div>
                 )}
@@ -230,15 +260,16 @@ export default function OnboardingPage() {
                   onChange={(e) => setWorkspaceName(e.target.value)}
                   placeholder="Acme Corp"
                   maxLength={80}
+                  autoFocus
                   className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
                 />
 
                 {/* Summary */}
                 <div className="mt-6 bg-offwhite rounded-xl p-4 space-y-2">
-                  <h3 className="text-xs font-semibold text-ink uppercase tracking-wide">Your workspace</h3>
+                  <h2 className="text-xs font-semibold text-ink uppercase tracking-wide">Your workspace</h2>
                   <div className="flex items-center gap-3 text-sm">
                     <span className="text-muted w-32">Dashboard view</span>
-                    <span className="font-medium text-ink capitalize">{selectedRole?.replace("_", " ")}</span>
+                    <span className="font-medium text-ink">{formatRoleLabel(selectedRole)}</span>
                   </div>
                   <div className="flex items-center gap-3 text-sm">
                     <span className="text-muted w-32">Workspace role</span>
@@ -257,15 +288,16 @@ export default function OnboardingPage() {
 
               <div className="mt-8 flex justify-between">
                 <button
+                  type="button"
                   onClick={() => setStep(2)}
-                  className="text-sm text-slate hover:text-ink transition-colors"
+                  className="text-sm text-slate hover:text-ink transition-colors cursor-pointer"
                 >
                   ← Back
                 </button>
                 <button
-                  onClick={handleComplete}
+                  type="submit"
                   disabled={!workspaceName.trim() || loading}
-                  className="bg-blue text-white rounded-xl px-8 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                  className="bg-blue text-white rounded-xl px-8 py-3 text-sm font-semibold hover:bg-blue-mid transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer inline-flex items-center gap-2"
                 >
                   {loading ? "Setting up your workspace…" : (
                     <>
@@ -275,7 +307,7 @@ export default function OnboardingPage() {
                   )}
                 </button>
               </div>
-            </div>
+            </form>
           )}
         </div>
       </div>

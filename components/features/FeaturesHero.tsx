@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import PrimaryButton from "../reusables/primaryButton";
 import SecondaryButton from "../reusables/secondaryButton";
 
@@ -8,10 +7,13 @@ export default function FeaturesHero() {
   return (
     <section className="relative pt-12 flex flex-col items-center justify-start overflow-hidden bg-offwhite">
       {/* Subtle dot grid */}
-      <div className="absolute inset-0 bg-[radial-gradient(#DBEAFE_1.5px,transparent_1.5px)] bg-size-[24px_24px] opacity-70 pointer-events-none" />
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-[radial-gradient(#DBEAFE_1.5px,transparent_1.5px)] bg-size-[24px_24px] opacity-70 pointer-events-none"
+      />
 
       <div className="relative z-10 flex flex-col items-center justify-center gap-6 max-w-4xl text-center px-6 mt-8">
-        <h1 className="text-[48px] sm:text-[56px] md:text-[64px] font-extrabold tracking-[-0.03em] text-ink leading-[1.1]">
+        <h1 className="text-4xl sm:text-5xl md:text-[64px] font-extrabold tracking-[-0.03em] text-ink leading-[1.1]">
           Everything teams need to move from{" "}
           <span className="text-blue italic">vision</span> to{" "}
           <span className="text-blue">execution</span>.
@@ -22,30 +24,32 @@ export default function FeaturesHero() {
           designed for modern collaboration.
         </p>
 
-        <div className="flex flex-col sm:flex-row items-center gap-4 mt-4">
-          <Link href="/auth/register" className="w-full sm:w-auto">
-            <PrimaryButton
-              size="md"
-              className="w-full sm:w-auto px-8 py-3 text-base shadow-md hover:shadow-lg transition-all"
-            >
-              Get Started Free
-            </PrimaryButton>
-          </Link>
-          <Link href="/dashboard" className="w-full sm:w-auto">
-            <SecondaryButton
-              size="md"
-              className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm hover:bg-blue-faint transition-colors"
-            >
-              Explore Demo Workspace
-            </SecondaryButton>
-          </Link>
+        <div className="flex flex-col sm:flex-row items-center gap-4 mt-4 w-full sm:w-auto">
+          <PrimaryButton
+            href="/auth/register"
+            size="lg"
+            className="w-full sm:w-auto px-8 shadow-md hover:shadow-lg transition-all"
+          >
+            Get Started Free
+          </PrimaryButton>
+          <SecondaryButton
+            href="/auth/register"
+            size="lg"
+            className="w-full sm:w-auto px-8 bg-white border border-blue-light text-blue shadow-sm hover:bg-blue-faint transition-colors"
+          >
+            Try Free Workspace
+          </SecondaryButton>
         </div>
       </div>
 
       {/* Wavy Background Container */}
-      <div className="relative w-full h-[260px] sm:h-[300px] mt-8 flex flex-col justify-end">
+      <div
+        aria-hidden="true"
+        className="relative w-full h-[160px] sm:h-[260px] mt-8 flex flex-col justify-end"
+      >
         <svg
-          className="absolute bottom-0 w-full h-[260px] sm:h-[300px]"
+          aria-hidden="true"
+          className="absolute bottom-0 w-full h-[160px] sm:h-[260px]"
           viewBox="0 0 1440 300"
           preserveAspectRatio="none"
         >
@@ -65,7 +69,10 @@ export default function FeaturesHero() {
       </div>
 
       {/* Infinite Scrolling Marquee Banner */}
-      <div className="w-full bg-offwhite border-b border-border py-4 md:py-6 overflow-hidden flex whitespace-nowrap">
+      <div
+        aria-hidden="true"
+        className="w-full bg-offwhite border-b border-border py-4 md:py-6 overflow-hidden flex whitespace-nowrap"
+      >
         <div className="animate-marquee flex gap-8 md:gap-12 text-[15px] md:text-[20px] font-bold text-slate/40 tracking-tight italic px-6">
           <span>Cross Team Planning</span>
           <span>AI Powered Roadmap</span>
@@ -94,7 +101,13 @@ export default function FeaturesHero() {
                 100% { transform: translateX(-50%); }
             }
             .animate-marquee {
+                will-change: transform;
                 animation: marquee 20s linear infinite;
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .animate-marquee {
+                    animation: none;
+                }
             }
         `,
         }}
@@ -102,4 +115,3 @@ export default function FeaturesHero() {
     </section>
   );
 }
-

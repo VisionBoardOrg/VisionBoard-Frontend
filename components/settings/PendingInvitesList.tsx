@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Trash2, Copy, Check, Clock } from "lucide-react";
+import { Mail, Trash2, Copy, Check, Clock, Loader2, AlertCircle } from "lucide-react";
+import { useConfirm } from "@/context/ConfirmContext";
+import { useClipboard } from "@/hooks/useClipboard";
+import { formatRoleLabel } from "@/lib/roles";
 
 interface PendingInvite {
   id: string;
@@ -15,26 +18,45 @@ interface PendingInvite {
 interface PendingInvitesListProps {
   workspaceId: string;
   invites: PendingInvite[];
+  canManage?: boolean;
 }
 
-export function PendingInvitesList({ workspaceId, invites }: PendingInvitesListProps) {
+export function PendingInvitesList({
+  workspaceId,
+  invites,
+  canManage = true,
+}: PendingInvitesListProps) {
   const router = useRouter();
-  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { confirm } = useConfirm();
+  const { copiedKey, copyError, copy } = useClipboard();
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   if (invites.length === 0) return null;
 
-  async function handleCancel(inviteId: string) {
-    setCancellingId(inviteId);
+  async function handleCancel(invite: PendingInvite) {
+    const ok = await confirm({
+      title: "Cancel invitation?",
+      description: `Revoke the pending invitation sent to ${invite.email}? Their existing invite link will stop working immediately.`,
+      confirmLabel: "Cancel invitation",
+      danger: true,
+    });
+    if (!ok) return;
+
+    setCancellingId(invite.id);
+    setError(null);
     try {
-      const res = await fetch(`/api/workspaces/${workspaceId}/members?inviteId=${inviteId}`, {
+      const res = await fetch(`/api/workspaces/${workspaceId}/members?inviteId=${encodeURIComponent(invite.id)}`, {
         method: "DELETE",
       });
-      if (res.ok) {
-        router.refresh();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error ?? "Failed to cancel invitation.");
+        return;
       }
-    } catch (err) {
-      console.error("[handleCancel]", err);
+      router.refresh();
+    } catch {
+      setError("Network error while cancelling invitation. Please try again.");
     } finally {
       setCancellingId(null);
     }
@@ -43,50 +65,74 @@ export function PendingInvitesList({ workspaceId, invites }: PendingInvitesListP
   function handleCopy(invite: PendingInvite) {
     const origin = typeof window !== "undefined" ? window.location.origin : "";
     const inviteUrl = `${origin}/invite/${invite.token}`;
-    navigator.clipboard.writeText(inviteUrl);
-    setCopiedId(invite.id);
-    setTimeout(() => setCopiedId(null), 2000);
+    void copy(inviteUrl, invite.id);
   }
+
+  const displayedError = error || copyError;
 
   return (
     <div className="mt-6 pt-5 border-t border-border space-y-3">
       <div className="flex items-center gap-2 mb-3">
-        <Clock size={15} className="text-amber-500" />
+        <Clock size={15} className="text-amber-500" aria-hidden="true" />
         <h3 className="text-xs font-bold text-ink uppercase tracking-wider">Pending Invitations ({invites.length})</h3>
       </div>
 
+      {displayedError && (
+        <div role="alert" className="flex items-center gap-2 text-xs text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">
+          <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+          <span>{displayedError}</span>
+        </div>
+      )}
+
       <div className="space-y-2">
         {invites.map((inv) => (
-          <div key={inv.id} className="flex items-center justify-between p-3 rounded-xl bg-amber-50/50 border border-amber-200/60 text-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
-                <Mail size={14} />
+          <div
+            key={inv.id}
+            className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-amber-50/50 border border-amber-200/60 text-xs"
+          >
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold shrink-0">
+                <Mail size={14} aria-hidden="true" />
               </div>
-              <div>
-                <div className="font-semibold text-ink">{inv.email}</div>
-                <div className="text-[11px] text-muted capitalize">Role: {inv.role} • Invited link sent</div>
+              <div className="min-w-0">
+                <div className="font-semibold text-ink truncate">{inv.email}</div>
+                <div className="text-[11px] text-muted truncate">
+                  Role: {formatRoleLabel(inv.role)} · Invite link sent
+                </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-semibold">
-                Pending Email
+                Pending
               </span>
-              <button
-                onClick={() => handleCopy(inv)}
-                title="Copy Invite Link"
-                className="p-1.5 rounded-lg text-slate hover:text-blue hover:bg-white transition-colors"
-              >
-                {copiedId === inv.id ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
-              </button>
-              <button
-                onClick={() => handleCancel(inv.id)}
-                disabled={cancellingId === inv.id}
-                title="Cancel Invitation"
-                className="p-1.5 rounded-lg text-slate hover:text-red-600 hover:bg-white transition-colors disabled:opacity-50"
-              >
-                <Trash2 size={14} />
-              </button>
+              {canManage && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(inv)}
+                    title="Copy invite link"
+                    aria-label={`Copy invite link for ${inv.email}`}
+                    className="p-1.5 rounded-lg text-slate hover:text-blue hover:bg-white transition-colors cursor-pointer"
+                  >
+                    {copiedKey === inv.id
+                      ? <Check size={14} className="text-emerald-600" aria-hidden="true" />
+                      : <Copy size={14} aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCancel(inv)}
+                    disabled={cancellingId === inv.id}
+                    title="Cancel invitation"
+                    aria-label={`Cancel invitation for ${inv.email}`}
+                    className="p-1.5 rounded-lg text-slate hover:text-red-600 hover:bg-white transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {cancellingId === inv.id
+                      ? <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+                      : <Trash2 size={14} aria-hidden="true" />}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         ))}

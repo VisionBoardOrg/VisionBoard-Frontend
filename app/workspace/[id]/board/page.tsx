@@ -1,7 +1,9 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { BoardCanvas } from "@/components/board/BoardCanvas";
+import type { BoardLayoutMode } from "@/components/board/BoardLayoutSidePanel";
 import {
   getSlimWorkspaceMembership,
   getUserPlanAndCredits,
@@ -111,6 +113,11 @@ export default async function BoardPage({ params }: BoardPageProps) {
     return m;
   });
 
+  const cookieStore = await cookies();
+  const savedLayout = cookieStore.get("vb_board_layout")?.value;
+  const initialLayoutMode: BoardLayoutMode =
+    savedLayout === "kanban" ? "kanban" : "canvas";
+
   return (
     <BoardCanvas
       workspaceId={id}
@@ -118,6 +125,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
       goals={goals as never}
       milestones={updatedMilestones as never}
       members={members.map((m) => m.user)}
+      initialLayoutMode={initialLayoutMode}
     />
   );
 }

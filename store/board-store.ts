@@ -230,10 +230,11 @@ export function useBoardItem(id: string | null): BoardItemFull | undefined {
  * addItem / removeItem / updateBoardItem.
  */
 export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
-  // Seed ref — only used to initialise the store once per workspace mount.
-  // We intentionally ignore later changes to `initialItems` because the store
-  // is the source of truth after the first hydration.
+  // Seed ref — kept fresh via effect, used to hydrate the store when workspaceId changes
   const seedRef = useRef<BoardItemFull[]>(initialItems);
+  useEffect(() => {
+    seedRef.current = initialItems;
+  }, [initialItems]);
 
   const storeWorkspaceId = useBoardStore((s) => s.workspaceId);
   const itemsById        = useBoardStore((s) => s.itemsById);
@@ -246,8 +247,7 @@ export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
       const { itemsById: ibi, itemOrder: io } = itemsToRecord(seedRef.current);
       useBoardStore.setState({ workspaceId, itemsById: ibi, itemOrder: io });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId]); // intentionally excludes initialItems
+  }, [workspaceId]);
 
   const items = useMemo(() => {
     const out: BoardItemFull[] = new Array(itemOrder.length);
@@ -288,6 +288,6 @@ export function useBoard(workspaceId: string, initialItems: BoardItemFull[]) {
     workspaceId: storeWorkspaceId,
     itemsById,
     itemOrder,
-    items: storeWorkspaceId === workspaceId && items.length > 0 ? items : initialItems,
+    items: storeWorkspaceId === workspaceId ? items : initialItems,
   };
 }

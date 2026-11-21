@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Zap,
   Lock,
@@ -22,6 +22,7 @@ import { InteractiveGantt, GoalGroup } from "./InteractiveGantt";
 import { NewMilestoneModal } from "./NewMilestoneModal";
 import { NewGoalModal } from "@/components/goals/NewGoalModal";
 import { RoadmapWebMCPTools } from "@/components/webmcp/RoadmapWebMCPTools";
+import { useToast } from "@/context/ToastContext";
 
 interface RoadmapViewProps {
   workspaceId: string;
@@ -29,6 +30,7 @@ interface RoadmapViewProps {
   isGated: boolean;
   upgradePrompt: string | undefined;
   userRole: string | null;
+  initialSelectedMilestoneId?: string;
 }
 
 export function RoadmapView({
@@ -36,9 +38,15 @@ export function RoadmapView({
   goals: initialGoals,
   isGated,
   upgradePrompt,
+  initialSelectedMilestoneId,
 }: RoadmapViewProps) {
   const router = useRouter();
+  const { toast } = useToast();
   const [goals, setGoals] = useState<GoalGroup[]>(initialGoals);
+
+  useEffect(() => {
+    setGoals(initialGoals);
+  }, [initialGoals]);
   const [timeScale, setTimeScale] = useState<TimeScale>("month");
   const [highlightCriticalPath, setHighlightCriticalPath] = useState(false);
   const [showBaseline, setShowBaseline] = useState(false);
@@ -86,7 +94,7 @@ export function RoadmapView({
     setBaselineLoading(true);
     try {
       // Snapshot baseline for each goal in workspace
-      await Promise.all(
+      const responses = await Promise.all(
         goals.map((g) =>
           fetch(`/api/goals/${g.id}/baseline`, {
             method: "POST",
@@ -95,12 +103,31 @@ export function RoadmapView({
           })
         )
       );
+      const failed = responses.filter((res) => !res.ok);
+      if (failed.length > 0) {
+        toast({
+          title: "Baseline snapshot failed",
+          description: `Could not snapshot ${failed.length} of ${goals.length} goal${goals.length === 1 ? "" : "s"}. Please try again.`,
+          type: "error",
+        });
+        return;
+      }
       setBaselineSuccess(true);
       setShowBaseline(true);
       setTimeout(() => setBaselineSuccess(false), 3000);
+      toast({
+        title: "Baseline snapshot saved",
+        description: "Current roadmap dates have been captured as the baseline.",
+        type: "success",
+      });
       router.refresh();
     } catch (err) {
       console.error("Failed to snapshot baseline:", err);
+      toast({
+        title: "Baseline snapshot failed",
+        description: "Network error while saving baseline snapshot.",
+        type: "error",
+      });
     } finally {
       setBaselineLoading(false);
     }
@@ -156,44 +183,51 @@ export function RoadmapView({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* AI Generator Button */}
-          <button
-            onClick={() => setIsAiOpen((prev) => !prev)}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all ${
-              isAiOpen
-                ? "bg-blue text-white border-blue shadow-xs"
-                : "bg-white text-ink border-border hover:bg-slate-50"
-            }`}
-          >
-            <Zap size={14} className={isAiOpen ? "text-white" : "text-blue"} />
-            <span>AI Roadmap Gen</span>
-          </button>
+          {!isGated && (
+            <>
+              {/* AI Generator Button */}
+              <button
+                type="button"
+                onClick={() => setIsAiOpen((prev) => !prev)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                  isAiOpen
+                    ? "bg-blue text-white border-blue shadow-xs"
+                    : "bg-white text-ink border-border hover:bg-slate-50"
+                }`}
+              >
+                <Zap size={14} className={isAiOpen ? "text-white" : "text-blue"} aria-hidden="true" />
+                <span>AI Roadmap Gen</span>
+              </button>
 
-          {/* New Milestone Button */}
-          <button
-            onClick={() => {
-              setSelectedGoalForMilestone(undefined);
-              setIsNewMilestoneOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-blue text-white rounded-xl px-4 py-2 text-xs font-semibold hover:bg-blue-mid transition-all shadow-xs"
-          >
-            <Plus size={14} />
-            <span>New Milestone</span>
-          </button>
+              {/* New Milestone Button */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedGoalForMilestone(undefined);
+                  setIsNewMilestoneOpen(true);
+                }}
+                className="flex items-center gap-1.5 bg-blue text-white rounded-xl px-4 py-2 text-xs font-semibold hover:bg-blue-mid transition-all shadow-xs cursor-pointer"
+              >
+                <Plus size={14} aria-hidden="true" />
+                <span>New Milestone</span>
+              </button>
+            </>
+          )}
 
           {/* New Goal Button */}
           <button
+            type="button"
             onClick={() => setIsNewGoalOpen(true)}
-            className="flex items-center gap-1.5 bg-white border border-border text-ink rounded-xl px-3.5 py-2 text-xs font-semibold hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-1.5 bg-white border border-border text-ink rounded-xl px-3.5 py-2 text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
           >
-            <Target size={14} className="text-slate" />
+            <Target size={14} className="text-slate" aria-hidden="true" />
             <span>New Goal</span>
           </button>
         </div>
       </div>
 
       {/* ── 2. AI Roadmap Generator Collapsible Box ──────────────────────────── */}
-      {isAiOpen && (
+      {!isGated && isAiOpen && (
         <div className="bg-white rounded-2xl border border-blue/30 shadow-xs p-5 space-y-4 animate-in fade-in zoom-in-98 duration-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -208,8 +242,9 @@ export function RoadmapView({
               </div>
             </div>
             <button
+              type="button"
               onClick={() => setIsAiOpen(false)}
-              className="text-xs text-muted hover:text-ink px-2 py-1 rounded-lg"
+              className="text-xs text-muted hover:text-ink px-2 py-1 rounded-lg cursor-pointer"
             >
               Close
             </button>
@@ -218,7 +253,7 @@ export function RoadmapView({
           <textarea
             value={aiInput}
             onChange={(e) => setAiInput(e.target.value)}
-            placeholder="e.g. Build an app called EduLaod: a digital library for Engineering students in FUOYE so they can download course materials online before exam season, with AI CBT generation..."
+            placeholder="e.g. Launch a self-serve team onboarding flow in Q3 with SSO, usage dashboards, and Stripe billing…"
             rows={3}
             className="w-full border border-border rounded-xl px-4 py-2.5 text-xs text-ink placeholder:text-muted resize-none focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue"
           />
@@ -496,6 +531,7 @@ export function RoadmapView({
             showBaseline={showBaseline}
             searchQuery={searchQuery}
             filterStatus={filterStatus}
+            initialSelectedMilestoneId={initialSelectedMilestoneId}
             onRefreshData={handleRefresh}
             onAddMilestoneClick={(goalId) => {
               setSelectedGoalForMilestone(goalId);
@@ -506,24 +542,26 @@ export function RoadmapView({
       )}
 
       {/* ── 6. Modals ───────────────────────────────────────────────────────── */}
-      <NewMilestoneModal
-        isOpen={isNewMilestoneOpen}
-        workspaceId={workspaceId}
-        defaultGoalId={selectedGoalForMilestone}
-        goals={goals.map((g) => ({ id: g.id, title: g.title }))}
-        allMilestones={allMilestones}
-        onClose={() => setIsNewMilestoneOpen(false)}
-        onCreateGoalClick={() => setIsNewGoalOpen(true)}
-        onCreated={(newMilestone) => {
-          setGoals((prev) =>
-            prev.map((g) =>
-              g.id === newMilestone.goalId
-                ? { ...g, milestones: [...g.milestones, newMilestone] }
-                : g
-            )
-          );
-        }}
-      />
+      {isNewMilestoneOpen && (
+        <NewMilestoneModal
+          isOpen={isNewMilestoneOpen}
+          workspaceId={workspaceId}
+          defaultGoalId={selectedGoalForMilestone}
+          goals={goals.map((g) => ({ id: g.id, title: g.title }))}
+          allMilestones={allMilestones}
+          onClose={() => setIsNewMilestoneOpen(false)}
+          onCreateGoalClick={() => setIsNewGoalOpen(true)}
+          onCreated={(newMilestone) => {
+            setGoals((prev) =>
+              prev.map((g) =>
+                g.id === newMilestone.goalId
+                  ? { ...g, milestones: [...g.milestones, newMilestone] }
+                  : g
+              )
+            );
+          }}
+        />
+      )}
 
       {isNewGoalOpen && (
         <NewGoalModal

@@ -7,19 +7,22 @@ import { useCursorStore } from "@/store/cursor-store";
 
 interface CursorItemProps {
   cursor: RemoteCursor;
+  zoom: number;
 }
 
 /**
  * Single memoized cursor element — only re-renders when this specific
- * user's cursor data changes (x, y, userColor, userImage, selectedCardId).
- * Prevents all N cursors from re-rendering on every 25Hz cursor packet.
+ * user's cursor data or canvas zoom changes.
+ * Inverse-scales by `1 / zoom` so cursors and name pills stay legible at all zoom levels.
  */
-const CursorItem = memo(function CursorItem({ cursor }: CursorItemProps) {
+const CursorItem = memo(function CursorItem({ cursor, zoom }: CursorItemProps) {
+  const inverseScale = 1 / (zoom || 1);
   return (
     <div
       className="absolute left-0 top-0 will-change-transform pointer-events-none"
       style={{
-        transform: `translate3d(${cursor.x}px, ${cursor.y}px, 0)`,
+        transform: `translate3d(${cursor.x}px, ${cursor.y}px, 0) scale(${inverseScale})`,
+        transformOrigin: "top left",
         transition: "transform 120ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
@@ -28,6 +31,7 @@ const CursorItem = memo(function CursorItem({ cursor }: CursorItemProps) {
         viewBox="0 0 24 24"
         fill="none"
         style={{ color: cursor.userColor }}
+        aria-hidden="true"
       >
         <path
           d="M3 3L10.07 19.97L12.58 12.58L19.97 10.07L3 3Z"
@@ -64,6 +68,7 @@ const CursorItem = memo(function CursorItem({ cursor }: CursorItemProps) {
     </div>
   );
 }, (prev, next) => {
+  if (prev.zoom !== next.zoom) return false;
   const a = prev.cursor;
   const b = next.cursor;
   return (
@@ -79,6 +84,7 @@ const CursorItem = memo(function CursorItem({ cursor }: CursorItemProps) {
 
 interface LiveCursorsCanvasProps {
   currentUserId?: string | null;
+  zoom?: number;
 }
 
 /**
@@ -86,7 +92,7 @@ interface LiveCursorsCanvasProps {
  * cursor stream re-renders only this lightweight overlay — never BoardCanvas
  * or the card tree.
  */
-function LiveCursorsCanvasInner({ currentUserId }: LiveCursorsCanvasProps) {
+function LiveCursorsCanvasInner({ currentUserId, zoom = 1 }: LiveCursorsCanvasProps) {
   const cursors = useCursorStore((s) => s.cursors);
 
   const remoteCursors = useMemo(() => {
@@ -104,7 +110,7 @@ function LiveCursorsCanvasInner({ currentUserId }: LiveCursorsCanvasProps) {
   return (
     <div className="absolute inset-0 pointer-events-none z-30 overflow-visible">
       {remoteCursors.map((cursor) => (
-        <CursorItem key={cursor.userId} cursor={cursor} />
+        <CursorItem key={cursor.userId} cursor={cursor} zoom={zoom} />
       ))}
     </div>
   );

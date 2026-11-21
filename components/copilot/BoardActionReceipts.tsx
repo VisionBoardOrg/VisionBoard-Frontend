@@ -120,15 +120,18 @@ export function BoardActionReceipts({
                   : "bg-red-50/80 border-red-200 text-red-700"
               }`}
             >
-              <div className="flex items-center gap-2 min-w-0">
-                <div className="shrink-0">{getActionIcon(act.action)}</div>
-                <div className="truncate">
-                  <span className="font-medium text-slate-800">
+              <div className="flex items-start gap-2 min-w-0 flex-1">
+                <div className="shrink-0 mt-0.5">{getActionIcon(act.action)}</div>
+                <div className="min-w-0 flex-1">
+                  <span className="font-medium text-slate-800 block truncate">
                     {act.message}
                   </span>
                   {errorMsg && (
-                    <div className="text-[10px] text-red-600 flex items-center gap-1 mt-0.5">
-                      <AlertCircle size={10} />
+                    <div
+                      role="alert"
+                      className="text-[10px] text-red-600 flex items-start gap-1 mt-0.5 whitespace-normal break-words"
+                    >
+                      <AlertCircle size={10} className="shrink-0 mt-0.5" aria-hidden="true" />
                       <span>{errorMsg}</span>
                     </div>
                   )}

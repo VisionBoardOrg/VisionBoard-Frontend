@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { verifyAdminSession } from "@/lib/auth/admin-session";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminHeader from "@/components/admin/AdminHeader";
+import { ConfirmProvider } from "@/context/ConfirmContext";
 
 export const metadata = {
   title: {
@@ -19,25 +20,23 @@ export default async function AdminLayout({
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("admin_session")?.value;
 
-  // Verify the signed admin session token
   const isAuthenticated = await verifyAdminSession(sessionCookie);
 
-  // The login page is nested under /admin/login — exclude it from the auth guard
-  // by checking inside each protected page instead. For the layout we redirect to
-  // login when the session is invalid so all non-login routes are protected.
   if (!isAuthenticated) {
     redirect("/admin/login");
   }
 
   return (
-    <div className="flex h-screen bg-offwhite font-sans overflow-hidden">
-      <AdminSidebar />
-      <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        <AdminHeader />
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
-          {children}
-        </main>
+    <ConfirmProvider>
+      <div className="flex h-dvh bg-offwhite font-sans overflow-hidden">
+        <AdminSidebar />
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+          <AdminHeader />
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </ConfirmProvider>
   );
 }

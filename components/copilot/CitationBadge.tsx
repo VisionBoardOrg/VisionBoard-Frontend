@@ -79,10 +79,14 @@ export function CitationBadge({
       ? normalizedType === "document"
         ? `/workspace/${workspaceId}/docs/${entityId}`
         : normalizedType === "goal"
-        ? `/workspace/${workspaceId}/goals?goalId=${entityId}`
+        ? `/workspace/${workspaceId}/goals/${entityId}`
         : normalizedType === "milestone"
         ? `/workspace/${workspaceId}/roadmap?milestoneId=${entityId}`
-        : `/workspace/${workspaceId}/tasks?taskId=${entityId}`
+        : normalizedType === "task"
+        ? `/workspace/${workspaceId}/tasks?taskId=${entityId}`
+        : normalizedType === "comment"
+        ? `/workspace/${workspaceId}/workspace`
+        : `/workspace/${workspaceId}/workspace`
       : "#");
 
   return (

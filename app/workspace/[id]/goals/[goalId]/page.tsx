@@ -2,9 +2,24 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { GoalDetail } from "@/components/goals/GoalDetail";
-import { getSlimWorkspaceMembership } from "@/lib/workspace-data";
+import { getSlimWorkspaceMembership, getWorkspaceName } from "@/lib/workspace-data";
 
-interface GoalPageProps { params: Promise<{ id: string; goalId: string }> }
+interface GoalPageProps {
+  params: Promise<{ id: string; goalId: string }>;
+}
+
+export async function generateMetadata({ params }: GoalPageProps) {
+  const { id, goalId } = await params;
+  const [workspace, goal] = await Promise.all([
+    getWorkspaceName(id),
+    prisma.goal.findUnique({
+      where: { id: goalId },
+      select: { title: true, workspaceId: true },
+    }),
+  ]);
+  const title = goal && goal.workspaceId === id ? goal.title : "Goal";
+  return { title: `${title} — ${workspace?.name ?? "VisionBoard"}` };
+}
 
 export default async function GoalPage({ params }: GoalPageProps) {
   const session = await auth();
@@ -43,9 +58,16 @@ export default async function GoalPage({ params }: GoalPageProps) {
   ]);
 
   if (!member) redirect("/dashboard");
-  if (!goal || goal.workspaceId !== id) redirect(`/workspace/${id}/board`);
+  if (!goal || goal.workspaceId !== id) redirect(`/workspace/${id}/goals`);
+
+  const canEdit = member.role === "admin" || member.role === "pm";
 
   return (
-    <GoalDetail goal={goal as never} workspaceId={id} userId={session.user.id} />
+    <GoalDetail
+      goal={goal as never}
+      workspaceId={id}
+      userId={session.user.id}
+      canEdit={canEdit}
+    />
   );
 }

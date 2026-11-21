@@ -106,9 +106,19 @@ export function GanttDependencyLayer({
         return (
           <g
             key={`${predecessorId}->${successorId}`}
-            className="transition-all duration-200 pointer-events-auto cursor-pointer group"
+            role="button"
+            tabIndex={0}
+            aria-label="Click to inspect predecessor milestone"
+            className="transition-all duration-200 pointer-events-auto cursor-pointer group focus:outline-none"
             onClick={() => onSelectDependency?.(predecessorId, successorId)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelectDependency?.(predecessorId, successorId);
+              }
+            }}
           >
+            <title>Click to inspect predecessor milestone</title>
             {/* Wider transparent stroke for easier hover & clicking */}
             <path
               d={pathD}
@@ -125,7 +135,7 @@ export function GanttDependencyLayer({
               strokeWidth={strokeWidth}
               strokeDasharray={isCritical ? "4 2" : undefined}
               markerEnd={markerEnd}
-              className={`group-hover:stroke-blue transition-colors ${
+              className={`group-hover:stroke-blue group-focus-visible:stroke-blue transition-colors ${
                 isCritical ? "drop-shadow-[0_0_4px_rgba(239,68,68,0.4)]" : ""
               }`}
             />

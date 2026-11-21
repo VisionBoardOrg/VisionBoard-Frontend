@@ -8,7 +8,8 @@ interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {
 export function Skeleton({ className = "", ...props }: SkeletonProps) {
   return (
     <div
-      className={`animate-pulse rounded-md bg-slate-200/80 ${className}`}
+      aria-hidden="true"
+      className={`animate-pulse motion-reduce:animate-none rounded-md bg-slate-200/80 ${className}`}
       {...props}
     />
   );
@@ -25,7 +26,12 @@ export function PageHeaderSkeleton({
   hasButton?: boolean;
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
+    <div
+      role="status"
+      aria-busy="true"
+      className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/70"
+    >
+      <span className="sr-only">Loading…</span>
       <div className="space-y-2">
         <Skeleton className={`h-7 ${titleWidth}`} />
         <Skeleton className={`h-4 ${subtitleWidth}`} />
@@ -38,7 +44,12 @@ export function PageHeaderSkeleton({
 /** Skeleton for Personal Summary Cards (Dashboard) */
 export function SummaryCardsSkeleton() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div
+      role="status"
+      aria-busy="true"
+      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+    >
+      <span className="sr-only">Loading…</span>
       {[1, 2, 3, 4].map((i) => (
         <div
           key={i}
@@ -59,7 +70,12 @@ export function SummaryCardsSkeleton() {
 /** Skeleton for Workspace Cards grid (Workspaces & Dashboard) */
 export function WorkspaceGridSkeleton({ count = 3 }: { count?: number }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+    <div
+      role="status"
+      aria-busy="true"
+      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+    >
+      <span className="sr-only">Loading…</span>
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
@@ -90,8 +106,15 @@ export function WorkspaceGridSkeleton({ count = 3 }: { count?: number }) {
 /** Skeleton for Goals List Page */
 export function GoalsSkeleton() {
   return (
-    <div className="space-y-6">
-      <PageHeaderSkeleton titleWidth="w-36" subtitleWidth="w-56" />
+    <div role="status" aria-busy="true" className="space-y-6">
+      <span className="sr-only">Loading…</span>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-36" />
+          <Skeleton className="h-4 w-56" />
+        </div>
+        <Skeleton className="h-9 w-32 rounded-lg shrink-0" />
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {[1, 2, 3, 4].map((i) => (
@@ -125,7 +148,8 @@ export function GoalsSkeleton() {
 /** Skeleton for Kanban Board view */
 export function KanbanBoardSkeleton() {
   return (
-    <div className="space-y-6">
+    <div role="status" aria-busy="true" className="space-y-6">
+      <span className="sr-only">Loading…</span>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border/70">
         <div className="flex items-center gap-3">
@@ -172,8 +196,15 @@ export function KanbanBoardSkeleton() {
 /** Skeleton for Tasks Table / List view */
 export function TableSkeleton({ rows = 6 }: { rows?: number }) {
   return (
-    <div className="space-y-6">
-      <PageHeaderSkeleton titleWidth="w-32" subtitleWidth="w-48" />
+    <div role="status" aria-busy="true" className="space-y-6">
+      <span className="sr-only">Loading…</span>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-4 w-48" />
+        </div>
+        <Skeleton className="h-9 w-32 rounded-lg shrink-0" />
+      </div>
 
       <div className="bg-white rounded-xl border border-border divide-y divide-border/70 shadow-xs overflow-hidden">
         <div className="px-5 py-3.5 bg-slate-50/80 flex items-center justify-between">
@@ -199,7 +230,8 @@ export function TableSkeleton({ rows = 6 }: { rows?: number }) {
 /** Skeleton for Form / Account Settings Section */
 export function AccountSettingsSkeleton() {
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
+    <div role="status" aria-busy="true" className="max-w-3xl mx-auto space-y-8">
+      <span className="sr-only">Loading…</span>
       {/* Header */}
       <div className="space-y-2 pb-4 border-b border-border/70">
         <Skeleton className="h-8 w-52" />
@@ -244,11 +276,15 @@ export function AccountSettingsSkeleton() {
 export function BoardCanvasSkeleton() {
   return (
     <div
+      role="status"
+      aria-busy="true"
       className="relative w-full bg-white overflow-hidden rounded-2xl border border-border animate-in fade-in-50 duration-200"
       style={{ height: "calc(100dvh - 112px)", minHeight: "400px" }}
     >
+      <span className="sr-only">Loading…</span>
       {/* Dot matrix grid placeholder */}
       <div
+        aria-hidden="true"
         className="absolute inset-0 pointer-events-none"
         style={{
           backgroundImage: "radial-gradient(circle, #E2E8F0 1px, transparent 1px)",
@@ -257,9 +293,9 @@ export function BoardCanvasSkeleton() {
       />
 
       {/* Placeholder Canvas Cards (anchored to default column layout) */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+      <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none">
         {/* Goal Card Silhouette */}
-        <div className="absolute top-[80px] left-[80px] w-[220px] h-[130px] bg-white rounded-xl border-2 border-blue/20 shadow-xs p-3 space-y-2.5 animate-pulse">
+        <div className="absolute top-[80px] left-[80px] w-[220px] h-[130px] bg-white rounded-xl border-2 border-blue/20 shadow-xs p-3 space-y-2.5 animate-pulse motion-reduce:animate-none">
           <div className="h-1.5 w-full bg-blue/40 rounded-t-lg -mt-3 -mx-3 mb-2" />
           <div className="flex items-center justify-between">
             <div className="h-3.5 w-12 bg-blue-100/70 rounded" />
@@ -270,7 +306,7 @@ export function BoardCanvasSkeleton() {
         </div>
 
         {/* Milestone Card Silhouette */}
-        <div className="absolute top-[80px] left-[380px] w-[220px] h-[130px] bg-white rounded-xl border-2 border-violet-200/70 shadow-xs p-3 space-y-2.5 animate-pulse [animation-delay:150ms]">
+        <div className="absolute top-[80px] left-[380px] w-[220px] h-[130px] bg-white rounded-xl border-2 border-violet-200/70 shadow-xs p-3 space-y-2.5 animate-pulse motion-reduce:animate-none [animation-delay:150ms]">
           <div className="h-1.5 w-full bg-violet-400/40 rounded-t-lg -mt-3 -mx-3 mb-2" />
           <div className="flex items-center justify-between">
             <div className="h-3.5 w-16 bg-violet-100/70 rounded" />
@@ -283,7 +319,7 @@ export function BoardCanvasSkeleton() {
         </div>
 
         {/* Sticky Note Silhouette */}
-        <div className="absolute top-[260px] left-[140px] w-[180px] h-[100px] bg-amber-50/70 rounded-xl border-2 border-amber-200/60 shadow-xs p-3 space-y-2 animate-pulse [animation-delay:300ms]">
+        <div className="absolute top-[260px] left-[140px] w-[180px] h-[100px] bg-amber-50/70 rounded-xl border-2 border-amber-200/60 shadow-xs p-3 space-y-2 animate-pulse motion-reduce:animate-none [animation-delay:300ms]">
           <div className="h-1.5 w-full bg-amber-300/40 rounded-t-lg -mt-3 -mx-3 mb-2" />
           <div className="h-3.5 w-10 bg-amber-200/60 rounded" />
           <div className="h-3.5 w-24 bg-amber-200/50 rounded" />
@@ -291,7 +327,10 @@ export function BoardCanvasSkeleton() {
       </div>
 
       {/* Floating Toolbar Silhouette (contained within board container) */}
-      <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-2xl border border-slate-200 shadow-md animate-pulse pointer-events-none">
+      <div
+        aria-hidden="true"
+        className="absolute bottom-5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-white/95 backdrop-blur-md px-3.5 py-1.5 rounded-2xl border border-slate-200 shadow-md animate-pulse motion-reduce:animate-none pointer-events-none"
+      >
         <div className="h-6 w-16 bg-slate-200/70 rounded-lg" />
         <div className="h-4 w-px bg-slate-200" />
         <div className="h-6 w-20 bg-blue-100/70 rounded-lg" />

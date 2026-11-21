@@ -1,39 +1,46 @@
 "use client";
 
-import { memo, useState, useCallback, useRef } from "react";
+import { memo, useState, useCallback } from "react";
 import Image from "next/image";
 import { useDraggable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import type { BoardItemFull } from "@/types/board";
-import { CheckCircle2, Circle, Clock, AlertTriangle, GripVertical, Link2, Trash2, X } from "lucide-react";
+import type { RemoteCursor } from "@/hooks/useWebSocket";
+import { CheckCircle2, Circle, Clock, AlertTriangle, GripVertical, Link2, Trash2 } from "lucide-react";
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
-  completed: <CheckCircle2 size={12} className="text-success" />,
-  done: <CheckCircle2 size={12} className="text-success" />,
-  in_progress: <Clock size={12} className="text-blue" />,
-  blocked: <AlertTriangle size={12} className="text-danger" />,
-  planned: <Circle size={12} className="text-muted" />,
-  todo: <Circle size={12} className="text-muted" />,
+  completed: <CheckCircle2 size={12} className="text-success" aria-label="Completed" />,
+  done: <CheckCircle2 size={12} className="text-success" aria-label="Done" />,
+  in_progress: <Clock size={12} className="text-blue" aria-label="In Progress" />,
+  delayed: <AlertTriangle size={12} className="text-amber-500" aria-label="Delayed" />,
+  blocked: <AlertTriangle size={12} className="text-danger" aria-label="Blocked" />,
+  planned: <Circle size={12} className="text-muted" aria-label="Planned" />,
+  todo: <Circle size={12} className="text-muted" aria-label="To Do" />,
 };
 
 const ENTITY_COLORS: Record<string, { border: string; header: string; badge: string }> = {
-  goal:      { border: "border-blue/30",    header: "bg-blue",      badge: "bg-blue-faint text-blue" },
+  goal:      { border: "border-blue/30",    header: "bg-blue",       badge: "bg-blue-faint text-blue" },
   milestone: { border: "border-violet-300", header: "bg-violet-500", badge: "bg-violet-50 text-violet-700" },
-  task:      { border: "border-cyan/40",    header: "bg-cyan",      badge: "bg-cyan/10 text-cyan" },
+  task:      { border: "border-cyan/40",    header: "bg-cyan",       badge: "bg-cyan/10 text-cyan" },
   note:      { border: "border-amber-300",  header: "bg-amber-400",  badge: "bg-amber-50 text-amber-700" },
 };
 
-import type { RemoteCursor } from "@/hooks/useWebSocket";
-
 interface BoardCardProps {
   item: BoardItemFull;
+  zoom?: number;
   isSelected: boolean;
   onSelect: (id: string) => void;
   onDelete?: (id: string) => void;
   remoteViewers?: RemoteCursor[];
 }
 
-function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = [] }: BoardCardProps) {
+function BoardCardInner({
+  item,
+  zoom = 1,
+  isSelected,
+  onSelect,
+  onDelete,
+  remoteViewers = [],
+}: BoardCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: item.id,
   });
@@ -43,19 +50,35 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
   }, [onSelect, item.id]);
 
   const [isPressing, setIsPressing] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    listeners?.onPointerDown?.(e as never);
-    setIsPressing(true);
-  }, [listeners]);
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      listeners?.onPointerDown?.(e as never);
+      setIsPressing(true);
+    },
+    [listeners]
+  );
 
   const handlePointerUpOrCancel = useCallback(() => {
     setIsPressing(false);
   }, []);
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.target !== e.currentTarget) return;
+      if (!isDragging && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        onSelect(item.id);
+        return;
+      }
+      listeners?.onKeyDown?.(e as never);
+    },
+    [isDragging, item.id, listeners, onSelect]
+  );
+
   const primaryViewer = remoteViewers[0];
   const activeMove = isDragging;
+  const safeZoom = zoom || 1;
 
   const style: React.CSSProperties = {
     position: "absolute",
@@ -63,10 +86,15 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
     top: item.y,
     width: item.width,
     minHeight: item.height,
-    transform: CSS.Translate.toString(transform),
+    // Scale live drag delta by 1/zoom so cards track the pointer 1:1 and never teleport on drop
+    transform: transform
+      ? `translate3d(${transform.x / safeZoom}px, ${transform.y / safeZoom}px, 0)`
+      : undefined,
     zIndex: activeMove ? 100 : isSelected ? 10 : remoteViewers.length > 0 ? 5 : 1,
     opacity: isDragging ? 0.94 : 1,
-    transition: isDragging ? "none" : "box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s, transform 0.12s cubic-bezier(0.16, 1, 0.3, 1)",
+    transition: isDragging
+      ? "none"
+      : "box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.15s, transform 0.12s cubic-bezier(0.16, 1, 0.3, 1)",
     willChange: isDragging ? "transform" : "auto",
     touchAction: "none",
     borderColor: primaryViewer ? primaryViewer.userColor : undefined,
@@ -77,19 +105,25 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
       ? item.linkedMilestone
       : item.linkedGoal ?? item.linkedMilestone;
   const title = entity?.title ?? item.label ?? item.entityType;
-  let status = (entity as { status?: string })?.status ?? "";
-  if (item.entityType === "milestone" && item.linkedMilestone?.tasks && item.linkedMilestone.tasks.length > 0) {
-    const tasks = item.linkedMilestone.tasks;
-    const allDone = tasks.every((t) => t.status === "done");
-    const anyStarted = tasks.some((t) => t.status === "done" || t.status === "in_progress" || t.status === "in_review");
-    status = allDone ? "completed" : anyStarted ? "in_progress" : "planned";
-  }
-  const colors = ENTITY_COLORS[item.entityType] ?? ENTITY_COLORS.note;
 
-  // Is this card linked to another entity?
+  // Respect explicit milestone.status so Canvas and Kanban always agree
+  let status = (entity as { status?: string })?.status ?? "";
+  if (item.entityType === "milestone" && item.linkedMilestone) {
+    const stored = (item.linkedMilestone.status || "").toLowerCase();
+    if (stored === "completed" || stored === "done" || stored === "complete") {
+      status = "completed";
+    } else if (stored === "in_progress" || stored === "active") {
+      status = "in_progress";
+    } else if (stored === "delayed" || stored === "blocked") {
+      status = "delayed";
+    } else {
+      status = "planned";
+    }
+  }
+
+  const colors = ENTITY_COLORS[item.entityType] ?? ENTITY_COLORS.note;
   const isLinked = !!(item.linkedGoalId || item.linkedMilestoneId || item.linkedTaskId);
 
-  // Milestone task progress
   let taskProgress: { done: number; total: number } | null = null;
   if (item.entityType === "milestone" && item.linkedMilestone) {
     const tasks = item.linkedMilestone.tasks ?? [];
@@ -106,10 +140,13 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
       data-board-card
       {...attributes}
       {...listeners}
+      tabIndex={0}
+      aria-label={`${item.entityType}: ${title}. Press Enter to inspect details.`}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUpOrCancel}
       onPointerCancel={handlePointerUpOrCancel}
-      className={`bg-white rounded-xl border-2 shadow-sm select-none group relative ${colors.border} ${
+      onKeyDown={handleKeyDown}
+      className={`bg-white rounded-xl border-2 shadow-sm select-none group relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue ${colors.border} ${
         activeMove
           ? "ring-4 ring-blue-500 shadow-2xl scale-[1.04] cursor-grabbing z-50 bg-blue-50/20"
           : isPressing
@@ -125,7 +162,7 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
       {/* Draggable Active Indicator Badge */}
       {activeMove && (
         <div className="absolute -top-3.5 left-2 z-30 flex items-center gap-1 bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-lg border border-white pointer-events-none">
-          <GripVertical size={12} /> Moving
+          <GripVertical size={12} aria-hidden="true" /> Moving
         </div>
       )}
 
@@ -161,14 +198,18 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
         </div>
       )}
 
-      {/* Drag handle header strip — visual affordance on desktop */}
-      <div
-        className={`${colors.header} h-1.5 rounded-t-lg relative`}
-      >
-        <GripVertical
-          size={12}
-          className="absolute right-1 -bottom-3.5 text-slate-400 opacity-0 group-hover:opacity-80 transition-opacity pointer-events-none"
-        />
+      {/* Header strip + keyboard-accessible drag handle */}
+      <div className={`${colors.header} h-1.5 rounded-t-lg relative`}>
+        <button
+          type="button"
+          {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Drag ${title} with keyboard arrows`}
+          title="Drag to move"
+          className="absolute right-1 top-2 p-0.5 rounded text-slate-400 opacity-0 group-hover:opacity-80 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue cursor-grab"
+        >
+          <GripVertical size={12} aria-hidden="true" />
+        </button>
       </div>
 
       <div className="p-3">
@@ -180,66 +221,35 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
             </span>
             {isLinked && (
               <span title="Linked">
-                <Link2 size={10} className="text-slate-400" />
+                <Link2 size={10} className="text-slate-400" aria-hidden="true" />
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 pr-3">
             {status && (
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1" title={status.replace("_", " ")}>
                 {STATUS_ICON[status]}
               </span>
             )}
             {onDelete && (
-              confirmDelete ? (
-                <div
-                  className="flex items-center gap-1 bg-red-50 border border-red-200 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-semibold animate-in fade-in duration-150 pointer-events-auto"
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                >
-                  <span className="text-[10px]">Delete?</span>
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfirmDelete(false);
-                      onDelete(item.id);
-                    }}
-                    className="bg-red-600 hover:bg-red-700 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs transition-colors cursor-pointer"
-                  >
-                    Yes
-                  </button>
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfirmDelete(false);
-                    }}
-                    className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
-                    title="Cancel"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirmDelete(true);
-                  }}
-                  className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-all pointer-events-auto cursor-pointer"
-                  title="Delete card"
-                >
-                  <Trash2 size={12} />
-                </button>
-              )
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(item.id);
+                }}
+                className="opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 focus-visible:opacity-100 p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-600 transition-all pointer-events-auto cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                title={
+                  item.entityType === "goal" || item.entityType === "milestone"
+                    ? `Remove or delete ${item.entityType}`
+                    : "Delete card"
+                }
+                aria-label={`Delete ${title}`}
+              >
+                <Trash2 size={12} aria-hidden="true" />
+              </button>
             )}
           </div>
         </div>
@@ -272,11 +282,16 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
           </div>
         )}
 
-        {/* Hover hint */}
+        {/* Interaction hint — touch devices see tap/hold hint directly; desktop reveals on hover */}
         {!isDragging && (
-          <p className="mt-2 text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
-            Click to edit · Drag to move · Hold on mobile
-          </p>
+          <>
+            <p className="mt-2 text-[9px] text-slate-400 md:hidden">
+              Tap to edit · Hold to move
+            </p>
+            <p className="mt-2 text-[9px] text-slate-400 hidden md:block opacity-0 group-hover:opacity-100 transition-opacity">
+              Click to edit · Drag to move
+            </p>
+          </>
         )}
       </div>
     </div>
@@ -284,12 +299,12 @@ function BoardCardInner({ item, isSelected, onSelect, onDelete, remoteViewers = 
 }
 
 /**
- * Memoised board card — only re-renders when this card's own data, selection
- * state, or remote viewers change. Prevents 500-card re-renders on unrelated
- * state changes (e.g. cursor moves, other cards changing).
+ * Memoised board card — only re-renders when this card's own data, zoom,
+ * selection state, or remote viewers change.
  */
 export const BoardCard = memo(BoardCardInner, (prev, next) => {
   if (prev.item !== next.item) return false;
+  if (prev.zoom !== next.zoom) return false;
   if (prev.isSelected !== next.isSelected) return false;
   if (prev.onSelect !== next.onSelect) return false;
   if (prev.onDelete !== next.onDelete) return false;
@@ -312,4 +327,3 @@ export const BoardCard = memo(BoardCardInner, (prev, next) => {
   }
   return true;
 });
-

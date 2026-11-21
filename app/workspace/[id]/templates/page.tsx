@@ -51,6 +51,12 @@ export default async function TemplatesPage({ params }: TemplatesPageProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {templateList.map((tmpl) => {
           const Icon = ICON_MAP[tmpl.icon] ?? Package;
+          const goalCount = tmpl.data.goals.length;
+          const milestoneCount = tmpl.data.goals.reduce((s, g) => s + g.milestones.length, 0);
+          const taskCount = tmpl.data.goals.reduce(
+            (s, g) => s + g.milestones.reduce((ms, m) => ms + m.tasks.length, 0),
+            0
+          );
           return (
             <div
               key={tmpl.id}
@@ -59,7 +65,7 @@ export default async function TemplatesPage({ params }: TemplatesPageProps) {
               <div>
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-10 h-10 rounded-xl bg-blue/10 text-blue flex items-center justify-center shrink-0 group-hover:bg-blue group-hover:text-white transition-colors">
-                    <Icon size={20} />
+                    <Icon size={20} aria-hidden="true" />
                   </div>
                   <div>
                     <h2 className="font-semibold text-ink text-base">{tmpl.name}</h2>
@@ -69,12 +75,14 @@ export default async function TemplatesPage({ params }: TemplatesPageProps) {
 
                 <div className="flex flex-wrap gap-1.5 text-xs text-muted mb-4">
                   <span className="bg-offwhite border border-border rounded-full px-2.5 py-0.5 font-medium text-slate">
-                    {tmpl.data.goals.length} goal{tmpl.data.goals.length !== 1 ? "s" : ""}
+                    {goalCount} goal{goalCount !== 1 ? "s" : ""}
                   </span>
                   <span className="bg-offwhite border border-border rounded-full px-2.5 py-0.5 font-medium text-slate">
-                    {tmpl.data.goals.reduce((s, g) => s + g.milestones.length, 0)} milestones
+                    {milestoneCount} milestone{milestoneCount !== 1 ? "s" : ""}
                   </span>
-
+                  <span className="bg-offwhite border border-border rounded-full px-2.5 py-0.5 font-medium text-slate">
+                    {taskCount} task{taskCount !== 1 ? "s" : ""}
+                  </span>
                 </div>
               </div>
 
