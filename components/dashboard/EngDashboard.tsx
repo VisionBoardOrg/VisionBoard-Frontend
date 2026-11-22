@@ -17,10 +17,16 @@ const STATUS_META: Record<string, { label: string; dotClass: string }> = {
 };
 
 export function EngDashboard({ workspace, userId }: EngDashboardProps) {
-  const allTasks = workspace.goals.flatMap((g) => g.milestones.flatMap((m) => m.tasks));
-  const counts = taskStatusCounts(allTasks);
-  const myTasks = allTasks.filter((t) => t.assignees.some((a) => a.userId === userId));
-  const blockers = allTasks.filter((t) => t.status === "blocked");
+  const needsFallbackScan = !workspace.taskStats?.byStatus || !workspace.myTasks;
+  const allTasks = needsFallbackScan
+    ? workspace.goals.flatMap((g) => g.milestones.flatMap((m) => m.tasks))
+    : [];
+  const counts = workspace.taskStats?.byStatus ?? taskStatusCounts(allTasks);
+  const myTasks =
+    workspace.myTasks ??
+    allTasks.filter((t) => t.assignees.some((a) => a.userId === userId));
+  const myTasksTotal = workspace.myTasksTotal ?? myTasks.length;
+  const blockedCount = workspace.taskStats?.blocked ?? counts.blocked;
 
   return (
     <div className="space-y-6">
@@ -29,9 +35,9 @@ export function EngDashboard({ workspace, userId }: EngDashboardProps) {
         <p className="text-slate text-sm mt-1">Milestone tracking and task management for {workspace.name}</p>
       </div>
 
-      {blockers.length > 0 && (
+      {blockedCount > 0 && (
         <AlertBanner
-          message={`${blockers.length} task${blockers.length > 1 ? "s are" : " is"} blocked. Unblock them to maintain momentum.`}
+          message={`${blockedCount} task${blockedCount > 1 ? "s are" : " is"} blocked. Unblock them to maintain momentum.`}
           variant="warning"
         />
       )}
@@ -61,7 +67,7 @@ export function EngDashboard({ workspace, userId }: EngDashboardProps) {
         {/* My tasks */}
         <div className="bg-white rounded-2xl border border-border p-6 flex flex-col justify-between">
           <div>
-            <h3 className="font-semibold text-ink mb-4">My tasks ({myTasks.length})</h3>
+            <h3 className="font-semibold text-ink mb-4">My tasks ({myTasksTotal})</h3>
             <div className="space-y-2">
               {myTasks.length === 0 && (
                 <p className="text-sm text-muted">No tasks assigned to you yet.</p>
@@ -79,12 +85,12 @@ export function EngDashboard({ workspace, userId }: EngDashboardProps) {
               ))}
             </div>
           </div>
-          {myTasks.length > 0 && (
+          {myTasksTotal > 0 && (
             <Link
               href={`/workspace/${workspace.id}/tasks`}
               className="mt-4 inline-flex items-center justify-center gap-1 text-sm font-medium text-blue hover:underline"
             >
-              {myTasks.length > 6 ? `View all ${myTasks.length} tasks` : "View all tasks"} <ArrowRight size={14} aria-hidden="true" />
+              {myTasksTotal > 6 ? `View all ${myTasksTotal} tasks` : "View all tasks"} <ArrowRight size={14} aria-hidden="true" />
             </Link>
           )}
         </div>

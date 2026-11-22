@@ -63,6 +63,96 @@ const ROLE_META: Record<
   admin: { label: ROLE_LABELS.admin, color: "bg-emerald-50 text-emerald-600" },
 };
 
+function fetchWorkspaceMembers(
+  workspaceId: string,
+  previewOnly: boolean
+): Promise<DashboardMember[]> {
+  return prisma.workspaceMember.findMany({
+    relationLoadStrategy: "join",
+    where: { workspaceId },
+    include: {
+      user: {
+        select: { id: true, name: true, email: true, image: true },
+      },
+    },
+    orderBy: { joinedAt: "asc" },
+    ...(previewOnly ? { take: 4 } : {}),
+  });
+}
+
+function fetchDashboardGoals(
+  workspaceId: string,
+  includeTasks: boolean
+): Promise<DashboardGoal[]> {
+  if (includeTasks) {
+    return prisma.goal.findMany({
+      relationLoadStrategy: "join",
+      where: { workspaceId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        healthScore: true,
+        targetDate: true,
+        milestones: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            targetDate: true,
+            tasks: {
+              select: {
+                id: true,
+                title: true,
+                status: true,
+                priority: true,
+                assignees: { select: { userId: true, role: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  return prisma.goal
+    .findMany({
+      relationLoadStrategy: "join",
+      where: { workspaceId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        healthScore: true,
+        targetDate: true,
+        milestones: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            targetDate: true,
+          },
+        },
+      },
+    })
+    .then<DashboardGoal[]>((rows) =>
+      rows.map((g) => ({
+        ...g,
+        milestones: g.milestones.map((m) => ({ ...m, tasks: [] })),
+      }))
+    );
+}
+
+function fetchTaskStatusGroups(workspaceId: string) {
+  return prisma.task.groupBy({
+    by: ["status"],
+    where: { workspaceId },
+    _count: { id: true },
+  });
+}
+
+const VALID_ROLES = new Set<string>(["pm", "exec", "eng", "marketing", "admin"]);
+
 export async function generateMetadata({ params }: WorkspacePageProps) {
   const { id } = await params;
   const workspace = await getWorkspaceName(id);
@@ -70,34 +160,43 @@ export async function generateMetadata({ params }: WorkspacePageProps) {
 }
 
 export default async function WorkspacePage({ params }: WorkspacePageProps) {
-  const session = await auth();
-  if (!session) redirect("/auth/login");
-
-  const { id } = await params;
-  const userId = session.user.id;
-
-  const [member, currentUser, cookieStore] = await Promise.all([
-    getSlimWorkspaceMembership(id, userId),
-    getUserPlanAndCredits(userId),
+  const [session, { id }, cookieStore] = await Promise.all([
+    auth(),
+    params,
     cookies(),
   ]);
+  if (!session) redirect("/auth/login");
 
-  if (!member || !currentUser) redirect("/dashboard");
+  const userId = session.user.id;
+  const savedViewCookie = cookieStore.get(dashboardViewCookieName(id))?.value;
 
-  const myRole = member.role as MemberRole;
-  const isAdmin = myRole === "admin";
-  const dashboardView = resolveDashboardView(
-    cookieStore.get(dashboardViewCookieName(id))?.value,
-    myRole
-  );
+  // Use cookie + JWT role hint to launch all read queries in a single parallel wave
+  // alongside the DB membership check (eliminates the Wave 1 → Wave 2 waterfall).
+  // Authoritative RBAC and membership are still verified from `member` before rendering.
+  const hintedRole: MemberRole =
+    session.user.workspaceId === id &&
+    session.user.role &&
+    VALID_ROLES.has(session.user.role)
+      ? (session.user.role as MemberRole)
+      : "pm";
+  const predictedView = resolveDashboardView(savedViewCookie, hintedRole);
+  const predictedFullMembers = hintedRole === "admin";
+  const predictedPreviewMembers = !predictedFullMembers && predictedView === "exec";
+  const predictedRawTasks = predictedView === "eng";
+  const predictedTaskStats = predictedView === "exec";
 
-  const needsFullMembers = isAdmin;
-  const needsPreviewMembers = !isAdmin && dashboardView === "exec";
-  const needsRawTasks = dashboardView === "eng";
-  const needsTaskStats = dashboardView === "exec";
-
-  const [workspaceData, workspaceMembers, dashboardGoals, taskStatusGroups] = await Promise.all([
+  const [
+    member,
+    currentUser,
+    workspaceData,
+    initialMembers,
+    initialGoals,
+    initialTaskStats,
+  ] = await Promise.all([
+    getSlimWorkspaceMembership(id, userId),
+    getUserPlanAndCredits(userId),
     prisma.workspace.findUnique({
+      relationLoadStrategy: "join",
       where: { id },
       select: {
         id: true,
@@ -107,81 +206,66 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
         _count: { select: { goals: true, documents: true, members: true } },
       },
     }),
-    needsFullMembers || needsPreviewMembers
-      ? prisma.workspaceMember.findMany({
-          where: { workspaceId: id },
-          include: {
-            user: {
-              select: { id: true, name: true, email: true, image: true },
-            },
-          },
-          orderBy: { joinedAt: "asc" },
-          ...(needsPreviewMembers ? { take: 4 } : {}),
-        })
+    predictedFullMembers || predictedPreviewMembers
+      ? fetchWorkspaceMembers(id, predictedPreviewMembers)
       : Promise.resolve<DashboardMember[]>([]),
-    needsRawTasks
-      ? prisma.goal.findMany({
-          where: { workspaceId: id },
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            healthScore: true,
-            targetDate: true,
-            milestones: {
-              select: {
-                id: true,
-                title: true,
-                status: true,
-                targetDate: true,
-                tasks: {
-                  select: {
-                    id: true,
-                    title: true,
-                    status: true,
-                    priority: true,
-                    assignees: { select: { userId: true, role: true } },
-                  },
-                },
-              },
-            },
-          },
-        })
-      : prisma.goal
-          .findMany({
-            where: { workspaceId: id },
-            select: {
-              id: true,
-              title: true,
-              status: true,
-              healthScore: true,
-              targetDate: true,
-              milestones: {
-                select: {
-                  id: true,
-                  title: true,
-                  status: true,
-                  targetDate: true,
-                },
-              },
-            },
-          })
-          .then<DashboardGoal[]>((rows) =>
-            rows.map((g) => ({
-              ...g,
-              milestones: g.milestones.map((m) => ({ ...m, tasks: [] })),
-            }))
-          ),
-    needsTaskStats
-      ? prisma.task.groupBy({
-          by: ["status"],
-          where: { workspaceId: id },
-          _count: { id: true },
-        })
+    fetchDashboardGoals(id, predictedRawTasks),
+    predictedTaskStats
+      ? fetchTaskStatusGroups(id)
       : Promise.resolve(null),
   ]);
 
-  if (!workspaceData) redirect("/dashboard");
+  if (!member || !currentUser || !workspaceData) redirect("/dashboard");
+
+  const myRole = member.role as MemberRole;
+  const isAdmin = myRole === "admin";
+  const dashboardView = resolveDashboardView(savedViewCookie, myRole);
+
+  const needsFullMembers = isAdmin;
+  const needsPreviewMembers = !isAdmin && dashboardView === "exec";
+  const needsRawTasks = dashboardView === "eng";
+  const needsTaskStats = dashboardView === "exec";
+
+  // Rare fallback when the JWT role hint was stale (e.g. role just changed in DB)
+  const missingFullMembers = needsFullMembers && !predictedFullMembers;
+  const missingPreviewMembers =
+    needsPreviewMembers && !predictedFullMembers && !predictedPreviewMembers;
+  const missingRawTasks = needsRawTasks && !predictedRawTasks;
+  const missingTaskStats = needsTaskStats && !predictedTaskStats;
+
+  let workspaceMembers: DashboardMember[] = needsFullMembers
+    ? initialMembers
+    : needsPreviewMembers
+    ? initialMembers.slice(0, 4)
+    : [];
+  let dashboardGoals: DashboardGoal[] = initialGoals;
+  let taskStatusGroups = needsTaskStats ? initialTaskStats : null;
+
+  if (
+    missingFullMembers ||
+    missingPreviewMembers ||
+    missingRawTasks ||
+    missingTaskStats
+  ) {
+    const [reconciledMembers, reconciledGoals, reconciledTaskStats] =
+      await Promise.all([
+        missingFullMembers
+          ? fetchWorkspaceMembers(id, false)
+          : missingPreviewMembers
+          ? fetchWorkspaceMembers(id, true)
+          : Promise.resolve<DashboardMember[] | null>(null),
+        missingRawTasks
+          ? fetchDashboardGoals(id, true)
+          : Promise.resolve<DashboardGoal[] | null>(null),
+        missingTaskStats
+          ? fetchTaskStatusGroups(id)
+          : Promise.resolve(null),
+      ]);
+
+    if (reconciledMembers !== null) workspaceMembers = reconciledMembers;
+    if (reconciledGoals !== null) dashboardGoals = reconciledGoals;
+    if (reconciledTaskStats !== null) taskStatusGroups = reconciledTaskStats;
+  }
 
   let taskStats: DashboardTaskStats | undefined;
   if (taskStatusGroups) {

@@ -39,11 +39,29 @@ export type DashboardGoal = {
   milestones: DashboardMilestone[];
 };
 
+/** Pre-aggregated task counts by status (matches lib/dashboard-utils.ts). */
+export type DashboardTaskStatusCounts = {
+  todo: number;
+  in_progress: number;
+  in_review: number;
+  blocked: number;
+  done: number;
+};
+
+/** Slim assigned-task row for EngDashboard's "My tasks" card. */
+export type DashboardMyTask = {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+};
+
 /** Pre-aggregated task counts computed server-side for overview dashboards. */
 export type DashboardTaskStats = {
   total: number;
   done: number;
   blocked: number;
+  byStatus?: DashboardTaskStatusCounts;
 };
 
 /** Slim workspace graph consumed by the role dashboards (PM/Exec/Eng/Marketing). */
@@ -54,4 +72,8 @@ export type DashboardWorkspace = {
   members: DashboardMember[];
   _count: { goals: number; documents: number; members: number };
   taskStats?: DashboardTaskStats;
+  /** Pre-filtered tasks assigned to the active user (top 6) for EngDashboard. */
+  myTasks?: DashboardMyTask[];
+  /** Total count of tasks assigned to the active user in this workspace. */
+  myTasksTotal?: number;
 };

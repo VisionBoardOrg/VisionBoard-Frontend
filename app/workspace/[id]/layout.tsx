@@ -1,10 +1,9 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { AppShell } from "@/components/layout/AppShell";
 import { PLAN_LIMITS } from "@/lib/plan-limits";
 import {
-  getSlimWorkspaceMembership,
+  getUserWorkspaceMemberships,
   getUserPlanAndCredits,
 } from "@/lib/workspace-data";
 
@@ -17,30 +16,26 @@ export default async function WorkspaceLayout({
   params,
   children,
 }: WorkspaceLayoutProps) {
-  const session = await auth();
+  const [session, { id }] = await Promise.all([auth(), params]);
   if (!session) redirect("/auth/login");
-  const { id } = await params;
   const userId = session.user.id;
 
-  const [member, currentUser, memberships] = await Promise.all([
-    getSlimWorkspaceMembership(id, userId),
+  const [memberships, currentUser] = await Promise.all([
+    getUserWorkspaceMemberships(userId),
     getUserPlanAndCredits(userId),
-    prisma.workspaceMember.findMany({
-      where: { userId },
-      select: { workspace: { select: { id: true, name: true } } },
-      orderBy: { joinedAt: "asc" },
-    }),
   ]);
 
+  const member = memberships.find((m) => m.workspaceId === id) ?? null;
   if (!member || !currentUser) redirect("/dashboard");
 
   const isOwner = member.workspace.ownerId === userId;
-  const ownerPlanData = isOwner
-    ? currentUser
-    : await getUserPlanAndCredits(member.workspace.ownerId);
-
-  const workspaceOwnerPlan = ownerPlanData?.plan ?? currentUser.plan;
-  const workspaces = memberships.map((m) => m.workspace);
+  const workspaceOwnerPlan = isOwner
+    ? currentUser.plan
+    : member.workspace.owner.plan;
+  const workspaces = memberships.map((m) => ({
+    id: m.workspace.id,
+    name: m.workspace.name,
+  }));
 
   return (
     <AppShell

@@ -75,11 +75,13 @@ interface DashboardViewSwitcherProps {
   currentView: DashboardView;
   compact?: boolean;
   onViewChange?: (view: DashboardView) => void;
+  /** Skip router.refresh() when the parent swaps dashboard views client-side. */
+  clientOnly?: boolean;
 }
 
 /**
  * Pure UI dashboard-lens switcher.
- * Persists the chosen view in a workspace-scoped cookie and refreshes the page —
+ * Persists the chosen view in a workspace-scoped cookie and switches instantly —
  * NEVER mutates RBAC roles or risks Admin/PM self-lockout.
  */
 export function DashboardViewSwitcher({
@@ -87,6 +89,7 @@ export function DashboardViewSwitcher({
   currentView,
   compact = false,
   onViewChange,
+  clientOnly = false,
 }: DashboardViewSwitcherProps) {
   const router = useRouter();
   const [selected, setSelected] = useState<DashboardView>(currentView);
@@ -104,6 +107,7 @@ export function DashboardViewSwitcher({
   }, []);
 
   function handleSelect(view: DashboardView) {
+    if (view === selected) return;
     setSelected(view);
     persistDashboardViewCookie(workspaceId, view);
     setSaved(true);
@@ -112,7 +116,9 @@ export function DashboardViewSwitcher({
       setSaved(false);
     }, 1500);
     onViewChange?.(view);
-    router.refresh();
+    if (!clientOnly) {
+      router.refresh();
+    }
   }
 
   return (
