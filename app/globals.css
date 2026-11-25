@@ -34,24 +34,12 @@
 
 /* Viewport-wide color-scheme and browser UI theming */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   accent-color: var(--color-blue);
-  --scrollbar-thumb-light: #64748B;
-  --scrollbar-track-light: #F1F5F9;
-  --scrollbar-thumb-dark: #94A3B8;
-  --scrollbar-track-dark: #1E293B;
-  --scrollbar-thumb: var(--scrollbar-thumb-light);
-  --scrollbar-track: var(--scrollbar-track-light);
-
-  @media (prefers-color-scheme: dark) {
-    --scrollbar-thumb: var(--scrollbar-thumb-dark);
-    --scrollbar-track: var(--scrollbar-track-dark);
-  }
-
-  @supports (color: light-dark(white, black)) {
-    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
-    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
-  }
+  --scrollbar-thumb: #64748B;
+  --scrollbar-track: #F1F5F9;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: auto;
 }
 
 /* Balanced headings & orphan-preventing body copy */
@@ -268,4 +256,29 @@ select:disabled {
 /* Accessible themed scrollbar (replaces scrollbar-width: none per browser-ui-theming) */
 .no-scrollbar {
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: auto;
+}
+
+/* Legacy fallback for WebKit/Blink browsers without scrollbar-color */
+@supports not (scrollbar-color: auto) {
+  :root,
+  .no-scrollbar {
+    scrollbar-width: auto;
+  }
+
+  :root::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  :root::-webkit-scrollbar-thumb,
+  .no-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+  }
+
+  :root::-webkit-scrollbar-track,
+  .no-scrollbar::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
 }
