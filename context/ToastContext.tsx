@@ -39,8 +39,12 @@ const TOAST_STYLES: Record<ToastType, { icon: typeof Info; iconClass: string }> 
  */
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [liveMessage, setLiveMessage] = useState<string>("");
   const nextId = useRef(1);
   const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const stackRef = useRef<HTMLDivElement>(null);
+  const dismissBtnRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
+  const priorFocusRef = useRef<HTMLElement | null>(null);
 
   const clearTimer = useCallback((id: number) => {
     const timer = timers.current.get(id);
@@ -51,9 +55,23 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const dismiss = useCallback(
-    (id: number) => {
+    (id: number, fromUserDismiss = false) => {
       clearTimer(id);
-      setToasts((prev) => prev.filter((t) => t.id !== id));
+      setToasts((prev) => {
+        const idx = prev.findIndex((t) => t.id === id);
+        const next = prev.filter((t) => t.id !== id);
+        if (fromUserDismiss) {
+          requestAnimationFrame(() => {
+            const nextToast = next[idx] ?? next[idx - 1];
+            if (nextToast) {
+              dismissBtnRefs.current.get(nextToast.id)?.focus();
+            } else if (priorFocusRef.current?.isConnected) {
+              priorFocusRef.current.focus();
+            }
+          });
+        }
+        return next;
+      });
     },
     [clearTimer]
   );
@@ -64,7 +82,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       if (duration > 0) {
         timers.current.set(
           id,
-          setTimeout(() => dismiss(id), duration)
+          setTimeout(() => dismiss(id, false), duration)
         );
       }
     },
@@ -79,9 +97,41 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Promote the toast stack into the Top Layer via popover="manual" when toasts are active
+  useEffect(() => {
+    const el = stackRef.current as (HTMLDivElement & {
+      showPopover?: () => void;
+      hidePopover?: () => void;
+    }) | null;
+    if (!el || typeof el.showPopover !== "function") return;
+    try {
+      if (toasts.length > 0) {
+        if (!el.matches(":popover-open")) el.showPopover();
+      } else if (el.matches(":popover-open")) {
+        el.hidePopover?.();
+      }
+    } catch {
+      // Ignore if popover state transition is unsupported
+    }
+  }, [toasts.length]);
+
   const toast = useCallback(
     ({ title, description, type = "info", duration = 5000 }: ToastOptions) => {
       const id = nextId.current++;
+      if (typeof document !== "undefined") {
+        priorFocusRef.current = document.activeElement as HTMLElement | null;
+        const announcement = description ? `${title}. ${description}` : title;
+        const docWithAriaNotify = document as Document & {
+          ariaNotify?: (msg: string, opts?: { priority?: "high" | "normal" }) => void;
+        };
+        if (typeof docWithAriaNotify.ariaNotify === "function") {
+          docWithAriaNotify.ariaNotify(announcement, {
+            priority: type === "error" ? "high" : "normal",
+          });
+        } else {
+          setLiveMessage(announcement);
+        }
+      }
       setToasts((prev) => {
         const next = [...prev, { id, title, description, type, duration }];
         if (next.length > 4) {
@@ -99,10 +149,20 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      {/* Toast stack — bottom-right, above all app chrome */}
+      {/* Pre-mounted hidden live region fallback when ariaNotify() is unavailable */}
+      <div className="sr-only">
+        {liveMessage && <p>Screen reader announcements</p>}
+        <div aria-live="polite" aria-atomic="true">
+          {liveMessage}
+        </div>
+      </div>
+      {/* Toast stack — Top-Layer popover="manual" region */}
       <div
-        className="fixed bottom-4 right-4 z-[90] flex flex-col gap-2 w-[340px] max-w-[calc(100vw-2rem)] pointer-events-none"
+        ref={stackRef}
+        role="region"
         aria-label="Notifications"
+        {...({ popover: "manual" } as React.HTMLAttributes<HTMLDivElement>)}
+        className="fixed inset-auto bottom-4 right-4 m-0 p-0 bg-transparent border-0 z-[90] flex flex-col gap-2 w-[340px] max-w-[calc(100vw-2rem)] pointer-events-none"
       >
         {toasts.map((t) => {
           const { icon: Icon, iconClass } = TOAST_STYLES[t.type];
@@ -111,8 +171,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div
               key={t.id}
               role={isError ? "alert" : "status"}
-              aria-live={isError ? "assertive" : "polite"}
-              aria-atomic="true"
               onMouseEnter={() => clearTimer(t.id)}
               onMouseLeave={() => scheduleDismiss(t.id, t.duration)}
               onFocus={() => clearTimer(t.id)}
@@ -132,7 +190,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               </div>
               <button
                 type="button"
-                onClick={() => dismiss(t.id)}
+                ref={(el) => {
+                  if (el) dismissBtnRefs.current.set(t.id, el);
+                  else dismissBtnRefs.current.delete(t.id);
+                }}
+                onClick={() => dismiss(t.id, true)}
                 className="min-w-7 min-h-7 flex items-center justify-center -mr-1 -mt-1 rounded-lg text-muted hover:text-ink hover:bg-offwhite transition-colors cursor-pointer"
                 aria-label="Dismiss notification"
               >

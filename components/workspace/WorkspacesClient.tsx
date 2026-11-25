@@ -324,7 +324,11 @@ export function WorkspacesClient({
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") commitRename(ws.id);
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+                                commitRename(ws.id);
+                              }
                               if (e.key === "Escape") setRenamingId(null);
                             }}
                             autoFocus

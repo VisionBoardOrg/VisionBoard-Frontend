@@ -31,7 +31,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const resolverRef = useRef<((value: boolean) => void) | null>(null);
   const nextId = useRef(1);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
@@ -42,17 +42,18 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const confirm = useCallback(
-    (options: ConfirmOptions) =>
-      new Promise<boolean>((resolve) => {
-        // Only one dialog at a time — auto-dismiss any previous one
-        resolverRef.current?.(false);
-        resolverRef.current = resolve;
-        setPending({ ...options, id: nextId.current++ });
-      }),
+    (options: ConfirmOptions) => {
+      const { promise, resolve } = Promise.withResolvers<boolean>();
+      // Only one dialog at a time — auto-dismiss any previous one
+      resolverRef.current?.(false);
+      resolverRef.current = resolve;
+      setPending({ ...options, id: nextId.current++ });
+      return promise;
+    },
     []
   );
 
-  // Focus trap, Escape dismissal, scroll lock, and safe initial focus
+  // Native <dialog> modal presentation, Escape dismissal, and safe initial focus
   useModalA11y(dialogRef, () => settle(false), Boolean(pending), {
     initialFocusRef: pending?.danger ? cancelRef : confirmRef,
   });
@@ -62,20 +63,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       {children}
 
       {pending && (
-        <div
-          className="fixed inset-0 z-[85] flex items-center justify-center p-4"
-          role="alertdialog"
-          aria-modal="true"
+        <dialog
+          ref={dialogRef}
+          {...({ closedby: "any" } as React.DialogHTMLAttributes<HTMLDialogElement>)}
           aria-labelledby="confirm-dialog-title"
           aria-describedby={pending.description ? "confirm-dialog-description" : undefined}
+          className="m-auto w-full max-w-md bg-white rounded-2xl border border-border shadow-2xl p-6 backdrop:bg-ink/40"
         >
-          {/* Backdrop */}
-          <div className="absolute inset-0 bg-ink/40" onClick={() => settle(false)} aria-hidden="true" />
-
-          <div
-            ref={dialogRef}
-            className="relative w-full max-w-md bg-white rounded-2xl border border-border shadow-2xl p-6"
-          >
+          <div>
             <div className="flex items-start gap-3">
               {pending.danger && (
                 <div className="w-10 h-10 rounded-full bg-red-50 border border-red-100 flex items-center justify-center shrink-0">
@@ -117,7 +112,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               </button>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
     </ConfirmContext.Provider>
   );

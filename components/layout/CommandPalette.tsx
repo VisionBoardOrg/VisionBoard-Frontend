@@ -46,7 +46,7 @@ export function CommandPalette({ workspaceId, onClose, onOpenCopilot }: CommandP
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isMac, setIsMac] = useState(false);
 
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -252,6 +252,9 @@ export function CommandPalette({ workspaceId, onClose, onOpenCopilot }: CommandP
 
   // Keyboard navigation attached to the dialog container
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) {
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((prev) => (results.length ? (prev + 1) % results.length : 0));
@@ -291,21 +294,14 @@ export function CommandPalette({ workspaceId, onClose, onOpenCopilot }: CommandP
   });
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-start justify-center pt-[12vh] px-4"
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
+      {...({ closedby: "any" } as React.DialogHTMLAttributes<HTMLDialogElement>)}
       aria-label="Search and commands"
+      onKeyDown={handleKeyDown}
+      className="mt-[12vh] mx-auto w-full max-w-xl bg-white rounded-2xl border border-border shadow-2xl overflow-hidden p-0 backdrop:bg-ink/40"
     >
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-ink/40" onClick={onClose} aria-hidden="true" />
-
-      {/* Dialog */}
-      <div
-        ref={dialogRef}
-        onKeyDown={handleKeyDown}
-        className="relative w-full max-w-xl bg-white rounded-2xl border border-border shadow-2xl overflow-hidden"
-      >
+      <div>
         {/* Search input */}
         <div className="flex items-center gap-2.5 px-4 border-b border-border">
           <Search size={18} className="text-muted shrink-0" aria-hidden="true" />
@@ -469,6 +465,6 @@ export function CommandPalette({ workspaceId, onClose, onOpenCopilot }: CommandP
           </span>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

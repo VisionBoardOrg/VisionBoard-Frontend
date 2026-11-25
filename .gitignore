@@ -7,6 +7,8 @@ db-inspect.cjs
 # If a shell command accidentally creates a file named 'nul', exclude it.
 /nul
 
+# agent skills
+.agents
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies

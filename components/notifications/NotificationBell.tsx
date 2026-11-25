@@ -4,7 +4,6 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Bell, CheckCheck, Trash2, AtSign, ListTodo, ShieldAlert, Sparkles, AlertCircle, RefreshCw } from "lucide-react";
 import { useNotifications, type NotificationCategory } from "@/hooks/useNotifications";
 import { useConfirm } from "@/context/ConfirmContext";
-import { useModalA11y } from "@/hooks/useModalA11y";
 import { NotificationItem } from "./NotificationItem";
 
 interface NotificationBellProps {
@@ -41,23 +40,34 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
     refresh,
   } = useNotifications(workspaceId);
 
-  const closePopover = useCallback(() => setIsOpen(false), []);
+  const closePopover = useCallback(() => {
+    const el = popoverRef.current as (HTMLDivElement & { hidePopover?: () => void }) | null;
+    if (el && typeof el.hidePopover === "function" && el.matches(":popover-open")) {
+      el.hidePopover();
+    }
+    setIsOpen(false);
+  }, []);
 
-  // Escape dismissal, focus management, and focus restoration back to the bell button
-  useModalA11y(popoverRef, closePopover, isOpen, { lockScroll: false });
-
-  // Close dropdown on outside click
+  // Close dropdown on outside click or Escape for browsers without native Popover light-dismiss
   useEffect(() => {
+    if (!isOpen) return;
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
+        closePopover();
       }
     }
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        closePopover();
+      }
     }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isOpen]);
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen, closePopover]);
 
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
     let nextIdx: number | null = null;
@@ -125,9 +135,9 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
         <div
           id={POPOVER_ID}
           ref={popoverRef}
-          role="dialog"
+          role="region"
           aria-label="Notifications"
-          className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white border border-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150"
+          className="anchored-popover-end absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white border border-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/80 bg-white sticky top-0 z-10">

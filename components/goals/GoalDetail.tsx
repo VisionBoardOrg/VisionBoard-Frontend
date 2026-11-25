@@ -769,6 +769,8 @@ export function GoalDetail({ goal, workspaceId, userId, canEdit = true }: GoalDe
                       }}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && goalTitle.length <= 200) {
+                          e.preventDefault();
+                          if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
                           void saveGoalField("title", goalTitle);
                         }
                         if (e.key === "Escape") {
@@ -1411,6 +1413,8 @@ export function GoalDetail({ goal, workspaceId, userId, canEdit = true }: GoalDe
                           }}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && editingMsValue.length <= 300) {
+                              e.preventDefault();
+                              if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
                               void saveMilestoneField(ms.id, "title");
                             }
                             if (e.key === "Escape") {

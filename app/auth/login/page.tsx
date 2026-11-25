@@ -162,9 +162,12 @@ function LoginForm() {
               </label>
               <input
                 id="email"
+                name="email"
                 type="email"
                 required
-                autoComplete="email"
+                autoComplete="username"
+                spellCheck={false}
+                enterKeyHint="next"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
@@ -184,9 +187,11 @@ function LoginForm() {
               <div className="relative">
                 <input
                   id="password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
                   required
                   autoComplete="current-password"
+                  enterKeyHint="done"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"

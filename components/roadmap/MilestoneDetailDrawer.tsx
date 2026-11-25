@@ -60,7 +60,7 @@ function MilestoneDetailDrawerContent({
   onToggleTask,
 }: MilestoneDetailDrawerProps & { milestone: GanttMilestone }) {
   const { confirm: confirmDialog } = useConfirm();
-  const drawerRef = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDialogElement>(null);
 
   const initialStart = formatDateInput(milestone.startDate);
   const initialTarget = formatDateInput(milestone.targetDate);
@@ -219,19 +219,13 @@ function MilestoneDetailDrawerContent({
   ];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex justify-end bg-ink/30 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) void handleAttemptClose();
-      }}
+    <dialog
+      ref={drawerRef}
+      {...({ closedby: isDirty ? "none" : "any" } as React.DialogHTMLAttributes<HTMLDialogElement>)}
+      aria-labelledby="milestone-drawer-title"
+      className="my-0 ml-auto mr-0 w-full max-w-lg bg-white h-dvh max-h-dvh shadow-2xl border-l border-border p-0 backdrop:bg-ink/30 backdrop:backdrop-blur-xs"
     >
-      <div
-        ref={drawerRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="milestone-drawer-title"
-        className="w-full max-w-lg bg-white h-full shadow-2xl border-l border-border flex flex-col animate-in slide-in-from-right duration-200"
-      >
+      <div className="h-full flex flex-col">
         {/* Drawer Header */}
         <div className="p-5 border-b border-border flex items-center justify-between gap-3 bg-slate-50/50">
           <div className="flex items-center gap-2 min-w-0">
@@ -621,6 +615,6 @@ function MilestoneDetailDrawerContent({
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

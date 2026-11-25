@@ -116,7 +116,11 @@ export function WorkspaceRenameInline({
           maxLength={80}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+              handleSave();
+            }
             if (e.key === "Escape") handleCancel();
           }}
           className="flex-1 border border-blue rounded-xl px-4 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-blue/30 transition-colors"

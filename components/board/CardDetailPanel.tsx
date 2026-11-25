@@ -1125,7 +1125,7 @@ function MilestoneSection({
       low: 1,
     };
 
-    return [...localTasks].sort((a, b) => {
+    return localTasks.toSorted((a, b) => {
       const aDone = a.status === "done";
       const bDone = b.status === "done";
       if (aDone !== bDone) return aDone ? 1 : -1;

@@ -228,6 +228,8 @@ export function NotificationPreferencesSection() {
         <label className="relative inline-flex items-center cursor-pointer shrink-0">
           <input
             type="checkbox"
+            role="switch"
+            {...({ switch: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
             className="sr-only peer"
             aria-label="Enable email notifications"
             checked={prefs.emailEnabled}
@@ -271,6 +273,8 @@ export function NotificationPreferencesSection() {
               <label className="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
                 <input
                   type="checkbox"
+                  role="switch"
+                  {...({ switch: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
                   className="sr-only peer"
                   aria-label={`Email notifications for ${item.label}`}
                   checked={item.checked}

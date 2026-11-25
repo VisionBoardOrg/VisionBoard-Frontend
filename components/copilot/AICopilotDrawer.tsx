@@ -1383,6 +1383,7 @@ export function AICopilotDrawer({
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
+                      if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
                       handleSendMessage();
                     }
                   }}

@@ -13,12 +13,13 @@ interface UseModalA11yOptions {
 }
 
 /**
- * Keyboard & focus accessibility for modal dialogs and slide-over drawers:
- * - Moves initial focus inside the dialog on open
- * - Traps Tab / Shift+Tab within the dialog
- * - Closes on Escape (stopping propagation so nested dialogs close cleanly)
- * - Locks background scrolling while open
- * - Restores focus to the triggering element on close
+ * Keyboard & focus accessibility for modal `<dialog>` elements and fallback containers:
+ * - Opens native `<dialog>` elements via `showModal()` (providing top-layer promotion,
+ *   background `inert`, native focus containment, `::backdrop`, and focus return)
+ * - Polyfills `<dialog closedby="any">` light-dismiss using pointerdown + pointerup
+ *   bounding-box checks when `HTMLDialogElement.prototype.closedBy` is unavailable
+ * - Does NOT mutate `document.body.style.overflow` (scroll containment is handled via
+ *   CSS `overscroll-behavior: contain` on `dialog:modal` and `dialog::backdrop`)
  */
 export function useModalA11y(
   ref: RefObject<HTMLElement | null>,
@@ -28,7 +29,6 @@ export function useModalA11y(
 ) {
   const onCloseRef = useRef(onClose);
   const initialFocusRef = options?.initialFocusRef;
-  const lockScroll = options?.lockScroll ?? true;
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -37,20 +37,81 @@ export function useModalA11y(
   useEffect(() => {
     if (!active) return;
 
+    const node = ref.current;
+    if (!node) return;
+
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    const prevOverflow = document.body.style.overflow;
-    if (lockScroll) {
-      document.body.style.overflow = "hidden";
+
+    if (typeof HTMLDialogElement !== "undefined" && node instanceof HTMLDialogElement) {
+      if (!node.open) {
+        try {
+          node.showModal();
+        } catch {
+          // Ignore if already open in another mode
+        }
+      }
+
+      const focusFrame = requestAnimationFrame(() => {
+        if (initialFocusRef?.current && node.contains(initialFocusRef.current)) {
+          initialFocusRef.current.focus();
+        }
+      });
+
+      const handleCancel = (e: Event) => {
+        e.preventDefault();
+        onCloseRef.current();
+      };
+
+      node.addEventListener("cancel", handleCancel);
+
+      let cleanupLightDismiss: (() => void) | undefined;
+      const closedByAttr = node.getAttribute("closedby");
+      if (closedByAttr === "any" && !("closedBy" in HTMLDialogElement.prototype)) {
+        let pressedOutside = false;
+        const isOutside = (e: PointerEvent) => {
+          const r = node.getBoundingClientRect();
+          return (
+            e.clientX < r.left ||
+            e.clientX > r.right ||
+            e.clientY < r.top ||
+            e.clientY > r.bottom
+          );
+        };
+        const onPointerDown = (e: PointerEvent) => {
+          pressedOutside = isOutside(e);
+        };
+        const onPointerUp = (e: PointerEvent) => {
+          if (pressedOutside && isOutside(e)) {
+            onCloseRef.current();
+          }
+        };
+        node.addEventListener("pointerdown", onPointerDown);
+        node.addEventListener("pointerup", onPointerUp);
+        cleanupLightDismiss = () => {
+          node.removeEventListener("pointerdown", onPointerDown);
+          node.removeEventListener("pointerup", onPointerUp);
+        };
+      }
+
+      return () => {
+        cancelAnimationFrame(focusFrame);
+        node.removeEventListener("cancel", handleCancel);
+        cleanupLightDismiss?.();
+        if (node.open) {
+          try {
+            node.close();
+          } catch {
+            // Ignore if already detached
+          }
+        }
+      };
     }
 
     const focusFrame = requestAnimationFrame(() => {
-      const node = ref.current;
-      if (!node) return;
       if (initialFocusRef?.current && node.contains(initialFocusRef.current)) {
         initialFocusRef.current.focus();
         return;
       }
-      // If something inside the dialog already took focus (e.g. autoFocus), preserve it
       if (node.contains(document.activeElement)) return;
       const firstFocusable = Array.from(
         node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
@@ -67,8 +128,8 @@ export function useModalA11y(
     });
 
     function onKeyDown(e: KeyboardEvent) {
-      const node = ref.current;
-      if (!node) return;
+      const current = ref.current;
+      if (!current) return;
 
       if (e.key === "Escape") {
         e.preventDefault();
@@ -80,7 +141,7 @@ export function useModalA11y(
       if (e.key !== "Tab") return;
 
       const focusables = Array.from(
-        node.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
+        current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
       ).filter((el) => el.getClientRects().length > 0 || el === document.activeElement);
 
       if (focusables.length === 0) {
@@ -92,10 +153,10 @@ export function useModalA11y(
       const last = focusables[focusables.length - 1];
       const activeEl = document.activeElement;
 
-      if (e.shiftKey && (activeEl === first || !node.contains(activeEl))) {
+      if (e.shiftKey && (activeEl === first || !current.contains(activeEl))) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && (activeEl === last || !node.contains(activeEl))) {
+      } else if (!e.shiftKey && (activeEl === last || !current.contains(activeEl))) {
         e.preventDefault();
         first.focus();
       }
@@ -105,12 +166,9 @@ export function useModalA11y(
     return () => {
       cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", onKeyDown, true);
-      if (lockScroll) {
-        document.body.style.overflow = prevOverflow;
-      }
       if (previouslyFocused && typeof previouslyFocused.focus === "function" && previouslyFocused.isConnected) {
         previouslyFocused.focus();
       }
     };
-  }, [ref, active, initialFocusRef, lockScroll]);
+  }, [ref, active, initialFocusRef]);
 }

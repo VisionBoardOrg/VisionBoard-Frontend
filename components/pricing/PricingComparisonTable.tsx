@@ -77,7 +77,7 @@ export default function PricingComparisonTable() {
   };
 
   return (
-    <section className="py-16 px-4 max-w-6xl mx-auto">
+    <section className="content-deferred py-16 px-4 max-w-6xl mx-auto">
       <div className="text-center mb-10">
         <span className="text-xs font-bold tracking-wider text-blue-600 uppercase bg-blue-50 px-3 py-1 rounded-full border border-blue-100">
           Compare All

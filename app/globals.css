@@ -32,6 +32,93 @@
   --shadow-icon: 0 2px 8px rgba(37,99,235,0.28);
 }
 
+/* Viewport-wide color-scheme and browser UI theming */
+:root {
+  color-scheme: light dark;
+  accent-color: var(--color-blue);
+  --scrollbar-thumb-light: #64748B;
+  --scrollbar-track-light: #F1F5F9;
+  --scrollbar-thumb-dark: #94A3B8;
+  --scrollbar-track-dark: #1E293B;
+  --scrollbar-thumb: var(--scrollbar-thumb-light);
+  --scrollbar-track: var(--scrollbar-track-light);
+
+  @media (prefers-color-scheme: dark) {
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+    --scrollbar-track: var(--scrollbar-track-dark);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+  }
+}
+
+/* Balanced headings & orphan-preventing body copy */
+h1, h2, h3, h4, h5, h6 {
+  text-wrap: balance;
+}
+
+p, li, blockquote {
+  text-wrap: pretty;
+}
+
+/* Auto-sizing textareas so content never gets trapped without resize handles */
+textarea {
+  field-sizing: content;
+}
+
+/* Native <dialog> scroll containment without mutating body overflow */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Native <details> accordion intrinsic-size animation */
+details::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  contain: layout;
+}
+
+details:not([open])::details-content {
+  block-size: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  details::details-content {
+    transition: block-size 0.25s ease-in-out, content-visibility 0.25s ease-in-out, display 0.25s ease-in-out;
+    transition-behavior: allow-discrete;
+  }
+}
+
+/* Below-the-fold rendering deferral */
+.content-deferred {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 480px;
+}
+
+/* Viewport-aware anchored popovers (progressive enhancement) */
+@supports (position-area: block-end) {
+  [popover].anchored-popover-start {
+    inset: auto;
+    margin: 0.25rem 0 0 0;
+    position-area: block-end span-inline-end;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+
+  [popover].anchored-popover-end {
+    inset: auto;
+    margin: 0.5rem 0 0 0;
+    position-area: block-end span-inline-start;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+}
+
 /* Global Interactive Element Cursor Standard */
 button,
 a,
@@ -75,12 +162,7 @@ select:disabled {
   to   { transform: translateX(0);   opacity: 1; }
 }
 
-/* Hide scrollbar while preserving full scrollability */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
+/* Accessible themed scrollbar (replaces scrollbar-width: none per browser-ui-theming) */
 .no-scrollbar {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
 }

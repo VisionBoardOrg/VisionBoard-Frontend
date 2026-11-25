@@ -43,7 +43,7 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const titleRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   useModalA11y(dialogRef, onClose);
 
   useEffect(() => {
@@ -114,18 +114,13 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
-      onClick={onClose}
+    <dialog
+      ref={dialogRef}
+      {...({ closedby: "any" } as React.DialogHTMLAttributes<HTMLDialogElement>)}
+      aria-labelledby="new-goal-modal-title"
+      className="m-auto bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90dvh] overflow-y-auto border border-border backdrop:bg-black/30 backdrop:backdrop-blur-sm"
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-goal-modal-title"
-        className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md max-h-[90dvh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div>
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
           <h2 id="new-goal-modal-title" className="text-base font-bold text-ink flex items-center gap-2">
@@ -259,6 +254,7 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
+                    if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
                     handleAddKeyResult();
                   }
                 }}
@@ -332,6 +328,6 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
           </div>
         </form>
       </div>
-    </div>
+    </dialog>
   );
 }

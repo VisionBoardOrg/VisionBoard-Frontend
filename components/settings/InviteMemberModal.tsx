@@ -24,8 +24,8 @@ const ROLES = [
 
 export function InviteMemberModal({ workspaceId, currentMemberCount, memberLimit }: InviteMemberModalProps) {
   const router = useRouter();
-  const modalRef = useRef<HTMLDivElement>(null);
-  const { copied, copyError, copy } = useClipboard();
+  const modalRef = useRef<HTMLDialogElement>(null);
+  const { copied, copyError, statusMessage, copy } = useClipboard();
   const [isOpen, setIsOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("pm");
@@ -93,19 +93,13 @@ export function InviteMemberModal({ workspaceId, currentMemberCount, memberLimit
       </button>
 
       {isOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
+        <dialog
+          ref={modalRef}
+          {...({ closedby: "any" } as React.DialogHTMLAttributes<HTMLDialogElement>)}
           aria-labelledby="invite-member-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) handleClose();
-          }}
+          className="m-auto bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto p-0 backdrop:bg-black/40 backdrop:backdrop-blur-xs"
         >
-          <div
-            ref={modalRef}
-            className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200"
-          >
+          <div>
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <div className="flex items-center gap-2">
@@ -161,11 +155,14 @@ export function InviteMemberModal({ workspaceId, currentMemberCount, memberLimit
                       <button
                         type="button"
                         onClick={() => void copy(inviteUrl)}
-                        className="px-3 py-2 bg-blue text-white rounded-xl text-xs font-semibold hover:bg-blue-mid transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
+                        className="min-w-6 min-h-6 px-3 py-2 bg-blue text-white rounded-xl text-xs font-semibold hover:bg-blue-mid transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer"
                       >
                         {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
                         {copied ? "Copied" : "Copy Link"}
                       </button>
+                      <span role="status" className="sr-only">
+                        {statusMessage}
+                      </span>
                     </div>
                   </div>
 
@@ -273,7 +270,7 @@ export function InviteMemberModal({ workspaceId, currentMemberCount, memberLimit
               )}
             </div>
           </div>
-        </div>
+        </dialog>
       )}
     </>
   );

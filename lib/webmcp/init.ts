@@ -42,25 +42,25 @@ export function getWebMCPModelContext(): Promise<WebMCPModelContext | undefined>
   if (existing) return Promise.resolve(existing);
 
   if (!initPromise) {
-    initPromise = new Promise<WebMCPModelContext | undefined>((resolve) => {
-      scheduleIdle(() => {
-        const nativeMc = readModelContext();
-        if (nativeMc) {
-          resolve(nativeMc);
-          return;
-        }
-        // Dynamic import keeps the polyfill out of the SSR bundle and off the
-        // initial hydration critical path.
-        import("@mcp-b/webmcp-polyfill")
-          .then(({ initializeWebMCPPolyfill }) => {
-            initializeWebMCPPolyfill();
-            resolve(readModelContext());
-          })
-          .catch(() => {
-            // Polyfill load failure is non-fatal — native Chrome 149+ support may still work.
-            resolve(readModelContext());
-          });
-      });
+    const { promise, resolve } = Promise.withResolvers<WebMCPModelContext | undefined>();
+    initPromise = promise;
+    scheduleIdle(() => {
+      const nativeMc = readModelContext();
+      if (nativeMc) {
+        resolve(nativeMc);
+        return;
+      }
+      // Dynamic import keeps the polyfill out of the SSR bundle and off the
+      // initial hydration critical path.
+      import("@mcp-b/webmcp-polyfill")
+        .then(({ initializeWebMCPPolyfill }) => {
+          initializeWebMCPPolyfill();
+          resolve(readModelContext());
+        })
+        .catch(() => {
+          // Polyfill load failure is non-fatal — native Chrome 149+ support may still work.
+          resolve(readModelContext());
+        });
     });
   }
 

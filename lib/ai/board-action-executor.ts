@@ -145,7 +145,7 @@ export async function executeBoardActions(
   const currentUserName = currentUser?.name || "AI Copilot";
 
   // Sort actions so milestone and goal creations run before task creations that depend on them
-  const sortedActions = [...rawActions].sort((a, b) => {
+  const sortedActions = rawActions.toSorted((a, b) => {
     return getActionPriority(String(a.action)) - getActionPriority(String(b.action));
   });
 

@@ -50,7 +50,7 @@ export function TaskStatusDropdown({
   const [pendingReason, setPendingReason] = useState("");
   const [isPending, startTransition] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
-  const blockedModalRef = useRef<HTMLDivElement>(null);
+  const blockedModalRef = useRef<HTMLDialogElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
 
@@ -164,7 +164,6 @@ export function TaskStatusDropdown({
           onClick={() => setOpen((o) => !o)}
           disabled={isPending}
           aria-expanded={open}
-          aria-haspopup="menu"
           aria-label={`Task status: ${meta.label}. Click to change.`}
           className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border border-transparent
             hover:border-current/20 transition-colors select-none
@@ -181,7 +180,7 @@ export function TaskStatusDropdown({
 
         {open && (
           <div
-            role="menu"
+            role="group"
             aria-label="Select task status"
             className="absolute left-0 top-full mt-1 z-50 bg-white border border-border rounded-xl shadow-lg py-1 w-44 min-w-max"
           >
@@ -190,7 +189,6 @@ export function TaskStatusDropdown({
               return (
                 <button
                   type="button"
-                  role="menuitem"
                   key={s}
                   onClick={() => changeStatus(s)}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-offwhite transition-colors cursor-pointer"
@@ -209,19 +207,13 @@ export function TaskStatusDropdown({
 
       {/* Blocked reason modal */}
       {showBlockedModal && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setShowBlockedModal(false);
-          }}
+        <dialog
+          ref={blockedModalRef}
+          {...({ closedby: "any" } as React.DialogHTMLAttributes<HTMLDialogElement>)}
+          aria-labelledby="blocked-modal-title"
+          className="m-auto bg-white rounded-2xl shadow-xl border border-border w-full max-w-sm p-6 backdrop:bg-black/30 backdrop:backdrop-blur-sm"
         >
-          <div
-            ref={blockedModalRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="blocked-modal-title"
-            className="bg-white rounded-2xl shadow-xl border border-border w-full max-w-sm p-6"
-          >
+          <div>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle size={16} className="text-danger" aria-hidden="true" />
@@ -253,7 +245,7 @@ export function TaskStatusDropdown({
               placeholder="e.g. Waiting on design handoff, dependency not ready..."
               rows={3}
               maxLength={500}
-              className="w-full text-xs border border-border rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-blue/30 text-ink placeholder:text-muted"
+              className="w-full text-xs border border-border rounded-xl px-3 py-2.5 resize-y focus:outline-none focus:ring-2 focus:ring-blue/30 text-ink placeholder:text-muted"
             />
 
             <div className="flex items-center justify-end gap-2 mt-4">
@@ -273,7 +265,7 @@ export function TaskStatusDropdown({
               </button>
             </div>
           </div>
-        </div>
+        </dialog>
       )}
     </>
   );

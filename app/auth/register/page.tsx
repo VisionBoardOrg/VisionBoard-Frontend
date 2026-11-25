@@ -18,26 +18,24 @@ function RegisterForm() {
   // Waitlist invite token passed via query string from the invite email link
   const inviteToken = searchParams.get("inviteToken") || "";
 
-  const [form, setForm] = useState({ name: "", email: prefillEmail, password: "", confirmPassword: "" });
+  const [form, setForm] = useState({ name: "", email: prefillEmail, password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
 
   const hasMinLength = form.password.length >= 12;
   const hasNumberOrSymbol = /[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(form.password);
+  const isPasswordValid = hasMinLength && hasNumberOrSymbol;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading || googleLoading) return;
 
-    if (!hasMinLength || !hasNumberOrSymbol) {
+    if (!isPasswordValid) {
+      setPasswordTouched(true);
       setError("Password must be at least 12 characters and include a number or symbol.");
-      return;
-    }
-    if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match.");
       return;
     }
 
@@ -140,7 +138,12 @@ function RegisterForm() {
             <div>
               <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="name">Full name</label>
               <input
-                id="name" type="text" required autoComplete="name"
+                id="name"
+                name="name"
+                type="text"
+                required
+                autoComplete="name"
+                enterKeyHint="next"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
@@ -151,7 +154,13 @@ function RegisterForm() {
             <div>
               <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="reg-email">Email</label>
               <input
-                id="reg-email" type="email" required autoComplete="email"
+                id="reg-email"
+                name="email"
+                type="email"
+                required
+                autoComplete="username"
+                spellCheck={false}
+                enterKeyHint="next"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
@@ -161,15 +170,40 @@ function RegisterForm() {
 
             <div>
               <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="reg-password">Password</label>
+              {/* Password complexity rules placed ABOVE the input so mobile keyboards and autofill popovers do not obscure them */}
+              <ul id="reg-password-rules" className="mb-2 space-y-1 text-xs">
+                <li className={`flex items-center gap-1.5 ${hasMinLength ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                  {hasMinLength ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                  <span>At least 12 characters</span>
+                </li>
+                <li className={`flex items-center gap-1.5 ${hasNumberOrSymbol ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                  {hasNumberOrSymbol ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                  <span>Includes a number or symbol</span>
+                </li>
+              </ul>
               <div className="relative">
                 <input
-                  id="reg-password" type={showPassword ? "text" : "password"} required autoComplete="new-password"
+                  id="reg-password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  autoComplete="new-password"
+                  enterKeyHint="done"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                  onBlur={() => {
+                    if (form.password.length > 0) setPasswordTouched(true);
+                  }}
+                  className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger user-valid:border-emerald-600"
                   placeholder="Create a strong password"
                   minLength={12}
-                  aria-describedby="reg-password-rules"
+                  pattern="(?=.*[0-9!@#$%^&*()_+\-=\[\]{};':&quot;\\|,.<>/?`~]).{12,}"
+                  aria-invalid={passwordTouched && !isPasswordValid ? "true" : "false"}
+                  aria-describedby={
+                    passwordTouched && !isPasswordValid
+                      ? "reg-password-rules reg-password-error"
+                      : "reg-password-rules"
+                  }
                 />
                 <button
                   type="button"
@@ -180,37 +214,11 @@ function RegisterForm() {
                   {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                 </button>
               </div>
-              <ul id="reg-password-rules" className="mt-2 space-y-1 text-xs">
-                <li className={`flex items-center gap-1.5 ${hasMinLength ? "text-emerald-600 font-medium" : "text-slate"}`}>
-                  {hasMinLength ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
-                  <span>At least 12 characters</span>
-                </li>
-                <li className={`flex items-center gap-1.5 ${hasNumberOrSymbol ? "text-emerald-600 font-medium" : "text-slate"}`}>
-                  {hasNumberOrSymbol ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
-                  <span>Includes a number or symbol</span>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="confirm-password">Confirm password</label>
-              <div className="relative">
-                <input
-                  id="confirm-password" type={showConfirmPassword ? "text" : "password"} required autoComplete="new-password"
-                  value={form.confirmPassword}
-                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                  className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
-                  placeholder="••••••••"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors cursor-pointer"
-                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
-                >
-                  {showConfirmPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-                </button>
-              </div>
+              {passwordTouched && !isPasswordValid && (
+                <p id="reg-password-error" className="mt-1.5 text-xs text-danger">
+                  Error: Password must meet all requirements listed above.
+                </p>
+              )}
             </div>
 
             <button

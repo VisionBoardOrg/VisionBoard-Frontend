@@ -66,7 +66,7 @@ export default async function TasksPage({ params, searchParams }: TasksPageProps
 
   // Sort explicitly by priority weight (urgent > high > medium > low) then earliest dueDate,
   // avoiding alphabetical Prisma enum sorting.
-  const tasks = [...rawTasks].sort((a, b) => {
+  const tasks = rawTasks.toSorted((a, b) => {
     const wDiff = (PRIORITY_WEIGHT[b.priority] ?? 2) - (PRIORITY_WEIGHT[a.priority] ?? 2);
     if (wDiff !== 0) return wDiff;
     const aDue = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;

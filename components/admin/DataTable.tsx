@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useId } from "react";
 import {
   ChevronUp,
   ChevronDown,
@@ -9,6 +9,11 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+
+const TABLE_COLLATOR = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
 
 export interface Column<T> {
   key: string;
@@ -22,6 +27,7 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   data: T[];
   getRowKey: (row: T) => string;
+  caption?: string;
   searchable?: boolean;
   searchPlaceholder?: string;
   /** Additional object keys to match in client-side search (e.g. "email") */
@@ -50,6 +56,7 @@ export default function DataTable<T>({
   columns,
   data,
   getRowKey,
+  caption = "Data table",
   searchable = true,
   searchPlaceholder = "Search…",
   searchableKeys,
@@ -60,10 +67,12 @@ export default function DataTable<T>({
   isLoading = false,
   serverPagination,
 }: DataTableProps<T>) {
+  const captionId = useId();
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>(null);
   const [clientPage, setClientPage] = useState(1);
+  const [sortAnnouncement, setSortAnnouncement] = useState("");
 
   const isServerSearch = Boolean(onSearchChange);
 
@@ -86,17 +95,18 @@ export default function DataTable<T>({
     );
   }, [data, query, columns, searchableKeys, isServerSearch]);
 
-  // Sort
+  // Sort using non-mutating .toSorted() and Intl.Collator
   const sorted = useMemo(() => {
     if (!sortKey || !sortDir) return filtered;
-    return [...filtered].sort((a, b) => {
+    const factor = sortDir === "asc" ? 1 : -1;
+    return filtered.toSorted((a, b) => {
       const av = getValue(a, sortKey);
       const bv = getValue(b, sortKey);
-      if (typeof av === "string" && typeof bv === "string") {
-        return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
-      }
       if (typeof av === "number" && typeof bv === "number") {
-        return sortDir === "asc" ? av - bv : bv - av;
+        return factor * (av - bv);
+      }
+      if (typeof av === "string" && typeof bv === "string") {
+        return factor * TABLE_COLLATOR.compare(av, bv);
       }
       return 0;
     });
@@ -113,16 +123,22 @@ export default function DataTable<T>({
 
   const currentPage = serverPagination ? serverPagination.page : clientPage;
 
-  function handleSort(key: string) {
+  function handleSort(key: string, headerLabel: string) {
+    let nextDir: SortDir;
     if (sortKey !== key) {
       setSortKey(key);
+      nextDir = "asc";
       setSortDir("asc");
     } else if (sortDir === "asc") {
+      nextDir = "desc";
       setSortDir("desc");
     } else {
-      setSortKey(null);
-      setSortDir(null);
+      nextDir = "asc";
+      setSortDir("asc");
     }
+    setSortAnnouncement(
+      `Sorted by ${headerLabel}, ${nextDir === "asc" ? "ascending" : "descending"}, ${filtered.length} rows`
+    );
     if (!serverPagination) {
       setClientPage(1);
     }
@@ -177,18 +193,30 @@ export default function DataTable<T>({
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      <div role="status" aria-live="polite" className="sr-only">
+        {sortAnnouncement}
+      </div>
+
+      <div
+        role="region"
+        aria-labelledby={captionId}
+        tabIndex={0}
+        className="overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
+      >
+        <table className="w-full text-sm min-w-[480px]">
+          <caption id={captionId} className="sr-only">
+            {caption}
+          </caption>
           <thead>
             <tr className="border-b border-border bg-offwhite/60">
               {columns.map((col) => {
-                const ariaSort = col.sortable
-                  ? sortKey === col.key
+                // Only set aria-sort on the currently sorted column header (never "none")
+                const ariaSort =
+                  col.sortable && sortKey === col.key && sortDir
                     ? sortDir === "asc"
                       ? "ascending"
                       : "descending"
-                    : "none"
-                  : undefined;
+                    : undefined;
 
                 return (
                   <th
@@ -200,8 +228,8 @@ export default function DataTable<T>({
                     {col.sortable ? (
                       <button
                         type="button"
-                        onClick={() => handleSort(col.key)}
-                        className="inline-flex items-center gap-1 uppercase tracking-wide font-bold text-slate hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-blue/40 rounded cursor-pointer select-none"
+                        onClick={() => handleSort(col.key, col.header)}
+                        className="min-h-6 min-w-6 inline-flex items-center gap-1 uppercase tracking-wide font-bold text-slate hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-blue/40 rounded cursor-pointer select-none"
                       >
                         <span>{col.header}</span>
                         {sortKey === col.key ? (
