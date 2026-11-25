@@ -102,6 +102,109 @@ details:not([open])::details-content {
   contain-intrinsic-size: auto none auto 480px;
 }
 
+/* Single-line text overflow detection & accessible hover/focus-visible reveal */
+@property --truncated {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes truncated {
+  from, to {
+    --truncated: 1;
+  }
+}
+
+.single-line-reveal {
+  display: block;
+  min-inline-size: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: truncated linear both;
+  animation-timeline: scroll(self inline);
+}
+
+.single-line-reveal.truncated {
+  --truncated: 1;
+}
+
+@container style(--truncated: 1) {
+  .single-line-reveal > span {
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+  }
+}
+
+.single-line-reveal.truncated > span {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .single-line-reveal:is(:hover, :focus-visible),
+  .group:is(:hover, :focus-visible) .single-line-reveal {
+    text-overflow: clip;
+  }
+
+  @container style(--truncated: 1) {
+    .single-line-reveal:is(:hover, :focus-visible) > span,
+    .group:is(:hover, :focus-visible) .single-line-reveal > span {
+      display: inline-block;
+      margin-inline-start: 100%;
+      translate: calc(1px - 100%);
+      transition:
+        margin-inline-start calc(var(--scroll-width, 200) * 10ms) ease-in,
+        translate calc(var(--scroll-width, 200) * 10ms) ease-in;
+    }
+
+    .single-line-reveal:is(:hover, :focus-visible):dir(rtl) > span,
+    .group:is(:hover, :focus-visible) .single-line-reveal:dir(rtl) > span {
+      translate: calc(100% - 1px);
+    }
+  }
+
+  .single-line-reveal.truncated:is(:hover, :focus-visible) > span,
+  .group:is(:hover, :focus-visible) .single-line-reveal.truncated > span {
+    display: inline-block;
+    margin-inline-start: 100%;
+    translate: calc(1px - 100%);
+    transition:
+      margin-inline-start calc(var(--scroll-width, 200) * 10ms) ease-in,
+      translate calc(var(--scroll-width, 200) * 10ms) ease-in;
+  }
+
+  .single-line-reveal.truncated:is(:hover, :focus-visible):dir(rtl) > span,
+  .group:is(:hover, :focus-visible) .single-line-reveal.truncated:dir(rtl) > span {
+    translate: calc(100% - 1px);
+  }
+}
+
+/* Expandable single-line chip (for flex-wrapped task chips) */
+.expandable-chip {
+  max-inline-size: 12rem;
+  interpolate-size: allow-keywords;
+
+  @supports not (interpolate-size: allow-keywords) {
+    --expanded-max-inline-size: 24rem;
+  }
+
+  & > span {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &:is(:hover, :focus-visible) {
+    max-inline-size: var(--expanded-max-inline-size, max-content);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    transition: max-inline-size 0.3s ease;
+  }
+}
+
 /* Viewport-aware anchored popovers (progressive enhancement) */
 @supports (position-area: block-end) {
   [popover].anchored-popover-start {

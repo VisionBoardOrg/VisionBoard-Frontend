@@ -27,6 +27,7 @@ import type {
 } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
 import { useToast } from "@/context/ToastContext";
+import { SingleLineOverflow } from "@/components/ui/SingleLineOverflow";
 
 // ──────────────────────────────────────────────────
 // Helpers
@@ -702,13 +703,13 @@ function TaskRow({
       </div>
 
       {/* Title */}
-      <span
-        className={`flex-1 text-[13px] truncate ${
+      <SingleLineOverflow
+        text={task.title}
+        focusableWhenTruncated
+        className={`flex-1 text-[13px] rounded-xs ${
           task.status === "done" ? "line-through text-slate-400" : "text-slate-700"
         }`}
-      >
-        {task.title}
-      </span>
+      />
 
       {/* Due Date picker popover */}
       <div className="relative flex-shrink-0" ref={dueDateRef}>

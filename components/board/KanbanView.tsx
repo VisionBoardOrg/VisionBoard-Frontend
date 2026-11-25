@@ -33,6 +33,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { useToast } from "@/context/ToastContext";
+import { SingleLineOverflow } from "@/components/ui/SingleLineOverflow";
 import { useConfirm } from "@/context/ConfirmContext";
 
 export interface StatusGroup {
@@ -847,7 +848,7 @@ function KanbanCardItem({
                   void handleToggleTask(task.id, task.status, task.title);
                 }}
                 aria-pressed={isDone}
-                className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-slate-50 border border-slate-100 hover:border-purple-200 cursor-pointer transition-all text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+                className="group flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-slate-50 border border-slate-100 hover:border-purple-200 cursor-pointer transition-all text-left w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
               >
                 <div className="flex items-center gap-2 min-w-0 flex-1">
                   {isDone ? (
@@ -855,13 +856,12 @@ function KanbanCardItem({
                   ) : (
                     <Square size={14} className="text-slate-300 shrink-0 hover:text-purple-500" aria-hidden="true" />
                   )}
-                  <span
-                    className={`text-xs text-slate-700 truncate ${
+                  <SingleLineOverflow
+                    text={task.title}
+                    className={`text-xs text-slate-700 ${
                       isDone ? "line-through text-slate-400" : "font-medium"
                     }`}
-                  >
-                    {task.title}
-                  </span>
+                  />
                 </div>
                 {nonBinaryBadge && (
                   <span

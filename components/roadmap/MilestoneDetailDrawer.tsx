@@ -19,6 +19,7 @@ import {
 } from "@/lib/gantt-engine";
 import { useConfirm } from "@/context/ConfirmContext";
 import { useModalA11y } from "@/hooks/useModalA11y";
+import { SingleLineOverflow } from "@/components/ui/SingleLineOverflow";
 
 interface MilestoneDetailDrawerProps {
   isOpen: boolean;
@@ -531,7 +532,7 @@ function MilestoneDetailDrawerContent({
                       key={task.id}
                       className="flex items-center justify-between p-2 bg-white border border-border rounded-xl text-xs"
                     >
-                      <label className="flex items-center gap-2 min-w-0 cursor-pointer">
+                      <label className="group flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={isDone}
@@ -540,13 +541,13 @@ function MilestoneDetailDrawerContent({
                           }
                           className="rounded border-border text-blue focus:ring-blue/30 cursor-pointer"
                         />
-                        <span
-                          className={`truncate ${
+                        <SingleLineOverflow
+                          text={task.title}
+                          focusableWhenTruncated
+                          className={
                             isDone ? "line-through text-muted" : "text-ink font-medium"
-                          }`}
-                        >
-                          {task.title}
-                        </span>
+                          }
+                        />
                       </label>
                       {(() => {
                         const dateObj = task.dueDate ? new Date(task.dueDate) : null;

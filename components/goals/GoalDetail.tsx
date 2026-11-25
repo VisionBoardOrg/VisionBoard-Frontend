@@ -1595,13 +1595,13 @@ export function GoalDetail({ goal, workspaceId, userId, canEdit = true }: GoalDe
                   ms.description && <p className="text-xs text-slate mb-2">{ms.description}</p>
                 )}
 
-                {/* Clickable Linked Task Chips */}
+                {/* Clickable Linked Task Chips — keep full title in DOM and expand on hover/focus-visible */}
                 <div className="flex flex-wrap gap-1.5">
                   {(ms.tasks ?? []).slice(0, 5).map((t) => (
                     <Link
                       key={t.id}
                       href={`/workspace/${workspaceId}/tasks?taskId=${t.id}`}
-                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors hover:border-blue hover:text-blue ${
+                      className={`expandable-chip text-[10px] px-2 py-0.5 rounded-full border transition-colors hover:border-blue hover:text-blue ${
                         t.status === "done"
                           ? "bg-green-50 border-green-200 text-success"
                           : t.status === "blocked"
@@ -1609,7 +1609,7 @@ export function GoalDetail({ goal, workspaceId, userId, canEdit = true }: GoalDe
                           : "bg-offwhite border-border text-slate"
                       }`}
                     >
-                      {t.title.slice(0, 30)}
+                      <span>{t.title}</span>
                     </Link>
                   ))}
                   {(ms.tasks ?? []).length > 5 && (
