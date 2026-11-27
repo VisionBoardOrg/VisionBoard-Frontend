@@ -67,8 +67,8 @@ export function WorkspacesClient({
 }: WorkspacesClientProps) {
   const router = useRouter();
   const { confirm: confirmDialog } = useConfirm();
-  const newModalRef = useRef<HTMLDivElement>(null);
-  const deleteModalRef = useRef<HTMLDivElement>(null);
+  const newModalRef = useRef<HTMLDialogElement>(null);
+  const deleteModalRef = useRef<HTMLDialogElement>(null);
 
   const [workspaces, setWorkspaces] = useState(initialWorkspaces);
   const [ownedCount, setOwnedCount] = useState(initialOwnedCount);
@@ -451,17 +451,13 @@ export function WorkspacesClient({
 
       {/* ── New workspace modal ── */}
       {showNew && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
+        <dialog
+          ref={newModalRef}
+          closedby="any"
           aria-labelledby="new-workspace-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !creating) setShowNew(false);
-          }}
+          className="m-auto bg-white rounded-2xl border border-border shadow-2xl w-[calc(100%-2rem)] max-w-md p-0 overflow-hidden backdrop:bg-black/40 backdrop:backdrop-blur-sm"
         >
-          <div ref={newModalRef} className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-lg bg-blue-faint text-blue"><Plus size={16} aria-hidden="true" /></div>
                 <div>
@@ -551,26 +547,18 @@ export function WorkspacesClient({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </dialog>
       )}
 
       {/* ── Delete confirmation modal ── */}
       {deleteId && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
+        <dialog
+          ref={deleteModalRef}
+          closedby="any"
           aria-labelledby="delete-workspace-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !deleteLoading) {
-              setDeleteId(null);
-              setDeleteError("");
-            }
-          }}
+          className="m-auto bg-white rounded-2xl border border-border shadow-2xl w-[calc(100%-2rem)] max-w-sm p-6 space-y-4 backdrop:bg-black/40 backdrop:backdrop-blur-sm"
         >
-          <div ref={deleteModalRef} className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-sm p-6 space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto">
               <Trash2 size={22} className="text-danger" aria-hidden="true" />
             </div>
             <div className="text-center">
@@ -605,8 +593,7 @@ export function WorkspacesClient({
                 {deleteLoading ? "Deleting…" : "Delete"}
               </button>
             </div>
-          </div>
-        </div>
+        </dialog>
       )}
     </div>
   );

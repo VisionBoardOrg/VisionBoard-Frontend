@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { Analytics } from "@vercel/analytics/react";
+import { createTrustedJsonLd } from "@/lib/trusted-types";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -191,10 +192,11 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <meta name="color-scheme" content="light" />
+        <meta name="color-scheme" content="light dark" />
+        <meta name="text-scale" content="scale" />
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          dangerouslySetInnerHTML={{ __html: createTrustedJsonLd(jsonLd) }}
         />
         {/* WebMCP origin trial token — register at https://developer.chrome.com/origintrials */}
         {process.env.NEXT_PUBLIC_WEBMCP_ORIGIN_TRIAL_TOKEN && (

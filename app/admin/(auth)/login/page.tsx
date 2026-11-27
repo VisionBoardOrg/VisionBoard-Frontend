@@ -89,10 +89,11 @@ export default function AdminLoginPage() {
                   type="text"
                   required
                   autoComplete="username"
+                  aria-invalid="false"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="admin"
-                  className="w-full pl-10 pr-4 py-2.5 bg-offwhite/50 border border-border rounded-xl text-sm font-medium text-ink placeholder:text-slate/60 focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-all"
+                  className="w-full pl-10 pr-4 py-2.5 bg-offwhite/50 border border-border rounded-xl text-sm font-medium text-ink placeholder:text-slate/60 focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-all user-invalid:border-danger"
                 />
               </div>
             </div>
@@ -108,10 +109,11 @@ export default function AdminLoginPage() {
                   type={showPassword ? "text" : "password"}
                   required
                   autoComplete="current-password"
+                  aria-invalid="false"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-10 py-2.5 bg-offwhite/50 border border-border rounded-xl text-sm font-medium text-ink placeholder:text-slate/60 focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-all"
+                  className="w-full pl-10 pr-10 py-2.5 bg-offwhite/50 border border-border rounded-xl text-sm font-medium text-ink placeholder:text-slate/60 focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-all user-invalid:border-danger"
                 />
                 <button
                   type="button"

@@ -44,6 +44,7 @@ export function buildCsp(
     nonceDirective,
     "'unsafe-inline'",
     isDev ? "'unsafe-eval'" : "",
+    "'report-sample'",
     "https://js.stripe.com",
     "https://static.cloudflareinsights.com",
   ]
@@ -89,5 +90,6 @@ export function buildCsp(
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+    "report-to csp-endpoint",
   ].join("; ");
 }

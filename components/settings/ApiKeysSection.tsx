@@ -37,13 +37,54 @@ function formatDate(dateStr: string): string {
 }
 
 function relativeTime(dateStr: string): string {
-  const diff = Math.max(0, Date.now() - new Date(dateStr).getTime());
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} minute${minutes !== 1 ? "s" : ""} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
+  const g = globalThis as unknown as {
+    Temporal?: {
+      Now: { instant(): { since(other: unknown, opts: { largestUnit: string }): { hours: number; minutes: number; seconds: number } } };
+      Instant: { from(s: string): unknown };
+    };
+    Intl?: typeof Intl & {
+      DurationFormat?: new (
+        locales?: string | string[],
+        options?: { style?: "long" | "short" | "narrow" }
+      ) => { format(duration: { days?: number; hours?: number; minutes?: number }): string };
+    };
+  };
+
+  let totalMinutes = 0;
+  if (g.Temporal) {
+    try {
+      const dur = g.Temporal.Now.instant().since(g.Temporal.Instant.from(dateStr), {
+        largestUnit: "hours",
+      });
+      totalMinutes = Math.max(0, dur.hours * 60 + dur.minutes);
+    } catch {
+      const diff = Math.max(0, Date.now() - new Date(dateStr).getTime());
+      totalMinutes = Math.floor(diff / 60000);
+    }
+  } else {
+    const diff = Math.max(0, Date.now() - new Date(dateStr).getTime());
+    totalMinutes = Math.floor(diff / 60000);
+  }
+
+  if (totalMinutes < 1) return "Just now";
+  const DurationFormatCtor = g.Intl?.DurationFormat;
+  if (totalMinutes < 60) {
+    if (DurationFormatCtor) {
+      return `${new DurationFormatCtor("en", { style: "long" }).format({ minutes: totalMinutes })} ago`;
+    }
+    return `${totalMinutes} minute${totalMinutes !== 1 ? "s" : ""} ago`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  if (hours < 24) {
+    if (DurationFormatCtor) {
+      return `${new DurationFormatCtor("en", { style: "long" }).format({ hours })} ago`;
+    }
+    return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
+  }
   const days = Math.floor(hours / 24);
+  if (DurationFormatCtor) {
+    return `${new DurationFormatCtor("en", { style: "long" }).format({ days })} ago`;
+  }
   return `${days} day${days !== 1 ? "s" : ""} ago`;
 }
 
@@ -57,9 +98,9 @@ function formatMaskedKey(prefix: string, suffix: string): string {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ApiKeysSection() {
-  const createModalRef = useRef<HTMLDivElement>(null);
-  const revealModalRef = useRef<HTMLDivElement>(null);
-  const { copied, copyError, copy } = useClipboard();
+  const createModalRef = useRef<HTMLDialogElement>(null);
+  const revealModalRef = useRef<HTMLDialogElement>(null);
+  const { copied, copyError, statusMessage, copy } = useClipboard();
 
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -358,30 +399,26 @@ export function ApiKeysSection() {
 
       {/* ── Create key modal ── */}
       {showCreateModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
+        <dialog
+          ref={createModalRef}
+          closedby="any"
           aria-labelledby="create-api-key-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) handleCloseCreateModal();
-          }}
+          className="m-auto bg-white rounded-2xl border border-border shadow-2xl w-[calc(100%-2rem)] max-w-sm p-0 overflow-hidden backdrop:bg-black/40 backdrop:backdrop-blur-xs"
         >
-          <div ref={createModalRef} className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Key size={16} className="text-blue" aria-hidden="true" />
-                <h3 id="create-api-key-title" className="font-bold text-ink">Generate API Key</h3>
-              </div>
-              <button
-                type="button"
-                onClick={handleCloseCreateModal}
-                aria-label="Close"
-                className="text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
-              >
-                <X size={18} aria-hidden="true" />
-              </button>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Key size={16} className="text-blue" aria-hidden="true" />
+              <h2 id="create-api-key-title" className="font-bold text-ink">Generate API Key</h2>
             </div>
+            <button
+              type="button"
+              onClick={handleCloseCreateModal}
+              aria-label="Close"
+              className="text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
 
             <form onSubmit={handleCreate} className="p-6 space-y-4">
               {error && (
@@ -430,24 +467,22 @@ export function ApiKeysSection() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </dialog>
       )}
 
       {/* ── One-time key reveal modal ── */}
       {rawKey && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
+        <dialog
+          ref={revealModalRef}
+          closedby="none"
           aria-labelledby="reveal-api-key-title"
+          className="m-auto bg-white rounded-2xl border border-border shadow-2xl w-[calc(100%-2rem)] max-w-md p-0 overflow-hidden backdrop:bg-black/40 backdrop:backdrop-blur-xs"
         >
-          <div ref={revealModalRef} className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Eye size={16} className="text-blue" aria-hidden="true" />
-                <h3 id="reveal-api-key-title" className="font-bold text-ink">Your New API Key</h3>
-              </div>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Eye size={16} className="text-blue" aria-hidden="true" />
+              <h2 id="reveal-api-key-title" className="font-bold text-ink">Your New API Key</h2>
+            </div>
               <button
                 type="button"
                 onClick={handleDismissRawKey}
@@ -492,6 +527,7 @@ export function ApiKeysSection() {
                     type="button"
                     onClick={handleCopy}
                     title="Copy to clipboard"
+                    aria-label="Copy API key"
                     className={`shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer ${
                       copied
                         ? "bg-emerald-50 border-emerald-300 text-emerald-700"
@@ -505,6 +541,9 @@ export function ApiKeysSection() {
                     )}
                     {copied ? "Copied!" : "Copy"}
                   </button>
+                  <span role="status" className="sr-only">
+                    {statusMessage}
+                  </span>
                 </div>
               </div>
 
@@ -529,8 +568,7 @@ export function ApiKeysSection() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </dialog>
       )}
     </section>
   );

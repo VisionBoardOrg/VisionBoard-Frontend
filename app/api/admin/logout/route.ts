@@ -15,5 +15,8 @@ export async function POST() {
     maxAge: 0,
   });
 
+  // Purge cookies, client storage, and HTTP cache on logout
+  response.headers.set("Clear-Site-Data", '"cookies", "storage", "cache"');
+
   return response;
 }

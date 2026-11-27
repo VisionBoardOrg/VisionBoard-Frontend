@@ -17,7 +17,7 @@ interface DataPrivacySectionProps {
 }
 
 export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
-  const modalRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDialogElement>(null);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [deleteOpen,    setDeleteOpen]    = useState(false);
@@ -175,32 +175,26 @@ export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
 
       {/* ── Delete confirmation modal ── */}
       {deleteOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
+        <dialog
+          ref={modalRef}
+          closedby="any"
           aria-labelledby="delete-account-title"
-          onClick={(e) => {
-            if (e.target === e.currentTarget && !deleteLoading && !deleteSuccess) {
-              setDeleteOpen(false);
-            }
-          }}
+          className="m-auto bg-white rounded-2xl border border-border shadow-2xl w-[calc(100%-2rem)] max-w-md p-0 overflow-hidden backdrop:bg-black/40 backdrop:backdrop-blur-xs"
         >
-          <div ref={modalRef} className="bg-white rounded-2xl border border-border shadow-2xl w-full max-w-md overflow-hidden">
-            {deleteSuccess ? (
-              <div className="p-8 text-center">
-                <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto mb-4">
-                  <Trash2 size={22} aria-hidden="true" />
-                </div>
-                <h3 id="delete-account-title" className="font-bold text-ink text-lg mb-2">Account deletion scheduled</h3>
-                <p className="text-sm text-muted">
-                  Your data will be permanently deleted in 30 days. You&apos;ve been signed out. Redirecting…
-                </p>
+          {deleteSuccess ? (
+            <div className="p-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto mb-4">
+                <Trash2 size={22} aria-hidden="true" />
               </div>
-            ) : (
-              <>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                  <h3 id="delete-account-title" className="font-bold text-ink">Confirm account deletion</h3>
+              <h2 id="delete-account-title" className="font-bold text-ink text-lg mb-2">Account deletion scheduled</h2>
+              <p className="text-sm text-muted">
+                Your data will be permanently deleted in 30 days. You&apos;ve been signed out. Redirecting…
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <h2 id="delete-account-title" className="font-bold text-ink">Confirm account deletion</h2>
                   <button
                     type="button"
                     onClick={() => setDeleteOpen(false)}
@@ -262,8 +256,7 @@ export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
                 </form>
               </>
             )}
-          </div>
-        </div>
+        </dialog>
       )}
     </section>
   );

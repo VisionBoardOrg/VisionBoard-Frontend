@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { CitationBadge } from "./CitationBadge";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, AlertCircle } from "lucide-react";
+import { useClipboard } from "@/hooks/useClipboard";
 
 interface MarkdownContentProps {
   content: string;
@@ -135,35 +136,42 @@ function parseInline(text: string, workspaceId?: string): React.ReactNode[] {
 }
 
 function CodeBlock({ code, lang }: { code: string; lang?: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const { copied, copyError, statusMessage, copy } = useClipboard();
 
   return (
     <div className="my-2.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-100 overflow-hidden shadow-xs">
       <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800/80 border-b border-slate-700 text-[11px] text-slate-400">
         <span className="font-mono">{lang || "text"}</span>
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
-        >
-          {copied ? (
-            <>
-              <Check size={12} className="text-emerald-400" />
-              <span className="text-emerald-400">Copied</span>
-            </>
-          ) : (
-            <>
-              <Copy size={12} />
-              <span>Copy</span>
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => void copy(code)}
+            aria-label={`Copy ${lang || "code"} snippet`}
+            data-copied={copied ? "true" : undefined}
+            data-failed={copyError ? "true" : undefined}
+            className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+          >
+            {copied ? (
+              <>
+                <Check size={12} className="text-emerald-400" aria-hidden="true" />
+                <span className="text-emerald-400">Copied</span>
+              </>
+            ) : copyError ? (
+              <>
+                <AlertCircle size={12} className="text-rose-400" aria-hidden="true" />
+                <span className="text-rose-400">Copy failed</span>
+              </>
+            ) : (
+              <>
+                <Copy size={12} aria-hidden="true" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+          <span role="status" className="sr-only">
+            {statusMessage}
+          </span>
+        </div>
       </div>
       <pre className="p-3 font-mono text-[11px] overflow-x-auto leading-relaxed">
         <code>{code}</code>

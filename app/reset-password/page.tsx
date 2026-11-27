@@ -33,9 +33,13 @@ function ResetPasswordForm() {
   const [isTokenError, setIsTokenError] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [confirmTouched, setConfirmTouched] = useState(false);
 
   const hasMinLength = password.length >= 12;
   const hasNumberOrSymbol = /[0-9!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?`~]/.test(password);
+  const isPasswordValid = hasMinLength && hasNumberOrSymbol;
+  const isConfirmValid = confirmPassword.length > 0 && password === confirmPassword;
 
   async function handleRequest(e: React.FormEvent) {
     e.preventDefault();
@@ -154,9 +158,10 @@ function ResetPasswordForm() {
                       type="email"
                       required
                       autoComplete="email"
+                      aria-invalid="false"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                      className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger"
                       placeholder="you@company.com"
                     />
                   </div>
@@ -211,6 +216,20 @@ function ResetPasswordForm() {
                     <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="password">
                       New password
                     </label>
+                    <p className="text-xs text-slate mb-1.5">
+                      Use a strong password you don&apos;t reuse elsewhere.
+                    </p>
+                    {/* Password rules placed ABOVE the input so mobile keyboards and autofill popovers do not cover them */}
+                    <ul id="reset-password-rules" className="mb-2 space-y-1 text-xs">
+                      <li className={`flex items-center gap-1.5 ${hasMinLength ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                        {hasMinLength ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                        <span>At least 12 characters</span>
+                      </li>
+                      <li className={`flex items-center gap-1.5 ${hasNumberOrSymbol ? "text-emerald-600 font-medium" : "text-slate"}`}>
+                        {hasNumberOrSymbol ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
+                        <span>Includes a number or symbol</span>
+                      </li>
+                    </ul>
                     <div className="relative">
                       <input
                         id="password"
@@ -218,10 +237,19 @@ function ResetPasswordForm() {
                         required
                         autoComplete="new-password"
                         minLength={12}
+                        pattern="(?=.*[0-9!@#$%^&*()_+\-=\[\]{};':&quot;\\|,.<>/?`~]).{12,}"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        aria-describedby="reset-password-rules"
-                        className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                        onBlur={() => {
+                          if (password.length > 0) setPasswordTouched(true);
+                        }}
+                        aria-invalid={passwordTouched && !isPasswordValid ? "true" : "false"}
+                        aria-describedby={
+                          passwordTouched && !isPasswordValid
+                            ? "reset-password-rules reset-password-error"
+                            : "reset-password-rules"
+                        }
+                        className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger user-valid:border-emerald-600"
                         placeholder="Enter your new password"
                       />
                       <button
@@ -233,19 +261,11 @@ function ResetPasswordForm() {
                         {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                       </button>
                     </div>
-                    <p className="text-xs text-slate mt-1.5">
-                      Use a strong password you don&apos;t reuse elsewhere.
-                    </p>
-                    <ul id="reset-password-rules" className="mt-1.5 space-y-1 text-xs">
-                      <li className={`flex items-center gap-1.5 ${hasMinLength ? "text-emerald-600 font-medium" : "text-slate"}`}>
-                        {hasMinLength ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
-                        <span>At least 12 characters</span>
-                      </li>
-                      <li className={`flex items-center gap-1.5 ${hasNumberOrSymbol ? "text-emerald-600 font-medium" : "text-slate"}`}>
-                        {hasNumberOrSymbol ? <Check size={13} aria-hidden="true" /> : <Circle size={12} className="text-muted" aria-hidden="true" />}
-                        <span>Includes a number or symbol</span>
-                      </li>
-                    </ul>
+                    {passwordTouched && !isPasswordValid && (
+                      <p id="reset-password-error" className="mt-1.5 text-xs text-danger">
+                        <span role="img" aria-label="Error">❌</span> Password must meet all requirements listed above.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-ink mb-1.5" htmlFor="confirm">
@@ -260,7 +280,14 @@ function ResetPasswordForm() {
                         minLength={12}
                         value={confirmPassword}
                         onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                        onBlur={() => {
+                          if (confirmPassword.length > 0) setConfirmTouched(true);
+                        }}
+                        aria-invalid={confirmTouched && !isConfirmValid ? "true" : "false"}
+                        aria-describedby={
+                          confirmTouched && !isConfirmValid ? "reset-confirm-error" : undefined
+                        }
+                        className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger"
                         placeholder="••••••••"
                       />
                       <button
@@ -272,6 +299,11 @@ function ResetPasswordForm() {
                         {showConfirmPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
                       </button>
                     </div>
+                    {confirmTouched && !isConfirmValid && (
+                      <p id="reset-confirm-error" className="mt-1.5 text-xs text-danger">
+                        <span role="img" aria-label="Error">❌</span> Passwords do not match.
+                      </p>
+                    )}
                   </div>
                   <button
                     type="submit"

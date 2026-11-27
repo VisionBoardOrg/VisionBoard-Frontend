@@ -16,6 +16,7 @@ import {
   GanttMilestone,
   canAddDependency,
   calculateBaselineVariance,
+  formatPlainDateInput,
 } from "@/lib/gantt-engine";
 import { useConfirm } from "@/context/ConfirmContext";
 import { useModalA11y } from "@/hooks/useModalA11y";
@@ -44,10 +45,7 @@ export function MilestoneDetailDrawer(props: MilestoneDetailDrawerProps) {
 }
 
 function formatDateInput(val: Date | string | null | undefined): string {
-  if (!val) return "";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return "";
-  return d.toISOString().split("T")[0];
+  return formatPlainDateInput(val);
 }
 
 function MilestoneDetailDrawerContent({

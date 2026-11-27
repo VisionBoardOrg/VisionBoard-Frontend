@@ -21,7 +21,7 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
   const [upgradePrompt, setUpgradePrompt] = useState("");
   const [applied, setApplied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   useModalA11y(dialogRef, onClose, true, { initialFocusRef: inputRef });
@@ -161,23 +161,13 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
   }
 
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-ink/25 backdrop-blur-xs z-30"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal */}
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="nl-command-bar-title"
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 w-full max-w-xl px-4"
-      >
-        <div className="bg-white rounded-2xl border border-border shadow-xl overflow-hidden">
+    <dialog
+      ref={dialogRef}
+      closedby="any"
+      aria-labelledby="nl-command-bar-title"
+      className="m-auto w-[calc(100%-2rem)] max-w-xl p-0 bg-transparent border-0 backdrop:bg-ink/25 backdrop:backdrop-blur-xs"
+    >
+      <div className="bg-white rounded-2xl border border-border shadow-xl overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
             <Zap size={16} className="text-blue shrink-0" aria-hidden="true" />
@@ -323,7 +313,6 @@ export function NLCommandBar({ workspaceId, onClose, onAction }: NLCommandBarPro
             </div>
           )}
         </div>
-      </div>
-    </>
+    </dialog>
   );
 }

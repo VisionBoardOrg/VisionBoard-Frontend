@@ -145,6 +145,9 @@ export async function proxy(request: NextRequest) {
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   response.headers.set("Origin-Agent-Cluster", "?1");
+  response.headers.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+  response.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  response.headers.set("Reporting-Endpoints", 'csp-endpoint="/api/csp-report"');
 
   if (isHtmlRoute) {
     response.headers.set("Content-Security-Policy", buildCsp());

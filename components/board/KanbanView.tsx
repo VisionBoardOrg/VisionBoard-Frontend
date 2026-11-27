@@ -540,7 +540,7 @@ function KanbanColumn({
   return (
     <div
       ref={setNodeRef}
-      className={`w-80 shrink-0 bg-slate-100/70 rounded-2xl p-4 border transition-colors flex flex-col gap-3 min-h-[460px] ${
+      className={`kanban-column w-80 shrink-0 bg-slate-100/70 rounded-2xl p-4 border transition-colors flex flex-col gap-3 min-h-[460px] ${
         isOver ? "border-purple-400 bg-purple-50/40 ring-2 ring-purple-400/20" : "border-slate-200/70"
       }`}
     >

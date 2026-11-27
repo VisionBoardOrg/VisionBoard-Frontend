@@ -260,7 +260,7 @@ export function BoardCanvas({
     taskCount: number;
   } | null>(null);
 
-  const resetDialogRef = useRef<HTMLDivElement>(null);
+  const resetDialogRef = useRef<HTMLDialogElement>(null);
   useModalA11y(resetDialogRef, () => setPendingResetConfirmation(null), Boolean(pendingResetConfirmation));
 
   const lastDeleted = undoStack[undoStack.length - 1];
@@ -1841,26 +1841,20 @@ export function BoardCanvas({
 
       {/* Reset Child Tasks Confirmation Modal */}
       {pendingResetConfirmation && (
-        <div
-          className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setPendingResetConfirmation(null)}
+        <dialog
+          ref={resetDialogRef}
+          closedby="any"
+          aria-labelledby="reset-child-tasks-title"
+          className="m-auto bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-[calc(100%-2rem)] p-6 animate-in fade-in zoom-in-95 duration-150 backdrop:bg-slate-900/40 backdrop:backdrop-blur-sm"
         >
-          <div
-            ref={resetDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="reset-child-tasks-title"
-            onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150"
-          >
-            <div className="flex items-center gap-3 text-purple-600 mb-3">
-              <div className="p-2.5 bg-purple-50 rounded-xl">
-                <RotateCcw size={20} aria-hidden="true" />
-              </div>
-              <h3 id="reset-child-tasks-title" className="text-base font-bold text-slate-900">
-                Reset Child Tasks?
-              </h3>
+          <div className="flex items-center gap-3 text-purple-600 mb-3">
+            <div className="p-2.5 bg-purple-50 rounded-xl">
+              <RotateCcw size={20} aria-hidden="true" />
             </div>
+            <h2 id="reset-child-tasks-title" className="text-base font-bold text-slate-900">
+              Reset Child Tasks?
+            </h2>
+          </div>
             <p className="text-xs text-slate-600 leading-relaxed mb-6">
               You are moving{" "}
               <strong className="text-slate-900">
@@ -1901,8 +1895,7 @@ export function BoardCanvas({
                 Cancel
               </button>
             </div>
-          </div>
-        </div>
+        </dialog>
       )}
     </div>
   );

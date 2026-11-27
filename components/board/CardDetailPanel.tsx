@@ -668,7 +668,6 @@ function TaskRow({
           type="button"
           onClick={() => setStatusOpen(!statusOpen)}
           aria-expanded={statusOpen}
-          aria-haspopup="menu"
           aria-label={`Task status: ${STATUS_LABELS[task.status] ?? task.status}. Click to change.`}
           className="flex-shrink-0 hover:scale-110 transition-transform min-w-[24px] min-h-[24px] flex items-center justify-center cursor-pointer"
           title="Change status"
@@ -677,14 +676,13 @@ function TaskRow({
         </button>
         {statusOpen && (
           <div
-            role="menu"
+            role="group"
             aria-label="Change task status"
             className="absolute left-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-40"
           >
             {["todo", "in_progress", "in_review", "blocked", "done"].map((s) => (
               <button
                 type="button"
-                role="menuitem"
                 key={s}
                 onClick={() => {
                   setStatus(s);
@@ -729,7 +727,6 @@ function TaskRow({
               <button
                 type="button"
                 aria-expanded={dueDateOpen}
-                aria-haspopup="dialog"
                 aria-label={`Due date: ${displayDate}. Click to edit.`}
                 onClick={() => setDueDateOpen(!dueDateOpen)}
                 title={`Due date: ${isValid && dateObj ? dateObj.toLocaleDateString() : "None"} (Click to edit)`}
@@ -821,7 +818,6 @@ function TaskRow({
         <button
           type="button"
           aria-expanded={priorityOpen}
-          aria-haspopup="menu"
           aria-label={`Priority: ${task.priority || "medium"}. Click to change.`}
           onClick={() => setPriorityOpen(!priorityOpen)}
           title="Change priority"
@@ -840,7 +836,7 @@ function TaskRow({
 
         {priorityOpen && (
           <div
-            role="menu"
+            role="group"
             aria-label="Change task priority"
             className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-32 animate-in fade-in duration-150"
           >
@@ -852,7 +848,6 @@ function TaskRow({
             ].map((p) => (
               <button
                 type="button"
-                role="menuitem"
                 key={p.id}
                 onClick={() => {
                   setPriority(p.id);
@@ -875,7 +870,6 @@ function TaskRow({
         <button
           type="button"
           aria-expanded={assignOpen}
-          aria-haspopup="menu"
           aria-label="Assign people to task"
           onClick={() => setAssignOpen(!assignOpen)}
           title="Assign people"
@@ -914,7 +908,7 @@ function TaskRow({
 
         {assignOpen && (
           <div
-            role="menu"
+            role="group"
             aria-label="Task assignees"
             className="absolute right-0 top-6 z-50 bg-white border border-slate-200 rounded-xl shadow-lg py-1 w-56 max-h-72 overflow-y-auto"
           >
@@ -924,8 +918,7 @@ function TaskRow({
                 <div key={m.id} className="flex items-center gap-2 px-3 py-2 sm:py-1.5 hover:bg-slate-50">
                   <button
                     type="button"
-                    role="menuitemcheckbox"
-                    aria-checked={Boolean(assignment)}
+                    aria-pressed={Boolean(assignment)}
                     onClick={() => toggleAssignee(m.id)}
                     className="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer"
                   >

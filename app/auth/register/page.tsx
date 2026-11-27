@@ -144,9 +144,10 @@ function RegisterForm() {
                 required
                 autoComplete="name"
                 enterKeyHint="next"
+                aria-invalid="false"
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger"
                 placeholder="Ade Johnson"
               />
             </div>
@@ -161,9 +162,10 @@ function RegisterForm() {
                 autoComplete="username"
                 spellCheck={false}
                 enterKeyHint="next"
+                aria-invalid="false"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger"
                 placeholder="you@company.com"
               />
             </div>
@@ -216,7 +218,7 @@ function RegisterForm() {
               </div>
               {passwordTouched && !isPasswordValid && (
                 <p id="reg-password-error" className="mt-1.5 text-xs text-danger">
-                  Error: Password must meet all requirements listed above.
+                  <span role="img" aria-label="Error">❌</span> Password must meet all requirements listed above.
                 </p>
               )}
             </div>

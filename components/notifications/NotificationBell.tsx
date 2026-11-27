@@ -42,11 +42,31 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
 
   const closePopover = useCallback(() => {
     const el = popoverRef.current as (HTMLDivElement & { hidePopover?: () => void }) | null;
-    if (el && typeof el.hidePopover === "function" && el.matches(":popover-open")) {
-      el.hidePopover();
+    if (el && typeof el.hidePopover === "function") {
+      try {
+        if (el.matches(":popover-open")) {
+          el.hidePopover();
+        }
+      } catch {
+        // Ignore if popover state is not open
+      }
     }
     setIsOpen(false);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = popoverRef.current as (HTMLDivElement & { showPopover?: () => void }) | null;
+    if (el && typeof el.showPopover === "function") {
+      try {
+        if (!el.matches(":popover-open")) {
+          el.showPopover();
+        }
+      } catch {
+        // Fallback to standard positioned block if showPopover fails
+      }
+    }
+  }, [isOpen]);
 
   // Close dropdown on outside click or Escape for browsers without native Popover light-dismiss
   useEffect(() => {
@@ -108,12 +128,12 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
+        style={{ anchorName: "--notif-bell-anchor" } as React.CSSProperties}
         className={`relative min-w-10 min-h-10 flex items-center justify-center rounded-xl text-slate hover:text-ink hover:bg-offwhite transition-all cursor-pointer ${
           isOpen ? "bg-offwhite text-ink ring-2 ring-blue/20" : ""
         }`}
         title={bellLabel}
         aria-label={bellLabel}
-        aria-haspopup="dialog"
         aria-expanded={isOpen}
         aria-controls={POPOVER_ID}
       >
@@ -135,9 +155,11 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
         <div
           id={POPOVER_ID}
           ref={popoverRef}
+          popover="manual"
           role="region"
           aria-label="Notifications"
-          className="anchored-popover-end absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] bg-white border border-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150"
+          style={{ positionAnchor: "--notif-bell-anchor" } as React.CSSProperties}
+          className="anchored-popover-end absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] p-0 bg-white border border-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/80 bg-white sticky top-0 z-10">
@@ -167,7 +189,7 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
           <div
             role="tablist"
             aria-label="Notification categories"
-            className="flex items-center gap-1 px-3 py-2 bg-offwhite/50 border-b border-border/60 overflow-x-auto"
+            className="tablist-scroller flex items-center gap-1 px-3 py-2 bg-offwhite/50 border-b border-border/60"
           >
             {TABS.map((tab, idx) => {
               const Icon = tab.icon;
@@ -182,9 +204,11 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
                   role="tab"
                   id={`notif-tab-${tab.id}`}
                   aria-selected={isActive}
-                  aria-controls="notifications-panel"
                   tabIndex={isActive ? 0 : -1}
-                  onClick={() => setCategory(tab.id)}
+                  onClick={() => {
+                    setCategory(tab.id);
+                    tabRefs.current[idx]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+                  }}
                   onKeyDown={(e) => handleTabKeyDown(e, idx)}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all cursor-pointer ${
                     isActive

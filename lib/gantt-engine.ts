@@ -89,25 +89,122 @@ export function getPixelsPerDay(scale: TimeScale): number {
   }
 }
 
+// Minimal interface for the native Temporal API when available in the runtime
+interface TemporalPlainDateLike {
+  year: number;
+  month: number;
+  day: number;
+  toString(): string;
+  add(duration: { days: number }): TemporalPlainDateLike;
+  since(other: TemporalPlainDateLike, options?: { largestUnit?: string }): { days: number };
+}
+
+interface GlobalWithTemporal {
+  Temporal?: {
+    PlainDate: {
+      from(item: string | { year: number; month: number; day: number }): TemporalPlainDateLike;
+    };
+    Now: {
+      plainDateISO(): TemporalPlainDateLike;
+    };
+  };
+}
+
+function getTemporal() {
+  return (globalThis as unknown as GlobalWithTemporal).Temporal;
+}
+
+/**
+ * Location-agnostic calendar date formatter ("YYYY-MM-DD") using Temporal.PlainDate
+ * when available, avoiding UTC-to-local date shift bugs on date-only inputs.
+ */
+export function formatPlainDateInput(val: Date | string | null | undefined): string {
+  if (!val) return "";
+  if (typeof val === "string") {
+    const isoMatch = /^(\d{4}-\d{2}-\d{2})/.exec(val.trim());
+    if (isoMatch) {
+      const Temporal = getTemporal();
+      if (Temporal) {
+        try {
+          return Temporal.PlainDate.from(isoMatch[1]).toString();
+        } catch {
+          // Fall through
+        }
+      }
+      return isoMatch[1];
+    }
+  }
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return "";
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function normalizeDate(dateInput: Date | string | null | undefined): Date | null {
   if (!dateInput) return null;
+  if (typeof dateInput === "string") {
+    const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateInput.trim());
+    if (isoMatch) {
+      const Temporal = getTemporal();
+      if (Temporal) {
+        try {
+          const pd = Temporal.PlainDate.from(isoMatch[0]);
+          return new Date(pd.year, pd.month - 1, pd.day);
+        } catch {
+          // Fall through to numeric components
+        }
+      }
+      return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+    }
+  }
   const d = new Date(dateInput);
   if (isNaN(d.getTime())) return null;
-  // Standardize to midnight UTC/local
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 export function addDays(date: Date, days: number): Date {
-  const res = new Date(date);
+  const Temporal = getTemporal();
+  if (Temporal) {
+    try {
+      const pd = Temporal.PlainDate.from({
+        year: date.getFullYear(),
+        month: date.getMonth() + 1,
+        day: date.getDate(),
+      }).add({ days });
+      return new Date(pd.year, pd.month - 1, pd.day);
+    } catch {
+      // Fallback below
+    }
+  }
+  const res = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   res.setDate(res.getDate() + days);
   return res;
 }
 
 export function diffDays(dateA: Date, dateB: Date): number {
-  const normA = new Date(dateA.getFullYear(), dateA.getMonth(), dateA.getDate());
-  const normB = new Date(dateB.getFullYear(), dateB.getMonth(), dateB.getDate());
-  const diffTime = normA.getTime() - normB.getTime();
-  return Math.round(diffTime / (1000 * 60 * 60 * 24));
+  const Temporal = getTemporal();
+  if (Temporal) {
+    try {
+      const pdA = Temporal.PlainDate.from({
+        year: dateA.getFullYear(),
+        month: dateA.getMonth() + 1,
+        day: dateA.getDate(),
+      });
+      const pdB = Temporal.PlainDate.from({
+        year: dateB.getFullYear(),
+        month: dateB.getMonth() + 1,
+        day: dateB.getDate(),
+      });
+      return pdA.since(pdB, { largestUnit: "days" }).days;
+    } catch {
+      // Fallback below
+    }
+  }
+  const utcA = Date.UTC(dateA.getFullYear(), dateA.getMonth(), dateA.getDate());
+  const utcB = Date.UTC(dateB.getFullYear(), dateB.getMonth(), dateB.getDate());
+  return Math.round((utcA - utcB) / (1000 * 60 * 60 * 24));
 }
 
 /**

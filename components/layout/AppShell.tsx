@@ -132,15 +132,39 @@ function AppShellContent({
   const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const [isMac, setIsMac] = useState(false);
 
-  const mobileDrawerRef = useRef<HTMLElement>(null);
+  const mobileDrawerRef = useRef<HTMLDialogElement>(null);
+  const mobileDrawerContentRef = useRef<HTMLDivElement>(null);
   const wsMenuRef = useRef<HTMLDivElement>(null);
 
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
 
-  // Accessible mobile drawer focus trap, Escape handling, scroll lock, and focus restoration
+  // Accessible mobile drawer focus trap, Escape handling, top-layer promotion, and focus restoration
   useModalA11y(mobileDrawerRef, closeMobile, mobileOpen);
+
+  // Scroll-snap swipe-to-dismiss observer for mobile navigation drawer
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const dialog = mobileDrawerRef.current;
+    const content = mobileDrawerContentRef.current;
+    if (!dialog || !content || typeof IntersectionObserver === "undefined") return;
+
+    content.scrollIntoView({ behavior: "instant" as ScrollBehavior, inline: "end" });
+    let hasEntered = false;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          hasEntered = true;
+        } else if (hasEntered) {
+          closeMobile();
+        }
+      },
+      { root: dialog, threshold: 0.1 }
+    );
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [mobileOpen, closeMobile]);
 
   // Detect platform for keyboard shortcut hint
   useEffect(() => {
@@ -321,7 +345,7 @@ function AppShellContent({
                         type="button"
                         onClick={() => setWsMenuOpen((prev) => !prev)}
                         aria-expanded={wsMenuOpen}
-                        aria-haspopup="menu"
+                        aria-controls="workspace-switcher-panel"
                         className="w-full flex items-center justify-between gap-2 px-2 py-2 rounded-xl bg-offwhite/80 hover:bg-offwhite border border-border/80 text-left transition-colors cursor-pointer"
                       >
                         <div className="min-w-0 flex-1">
@@ -349,7 +373,8 @@ function AppShellContent({
 
                       {wsMenuOpen && (
                         <div
-                          role="menu"
+                          id="workspace-switcher-panel"
+                          role="group"
                           aria-label="Switch workspace"
                           className="absolute left-1 right-1 top-full mt-1 z-30 bg-white border border-border rounded-xl shadow-lg py-1 max-h-60 overflow-y-auto"
                         >
@@ -358,7 +383,6 @@ function AppShellContent({
                             return (
                               <Link
                                 key={ws.id}
-                                role="menuitem"
                                 href={`/workspace/${ws.id}/workspace`}
                                 prefetch={false}
                                 onClick={() => {
@@ -380,7 +404,6 @@ function AppShellContent({
                           })}
                           <div className="my-1 border-t border-border/70" />
                           <Link
-                            role="menuitem"
                             href="/workspaces"
                             prefetch={false}
                             onClick={() => {
@@ -577,39 +600,38 @@ function AppShellContent({
       {/* Real-time floating Notification Toast banner */}
       <NotificationToast event={latestLiveEvent} onDismiss={dismissToast} />
 
-      {/* ── Mobile drawer overlay ── */}
+      {/* ── Mobile drawer (native Top-Layer <dialog> with horizontal scroll-snap dismissal) ── */}
       {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
-          aria-hidden="true"
-          onClick={closeMobile}
-        />
-      )}
-
-      {/* ── Mobile drawer ── */}
-      <aside
-        id="mobile-sidebar-drawer"
-        ref={mobileDrawerRef}
-        inert={!mobileOpen}
-        aria-hidden={!mobileOpen}
-        role={mobileOpen ? "dialog" : undefined}
-        aria-modal={mobileOpen ? true : undefined}
-        aria-label="Mobile navigation"
-        className={`fixed inset-y-0 left-0 z-50 flex flex-col bg-white border-r border-border w-64 transform transition-transform duration-300 md:hidden ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {/* Close button */}
-        <button
-          type="button"
-          onClick={closeMobile}
-          className="absolute top-2 right-2 min-w-10 min-h-10 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-offwhite transition-colors cursor-pointer"
-          aria-label="Close navigation"
+        <dialog
+          id="mobile-sidebar-drawer"
+          ref={mobileDrawerRef}
+          closedby="any"
+          aria-label="Mobile navigation"
+          className="fixed inset-0 m-0 p-0 w-screen h-dvh max-w-none max-h-none bg-transparent border-0 flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain md:hidden backdrop:bg-black/40"
         >
-          <X size={18} aria-hidden="true" />
-        </button>
-        {renderSidebarContent(true, closeMobile)}
-      </aside>
+          <div
+            ref={mobileDrawerContentRef}
+            className="relative snap-start shrink-0 flex flex-col bg-white border-r border-border w-64 h-dvh"
+          >
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={closeMobile}
+              className="absolute top-2 right-2 min-w-10 min-h-10 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-offwhite transition-colors cursor-pointer"
+              aria-label="Close navigation"
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+            {renderSidebarContent(true, closeMobile)}
+          </div>
+          {/* Snap target for swipe-to-close gesture & backdrop tap */}
+          <div
+            className="snap-end shrink-0 w-screen h-dvh"
+            aria-hidden="true"
+            onClick={closeMobile}
+          />
+        </dialog>
+      )}
 
       {/* ── Desktop sidebar ── */}
       <aside

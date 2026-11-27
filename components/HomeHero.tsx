@@ -93,26 +93,6 @@ export default function HomeHero() {
           <span>Progress Intelligence</span>
         </div>
       </div>
-
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-            @keyframes marquee {
-                0% { transform: translateX(0%); }
-                100% { transform: translateX(-50%); }
-            }
-            .animate-marquee {
-                will-change: transform;
-                animation: marquee 20s linear infinite;
-            }
-            @media (prefers-reduced-motion: reduce) {
-                .animate-marquee {
-                    animation: none;
-                }
-            }
-        `,
-        }}
-      />
     </section>
   );
 }

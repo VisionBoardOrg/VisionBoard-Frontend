@@ -29,8 +29,16 @@ const securityHeaders = [
     value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
   },
   {
-    key: "X-XSS-Protection",
-    value: "1; mode=block",
+    key: "Cross-Origin-Opener-Policy",
+    value: "same-origin-allow-popups",
+  },
+  {
+    key: "Cross-Origin-Resource-Policy",
+    value: "same-origin",
+  },
+  {
+    key: "Reporting-Endpoints",
+    value: 'csp-endpoint="/api/csp-report"',
   },
   {
     key: "Content-Security-Policy",

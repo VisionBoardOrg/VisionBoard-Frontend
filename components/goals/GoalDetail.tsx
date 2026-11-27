@@ -26,6 +26,7 @@ import { MentionInput, renderMentionedBody } from "@/components/ui/MentionInput"
 import { useConfirm } from "@/context/ConfirmContext";
 import { useToast } from "@/context/ToastContext";
 import { GoalHealthScore } from "@/components/dashboard/GoalHealthScore";
+import { formatPlainDateInput } from "@/lib/gantt-engine";
 
 interface KeyResult {
   id: string;
@@ -104,10 +105,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 const VALID_PRIORITIES = new Set(["low", "medium", "high", "urgent"]);
 
 function formatDateInput(val: Date | string | null | undefined): string {
-  if (!val) return "";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return "";
-  return d.toISOString().split("T")[0];
+  return formatPlainDateInput(val);
 }
 
 export function GoalDetail({ goal, workspaceId, userId, canEdit = true }: GoalDetailProps) {

@@ -34,12 +34,19 @@
 
 /* Viewport-wide color-scheme and browser UI theming */
 :root {
-  color-scheme: light;
-  accent-color: var(--color-blue);
-  --scrollbar-thumb: #64748B;
-  --scrollbar-track: #F1F5F9;
+  color-scheme: light dark;
+  accent-color: light-dark(var(--color-blue), var(--color-cyan));
+  --scrollbar-thumb: light-dark(#64748B, #94A3B8);
+  --scrollbar-track: light-dark(#F1F5F9, #1E293B);
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --scrollbar-thumb: #94A3B8;
+    --scrollbar-track: #1E293B;
+  }
 }
 
 /* Balanced headings & orphan-preventing body copy */
@@ -88,6 +95,99 @@ details:not([open])::details-content {
 .content-deferred {
   content-visibility: auto;
   contain-intrinsic-size: auto none auto 480px;
+}
+
+/* Complex multi-column Kanban layout isolation */
+.kanban-column {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 320px auto 500px;
+}
+
+@supports not (content-visibility: auto) {
+  .kanban-column {
+    contain: layout style paint;
+  }
+}
+
+/* Scroll-driven tablist edge fade & non-color active tab underline indicator */
+@property --fade-start {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --fade-end {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes reveal-fade-start {
+  0% { --fade-start: 0px; }
+  5%, 100% { --fade-start: 2.5rem; }
+}
+
+@keyframes hide-fade-end {
+  0%, 95% { --fade-end: 2.5rem; }
+  100% { --fade-end: 0px; }
+}
+
+.tablist-scroller {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--fade-start),
+    black calc(100% - var(--fade-end)),
+    transparent
+  );
+  animation:
+    reveal-fade-start linear both,
+    hide-fade-end linear both;
+  animation-timeline: scroll(self inline);
+}
+
+[role="tab"] {
+  position: relative;
+}
+
+[role="tab"][aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  border-block-end: 2px solid currentColor;
+  pointer-events: none;
+}
+
+/* Mobile navigation drawer horizontal scroll-snap & scroll-driven backdrop */
+@property --drawer-backdrop {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes drawer-backdrop-fade {
+  from { --drawer-backdrop: 0; }
+  to   { --drawer-backdrop: 1; }
+}
+
+/* Marquee animation moved from inline <style> so CSP does not require unsafe-inline */
+@keyframes marquee {
+  0% { transform: translateX(0%); }
+  100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+  will-change: transform;
+  animation: marquee 20s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
 }
 
 /* Single-line text overflow detection & accessible hover/focus-visible reveal */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -56,6 +56,22 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
 
   const statusFilter = ["all", "active", "draft", "completed", "cancelled"] as const;
   const [filter, setFilter] = useState<"all" | "active" | "draft" | "completed" | "cancelled">("all");
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function handleTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
+    let nextIdx: number | null = null;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % statusFilter.length;
+    else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + statusFilter.length) % statusFilter.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = statusFilter.length - 1;
+    if (nextIdx !== null) {
+      e.preventDefault();
+      setFilter(statusFilter[nextIdx]);
+      const nextBtn = tabRefs.current[nextIdx];
+      nextBtn?.focus();
+      nextBtn?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
 
   const filtered = filter === "all" ? goals : goals.filter((g) => g.status === filter);
 
@@ -80,18 +96,34 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex gap-1 flex-wrap">
-        {statusFilter.map((s) => (
-          <button
-            key={s}
-            onClick={() => setFilter(s)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
-              filter === s ? "bg-blue text-white" : "bg-white border border-border text-slate hover:bg-offwhite"
-            }`}
-          >
-            {s}
-          </button>
-        ))}
+      <div
+        role="tablist"
+        aria-label="Filter goals by status"
+        className="tablist-scroller flex gap-1 flex-wrap"
+      >
+        {statusFilter.map((s, idx) => {
+          const isActive = filter === s;
+          return (
+            <button
+              key={s}
+              ref={(el) => { tabRefs.current[idx] = el; }}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => {
+                setFilter(s);
+                tabRefs.current[idx]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+              }}
+              onKeyDown={(e) => handleTabKeyDown(e, idx)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+                isActive ? "bg-blue text-white" : "bg-white border border-border text-slate hover:bg-offwhite"
+              }`}
+            >
+              {s}
+            </button>
+          );
+        })}
       </div>
 
       {/* New Goal modal */}

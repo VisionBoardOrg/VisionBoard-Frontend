@@ -152,7 +152,7 @@ export function WorkspaceRenameInline({
 
 /** Copyable developer workspace ID chip for workspace settings. */
 export function WorkspaceIdCopy({ workspaceId }: { workspaceId: string }) {
-  const { copied, copyError, copy } = useClipboard();
+  const { copied, copyError, statusMessage, copy } = useClipboard();
 
   return (
     <div className="mt-4 pt-4 border-t border-border">
@@ -165,11 +165,16 @@ export function WorkspaceIdCopy({ workspaceId }: { workspaceId: string }) {
           type="button"
           onClick={() => void copy(workspaceId)}
           aria-label="Copy workspace ID"
+          data-copied={copied ? "true" : undefined}
+          data-failed={copyError ? "true" : undefined}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-border text-slate hover:text-ink hover:bg-offwhite transition-colors self-start sm:self-auto shrink-0 cursor-pointer"
         >
           {copied ? <Check size={12} className="text-emerald-600" aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
           {copied ? "Copied" : "Copy ID"}
         </button>
+        <span role="status" className="sr-only">
+          {statusMessage}
+        </span>
       </div>
       {copyError && (
         <p role="alert" className="text-xs text-danger mt-1.5">{copyError}</p>

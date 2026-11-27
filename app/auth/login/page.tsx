@@ -26,6 +26,7 @@ function LoginForm() {
     : "";
 
   const [form, setForm] = useState({ email: "", password: "" });
+  const [touched, setTouched] = useState({ email: false, password: false });
   const [error, setError] = useState(urlError);
   const [deletionEmail, setDeletionEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -170,9 +171,23 @@ function LoginForm() {
                 enterKeyHint="next"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                onBlur={() => {
+                  if (form.email.length > 0) setTouched((prev) => ({ ...prev, email: true }));
+                }}
+                aria-invalid={touched.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) ? "true" : "false"}
+                aria-describedby={
+                  touched.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)
+                    ? "login-email-error"
+                    : undefined
+                }
+                className="w-full border border-border rounded-xl px-4 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger"
                 placeholder="you@company.com"
               />
+              {touched.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) && (
+                <p id="login-email-error" className="mt-1.5 text-xs text-danger">
+                  <span role="img" aria-label="Error">❌</span> Please enter a valid email address.
+                </p>
+              )}
             </div>
 
             <div>
@@ -194,7 +209,11 @@ function LoginForm() {
                   enterKeyHint="done"
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors"
+                  onBlur={() => {
+                    if (form.password.length > 0) setTouched((prev) => ({ ...prev, password: true }));
+                  }}
+                  aria-invalid={touched.password && form.password.length === 0 ? "true" : "false"}
+                  className="w-full border border-border rounded-xl px-4 py-2.5 pr-10 text-sm text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30 focus:border-blue transition-colors user-invalid:border-danger"
                   placeholder="••••••••"
                 />
                 <button

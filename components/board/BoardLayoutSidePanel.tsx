@@ -23,28 +23,18 @@ export function BoardLayoutSidePanel({
   columnCount = 4,
   totalItemsCount = 0,
 }: BoardLayoutSidePanelProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDialogElement>(null);
   useModalA11y(panelRef, onClose, isOpen);
 
   if (!isOpen) return null;
 
   return (
-    <>
-      {/* Backdrop overlay */}
-      <div
-        className="fixed inset-0 bg-slate-900/20 backdrop-blur-xs z-40 transition-opacity"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Side Panel Drawer */}
-      <div
-        ref={panelRef}
-        className="fixed top-0 right-0 bottom-0 w-80 sm:w-96 bg-white border-l border-slate-200 shadow-2xl z-50 flex flex-col transform transition-transform duration-300 ease-in-out"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="board-layout-panel-title"
-      >
+    <dialog
+      ref={panelRef}
+      closedby="any"
+      aria-labelledby="board-layout-panel-title"
+      className="fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-dvh w-80 sm:w-96 p-0 bg-white border-l border-slate-200 shadow-2xl flex flex-col backdrop:bg-slate-900/20 backdrop:backdrop-blur-xs"
+    >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
@@ -232,7 +222,6 @@ export function BoardLayoutSidePanel({
             Done
           </button>
         </div>
-      </div>
-    </>
+    </dialog>
   );
 }

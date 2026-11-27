@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { X, Plus, Layers, Link2, AlertCircle, Target } from "lucide-react";
-import { GanttMilestone } from "@/lib/gantt-engine";
+import { GanttMilestone, addDays, formatPlainDateInput } from "@/lib/gantt-engine";
 import { useModalA11y } from "@/hooks/useModalA11y";
 
 interface NewMilestoneModalProps {
@@ -17,11 +17,19 @@ interface NewMilestoneModalProps {
 }
 
 function defaultStartDateStr() {
-  return new Date().toISOString().split("T")[0];
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return formatPlainDateInput(`${y}-${m}-${d}`);
 }
 
 function defaultTargetDateStr() {
-  return new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const target = addDays(new Date(), 14);
+  const y = target.getFullYear();
+  const m = String(target.getMonth() + 1).padStart(2, "0");
+  const d = String(target.getDate()).padStart(2, "0");
+  return formatPlainDateInput(`${y}-${m}-${d}`);
 }
 
 export function NewMilestoneModal({
@@ -34,7 +42,7 @@ export function NewMilestoneModal({
   onCreated,
   onCreateGoalClick,
 }: NewMilestoneModalProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [goalId, setGoalId] = useState(defaultGoalId || goals[0]?.id || "");
@@ -126,29 +134,22 @@ export function NewMilestoneModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !submitting) onClose();
-      }}
+    <dialog
+      ref={dialogRef}
+      closedby="any"
+      aria-labelledby="new-milestone-modal-title"
+      className="m-auto bg-white rounded-2xl border border-border shadow-2xl max-w-md w-[calc(100%-2rem)] p-6 space-y-5 animate-in zoom-in-95 duration-200 max-h-[90dvh] overflow-y-auto backdrop:bg-ink/40 backdrop:backdrop-blur-xs"
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-milestone-modal-title"
-        className="bg-white rounded-2xl border border-border shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-200 max-h-[90dvh] overflow-y-auto"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-blue/10 border border-blue/20 flex items-center justify-center">
-              <Layers size={16} className="text-blue" aria-hidden="true" />
-            </div>
-            <h3 id="new-milestone-modal-title" className="font-bold text-ink text-base">
-              New Milestone
-            </h3>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-blue/10 border border-blue/20 flex items-center justify-center">
+            <Layers size={16} className="text-blue" aria-hidden="true" />
           </div>
+          <h2 id="new-milestone-modal-title" className="font-bold text-ink text-base">
+            New Milestone
+          </h2>
+        </div>
           <button
             type="button"
             onClick={onClose}
@@ -396,7 +397,6 @@ export function NewMilestoneModal({
             </div>
           </form>
         )}
-      </div>
-    </div>
+    </dialog>
   );
 }

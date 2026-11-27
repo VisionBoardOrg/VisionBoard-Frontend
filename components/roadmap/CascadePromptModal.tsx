@@ -24,7 +24,7 @@ export function CascadePromptModal({
   onApplySingleOnly,
   onCancel,
 }: CascadePromptModalProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const active = isOpen && shifts.length > 0;
 
   useModalA11y(
@@ -38,28 +38,21 @@ export function CascadePromptModal({
   if (!active) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink/40 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isSubmitting) onCancel();
-      }}
+    <dialog
+      ref={dialogRef}
+      closedby="any"
+      aria-labelledby="cascade-prompt-title"
+      className="m-auto bg-white rounded-2xl border border-border shadow-2xl max-w-lg w-[calc(100%-2rem)] p-6 space-y-5 animate-in zoom-in-95 duration-200 backdrop:bg-ink/40 backdrop:backdrop-blur-xs"
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cascade-prompt-title"
-        className="bg-white rounded-2xl border border-border shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95 duration-200"
-      >
-        {/* Header */}
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
-            <AlertTriangle size={20} className="text-amber-600" aria-hidden="true" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 id="cascade-prompt-title" className="font-bold text-ink text-base">
-              Schedule Cascade Detected
-            </h3>
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+          <AlertTriangle size={20} className="text-amber-600" aria-hidden="true" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 id="cascade-prompt-title" className="font-bold text-ink text-base">
+            Schedule Cascade Detected
+          </h2>
             <p className="text-xs text-slate mt-0.5">
               Shifting <span className="font-semibold text-ink">&ldquo;{shiftedMilestoneTitle}&rdquo;</span> impacts{" "}
               <span className="font-semibold text-amber-600">
@@ -129,6 +122,7 @@ export function CascadePromptModal({
           </button>
 
           <button
+            type="button"
             onClick={onCancel}
             disabled={isSubmitting}
             className="px-3 py-2.5 text-xs text-muted hover:text-danger rounded-xl transition-colors"
@@ -136,7 +130,6 @@ export function CascadePromptModal({
             Revert
           </button>
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }

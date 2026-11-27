@@ -33,6 +33,7 @@ import type { ExecutedBoardAction } from "@/lib/ai/board-action-executor";
 import type { TaskAssigneeSimple } from "@/types/board";
 import { useBoardStore } from "@/store/board-store";
 import { useModalA11y } from "@/hooks/useModalA11y";
+import { useClipboard } from "@/hooks/useClipboard";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -342,6 +343,15 @@ export function AICopilotDrawer({
   const [isStreaming, setIsStreaming] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const { statusMessage: copyStatusMessage, copy: copyText } = useClipboard();
+  const copilotTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const copilotPanelRefs = useRef<Record<CopilotTab, HTMLDivElement | null>>({
+    chat: null,
+    executive: null,
+    standup: null,
+    knowledge: null,
+    roadmap: null,
+  });
   const [feedbackByMsg, setFeedbackByMsg] = useState<Record<string, "up" | "down">>({});
   const [chatError, setChatError] = useState<TabError | null>(null);
 
@@ -798,11 +808,57 @@ export function AICopilotDrawer({
     }
   };
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const copyToClipboard = async (text: string, id: string) => {
+    const ok = await copyText(text);
+    if (ok) {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
   };
+
+  const COPILOT_TABS: CopilotTab[] = ["chat", "executive", "standup", "knowledge", "roadmap"];
+
+  const selectCopilotTab = useCallback((tab: CopilotTab, idx?: number, focus = false) => {
+    setActiveTab(tab);
+    const targetIdx = idx ?? COPILOT_TABS.indexOf(tab);
+    const btn = copilotTabRefs.current[targetIdx];
+    if (btn) {
+      if (focus) btn.focus();
+      btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, []);
+
+  const handleCopilotTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>, idx: number) => {
+    let nextIdx: number | null = null;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % COPILOT_TABS.length;
+    else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + COPILOT_TABS.length) % COPILOT_TABS.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = COPILOT_TABS.length - 1;
+    if (nextIdx !== null) {
+      e.preventDefault();
+      selectCopilotTab(COPILOT_TABS[nextIdx], nextIdx, true);
+    }
+  };
+
+  // Support hidden="until-found" beforematch so browser Find-in-Page switches to matching tab
+  useEffect(() => {
+    const cleanups: Array<() => void> = [];
+    for (const tab of COPILOT_TABS) {
+      const panel = copilotPanelRefs.current[tab];
+      if (!panel) continue;
+      if (activeTab === tab) {
+        panel.removeAttribute("hidden");
+      } else {
+        panel.setAttribute("hidden", "until-found");
+      }
+      const onBeforeMatch = () => {
+        selectCopilotTab(tab);
+      };
+      panel.addEventListener("beforematch", onBeforeMatch);
+      cleanups.push(() => panel.removeEventListener("beforematch", onBeforeMatch));
+    }
+    return () => cleanups.forEach((fn) => fn());
+  }, [activeTab, selectCopilotTab]);
 
   // ── Roadmap Generator Handlers ──
 
@@ -970,11 +1026,10 @@ export function AICopilotDrawer({
         />
       )}
 
-      {/* ── Slide-Over Drawer ── */}
+      {/* ── Slide-Over Drawer (non-modal on desktop per dialog Rule 2) ── */}
       <div
         ref={drawerRef}
         role="dialog"
-        aria-modal="true"
         aria-label="AI Copilot"
         aria-hidden={!isOpen}
         inert={!isOpen}
@@ -1027,12 +1082,12 @@ export function AICopilotDrawer({
 
         {/* ── Context & Navigation Sub-header ── */}
         <div className="px-4 py-2 bg-offwhite border-b border-border/80 flex items-center justify-between text-xs shrink-0 gap-2">
-          {/* Tabs with subtle right-edge scroll fade affordance */}
+          {/* Tabs with scroll-driven edge fade */}
           <div className="relative min-w-0 flex-1">
             <div
               role="tablist"
               aria-label="Copilot tools"
-              className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5 pr-6"
+              className="tablist-scroller flex items-center gap-1 no-scrollbar py-0.5"
               onWheel={(e) => {
                 if (e.deltaY !== 0 && e.deltaX === 0) {
                   e.currentTarget.scrollLeft += e.deltaY;
@@ -1040,10 +1095,14 @@ export function AICopilotDrawer({
               }}
             >
               <button
+                ref={(el) => { copilotTabRefs.current[0] = el; }}
+                id="copilot-tab-chat"
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "chat"}
-                onClick={() => setActiveTab("chat")}
+                tabIndex={activeTab === "chat" ? 0 : -1}
+                onClick={() => selectCopilotTab("chat", 0)}
+                onKeyDown={(e) => handleCopilotTabKeyDown(e, 0)}
                 className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                   activeTab === "chat"
                     ? "bg-blue text-white shadow-xs"
@@ -1053,10 +1112,14 @@ export function AICopilotDrawer({
                 <Bot size={13} aria-hidden="true" /> Chat
               </button>
               <button
+                ref={(el) => { copilotTabRefs.current[1] = el; }}
+                id="copilot-tab-executive"
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "executive"}
-                onClick={() => setActiveTab("executive")}
+                tabIndex={activeTab === "executive" ? 0 : -1}
+                onClick={() => selectCopilotTab("executive", 1)}
+                onKeyDown={(e) => handleCopilotTabKeyDown(e, 1)}
                 className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                   activeTab === "executive"
                     ? "bg-blue text-white shadow-xs"
@@ -1066,10 +1129,14 @@ export function AICopilotDrawer({
                 <TrendingUp size={13} aria-hidden="true" /> Executive
               </button>
               <button
+                ref={(el) => { copilotTabRefs.current[2] = el; }}
+                id="copilot-tab-standup"
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "standup"}
-                onClick={() => setActiveTab("standup")}
+                tabIndex={activeTab === "standup" ? 0 : -1}
+                onClick={() => selectCopilotTab("standup", 2)}
+                onKeyDown={(e) => handleCopilotTabKeyDown(e, 2)}
                 className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                   activeTab === "standup"
                     ? "bg-blue text-white shadow-xs"
@@ -1079,10 +1146,14 @@ export function AICopilotDrawer({
                 <ListTodo size={13} aria-hidden="true" /> Standup
               </button>
               <button
+                ref={(el) => { copilotTabRefs.current[3] = el; }}
+                id="copilot-tab-knowledge"
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "knowledge"}
-                onClick={() => setActiveTab("knowledge")}
+                tabIndex={activeTab === "knowledge" ? 0 : -1}
+                onClick={() => selectCopilotTab("knowledge", 3)}
+                onKeyDown={(e) => handleCopilotTabKeyDown(e, 3)}
                 className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                   activeTab === "knowledge"
                     ? "bg-blue text-white shadow-xs"
@@ -1092,10 +1163,14 @@ export function AICopilotDrawer({
                 <Database size={13} aria-hidden="true" /> Sync
               </button>
               <button
+                ref={(el) => { copilotTabRefs.current[4] = el; }}
+                id="copilot-tab-roadmap"
                 type="button"
                 role="tab"
                 aria-selected={activeTab === "roadmap"}
-                onClick={() => setActiveTab("roadmap")}
+                tabIndex={activeTab === "roadmap" ? 0 : -1}
+                onClick={() => selectCopilotTab("roadmap", 4)}
+                onKeyDown={(e) => handleCopilotTabKeyDown(e, 4)}
                 className={`px-2.5 py-1 rounded-lg font-medium transition-colors cursor-pointer flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                   activeTab === "roadmap"
                     ? "bg-blue text-white shadow-xs"
@@ -1105,10 +1180,6 @@ export function AICopilotDrawer({
                 <Rocket size={13} aria-hidden="true" /> Roadmap
               </button>
             </div>
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute top-0 right-0 bottom-0 w-6 bg-gradient-to-l from-offwhite to-transparent"
-            />
           </div>
 
           {/* Credits Counter */}
@@ -1144,11 +1215,18 @@ export function AICopilotDrawer({
           </div>
         </div>
 
-        {/* ── Tab Content ── */}
+        {/* ── Tab Content (kept in DOM with hidden="until-found" for Find-in-Page) ── */}
+        <span role="status" className="sr-only">
+          {copyStatusMessage}
+        </span>
 
         {/* TAB 1: Chat & Q&A */}
-        {activeTab === "chat" && (
-          <div className="flex-1 flex flex-col min-h-0 bg-white">
+        <div
+          ref={(el) => { copilotPanelRefs.current.chat = el; }}
+          role="tabpanel"
+          aria-labelledby="copilot-tab-chat"
+          className={activeTab === "chat" ? "flex-1 flex flex-col min-h-0 bg-white" : "hidden"}
+        >
             {/* Message History */}
             <div
               ref={messagesScrollRef}
@@ -1268,7 +1346,9 @@ export function AICopilotDrawer({
                           <div className="flex items-center justify-between pt-1 border-t border-border/40 text-[10px] text-slate-400">
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() => copyToClipboard(msg.content, msg.id)}
+                                type="button"
+                                aria-label="Copy assistant response"
+                                onClick={() => void copyToClipboard(msg.content, msg.id)}
                                 className="flex items-center gap-1 hover:text-ink transition-colors cursor-pointer"
                               >
                                 {copiedId === msg.id ? (
@@ -1411,11 +1491,14 @@ export function AICopilotDrawer({
               </div>
             </div>
           </div>
-        )}
 
         {/* TAB 2: Executive Summary */}
-        {activeTab === "executive" && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
+        <div
+          ref={(el) => { copilotPanelRefs.current.executive = el; }}
+          role="tabpanel"
+          aria-labelledby="copilot-tab-executive"
+          className={activeTab === "executive" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+        >
             <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 flex items-start gap-3">
               <TrendingUp size={20} className="text-blue shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1538,11 +1621,14 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
-        )}
 
         {/* TAB 3: Daily Standup */}
-        {activeTab === "standup" && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
+        <div
+          ref={(el) => { copilotPanelRefs.current.standup = el; }}
+          role="tabpanel"
+          aria-labelledby="copilot-tab-standup"
+          className={activeTab === "standup" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+        >
             <div className="p-4 rounded-2xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-100 flex items-start gap-3">
               <ListTodo size={20} className="text-emerald-600 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1631,11 +1717,14 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
-        )}
 
         {/* TAB 4: Knowledge Base Sync */}
-        {activeTab === "knowledge" && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
+        <div
+          ref={(el) => { copilotPanelRefs.current.knowledge = el; }}
+          role="tabpanel"
+          aria-labelledby="copilot-tab-knowledge"
+          className={activeTab === "knowledge" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+        >
             <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 flex items-start gap-3">
               <Database size={20} className="text-purple-600 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1789,11 +1878,14 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
-        )}
 
         {/* TAB 5: Roadmap Generator */}
-        {activeTab === "roadmap" && (
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white">
+        <div
+          ref={(el) => { copilotPanelRefs.current.roadmap = el; }}
+          role="tabpanel"
+          aria-labelledby="copilot-tab-roadmap"
+          className={activeTab === "roadmap" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+        >
             {/* Roadmap Header Card */}
             <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 flex items-start gap-3">
               <Rocket size={20} className="text-orange shrink-0 mt-0.5" />
@@ -2119,7 +2211,6 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
-        )}
       </div>
     </>
   );

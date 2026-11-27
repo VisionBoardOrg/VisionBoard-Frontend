@@ -186,7 +186,7 @@ export function BoardToolbar({
   const [msCreating, setMsCreating] = useState(false);
   const [msError, setMsError] = useState("");
   const msTitleRef = useRef<HTMLInputElement>(null);
-  const msDialogRef = useRef<HTMLDivElement>(null);
+  const msDialogRef = useRef<HTMLDialogElement>(null);
   useModalA11y(msDialogRef, () => setMsModalOpen(false), msModalOpen, {
     initialFocusRef: msTitleRef,
   });
@@ -444,7 +444,7 @@ export function BoardToolbar({
             title={layoutMode === "kanban" ? "Add milestone" : "Add card"}
             aria-label={layoutMode === "kanban" ? "Add milestone" : "Add card"}
             aria-expanded={menuOpen}
-            aria-haspopup="menu"
+            aria-controls="board-toolbar-add-panel"
             className="flex items-center gap-1 p-1.5 text-slate hover:text-ink hover:bg-offwhite rounded-lg transition-colors disabled:opacity-50 cursor-pointer"
           >
             <Plus size={15} aria-hidden="true" />
@@ -460,8 +460,9 @@ export function BoardToolbar({
           menuPos &&
           createPortal(
             <div
+              id="board-toolbar-add-panel"
               ref={menuPortalRef}
-              role="menu"
+              role="group"
               aria-label={layoutMode === "kanban" ? "Add milestone" : "Add card"}
               className="fixed z-[60] bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[205px]"
               style={{ left: menuPos.left, bottom: menuPos.bottom }}
@@ -470,7 +471,6 @@ export function BoardToolbar({
               {layoutMode === "canvas" && (
                 <button
                   type="button"
-                  role="menuitem"
                   onClick={() => createItem("note")}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
                 >
@@ -484,7 +484,6 @@ export function BoardToolbar({
                 <>
                   <button
                     type="button"
-                    role="menuitem"
                     onClick={() => {
                       setMenuOpen(false);
                       setGoalModalOpen(true);
@@ -498,7 +497,6 @@ export function BoardToolbar({
                   {goals.length > 0 && (
                     <button
                       type="button"
-                      role="menuitem"
                       aria-expanded={pickerType === "goal"}
                       onClick={() => setPickerType(pickerType === "goal" ? null : "goal")}
                       className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
@@ -521,7 +519,6 @@ export function BoardToolbar({
                           <button
                             key={g.id}
                             type="button"
-                            role="menuitem"
                             disabled={onBoard}
                             onClick={() => createItem("goal", g.id)}
                             className="w-full text-left px-4 py-2 text-xs hover:bg-white transition-colors disabled:opacity-55 disabled:cursor-not-allowed flex items-center justify-between gap-2 cursor-pointer"
@@ -546,7 +543,6 @@ export function BoardToolbar({
               {/* New milestone (available in both Canvas and Kanban) */}
               <button
                 type="button"
-                role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
                   setMsModalOpen(true);
@@ -561,7 +557,6 @@ export function BoardToolbar({
               {milestones.length > 0 && (
                 <button
                   type="button"
-                  role="menuitem"
                   aria-expanded={pickerType === "milestone"}
                   onClick={() => setPickerType(pickerType === "milestone" ? null : "milestone")}
                   className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2.5 cursor-pointer"
@@ -585,7 +580,6 @@ export function BoardToolbar({
                       <button
                         key={m.id}
                         type="button"
-                        role="menuitem"
                         disabled={onBoard}
                         onClick={() => createItem("milestone", m.id)}
                         className="w-full text-left px-4 py-2 text-xs hover:bg-white transition-colors disabled:opacity-55 disabled:cursor-not-allowed flex items-center justify-between gap-2 cursor-pointer"
@@ -722,35 +716,29 @@ export function BoardToolbar({
 
       {/* New Milestone modal */}
       {msModalOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-          onClick={() => setMsModalOpen(false)}
+        <dialog
+          ref={msDialogRef}
+          closedby="any"
+          aria-labelledby="new-milestone-modal-title"
+          className="m-auto bg-white rounded-2xl border border-slate-200 shadow-2xl p-6 w-[calc(100%-2rem)] max-w-md backdrop:bg-black/30 backdrop:backdrop-blur-sm"
         >
-          <div
-            ref={msDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="new-milestone-modal-title"
-            className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-5">
-              <h2
-                id="new-milestone-modal-title"
-                className="text-base font-bold text-slate-800 flex items-center gap-2"
-              >
-                <Milestone size={16} className="text-violet-500" aria-hidden="true" />
-                New Milestone
-              </h2>
-              <button
-                type="button"
-                onClick={() => setMsModalOpen(false)}
-                aria-label="Close dialog"
-                className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-              >
-                <X size={16} aria-hidden="true" />
-              </button>
-            </div>
+          <div className="flex items-center justify-between mb-5">
+            <h2
+              id="new-milestone-modal-title"
+              className="text-base font-bold text-slate-800 flex items-center gap-2"
+            >
+              <Milestone size={16} className="text-violet-500" aria-hidden="true" />
+              New Milestone
+            </h2>
+            <button
+              type="button"
+              onClick={() => setMsModalOpen(false)}
+              aria-label="Close dialog"
+              className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          </div>
 
             <form onSubmit={handleCreateMilestone} className="space-y-4">
               <div>
@@ -833,8 +821,7 @@ export function BoardToolbar({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </dialog>
       )}
     </>
   );

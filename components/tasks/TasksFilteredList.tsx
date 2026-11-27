@@ -134,6 +134,22 @@ export function TasksFilteredList({
   const [creating, setCreating] = useState(false);
 
   const highlightedRef = useRef<HTMLDivElement>(null);
+  const filterTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  function handleFilterTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>, idx: number) {
+    let nextIdx: number | null = null;
+    if (e.key === "ArrowRight") nextIdx = (idx + 1) % FILTER_TABS.length;
+    else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + FILTER_TABS.length) % FILTER_TABS.length;
+    else if (e.key === "Home") nextIdx = 0;
+    else if (e.key === "End") nextIdx = FILTER_TABS.length - 1;
+    if (nextIdx !== null) {
+      e.preventDefault();
+      setActiveFilter(FILTER_TABS[nextIdx].key);
+      const nextBtn = filterTabRefs.current[nextIdx];
+      nextBtn?.focus();
+      nextBtn?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
 
   // Sync when server props refresh
   useEffect(() => {
@@ -493,19 +509,25 @@ export function TasksFilteredList({
       <div
         role="tablist"
         aria-label="Filter tasks by status"
-        className="flex items-center gap-1.5 flex-wrap"
+        className="tablist-scroller flex items-center gap-1.5 flex-wrap"
       >
-        {FILTER_TABS.map(({ key, label }) => {
+        {FILTER_TABS.map(({ key, label }, idx) => {
           const count = key === "all" ? searchedAndPrioritized.length : (counts[key] ?? 0);
           const isActive = activeFilter === key;
 
           return (
             <button
               key={key}
+              ref={(el) => { filterTabRefs.current[idx] = el; }}
               type="button"
               role="tab"
               aria-selected={isActive}
-              onClick={() => setActiveFilter(key)}
+              tabIndex={isActive ? 0 : -1}
+              onClick={() => {
+                setActiveFilter(key);
+                filterTabRefs.current[idx]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+              }}
+              onKeyDown={(e) => handleFilterTabKeyDown(e, idx)}
               className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors cursor-pointer
                 ${
                   isActive
