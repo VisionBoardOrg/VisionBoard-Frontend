@@ -124,6 +124,23 @@ function SelectField({
 
   const selected = options.find((o) => o.id === value);
 
+  const handleMenuKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
+    if (buttons.length === 0) return;
+    e.preventDefault();
+    const currentIdx = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIdx =
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? buttons.length - 1
+          : currentIdx < 0
+            ? 0
+            : (currentIdx + (e.key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
+    buttons[nextIdx]?.focus();
+  };
+
   return (
     <div className="mb-4 relative" ref={ref}>
       <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
@@ -135,6 +152,12 @@ function SelectField({
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown" && !open) {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
         className="w-full flex items-center justify-between px-3 py-2 rounded-lg border border-slate-200 bg-white hover:border-slate-300 text-sm text-slate-700 transition-colors cursor-pointer"
       >
         <span className={`truncate ${selected ? "text-slate-800" : "text-slate-400"}`}>
@@ -151,6 +174,7 @@ function SelectField({
         <div
           role="listbox"
           aria-label={label}
+          onKeyDown={handleMenuKeyDown}
           className="absolute left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg py-1 max-h-52 overflow-y-auto"
         >
           {allowNone && (

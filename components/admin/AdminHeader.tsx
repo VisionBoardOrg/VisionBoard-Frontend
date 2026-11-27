@@ -77,32 +77,48 @@ export default function AdminHeader() {
             <Menu className="w-5 h-5" aria-hidden="true" />
           </button>
 
-          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-sm min-w-0">
-            <Link
-              href="/admin/overview"
-              className="text-muted hover:text-ink font-medium transition-colors shrink-0"
-            >
-              Admin
-            </Link>
-            <span className="text-muted shrink-0" aria-hidden="true">
-              /
-            </span>
-            {isDetail ? (
-              <>
+          <nav aria-label="Breadcrumbs" className="text-sm min-w-0">
+            <ol className="breadcrumb-list min-w-0">
+              <li className="shrink-0">
                 <Link
-                  href={sectionHref}
-                  className="text-muted hover:text-ink font-medium transition-colors truncate"
+                  href="/admin/overview"
+                  className="text-muted hover:text-ink font-medium transition-colors"
                 >
-                  {sectionLabel}
+                  Admin
                 </Link>
-                <span className="text-muted shrink-0" aria-hidden="true">
-                  /
-                </span>
-                <span className="text-ink font-semibold truncate">Details</span>
-              </>
-            ) : (
-              <span className="text-ink font-semibold truncate">{sectionLabel}</span>
-            )}
+              </li>
+              {isDetail ? (
+                <>
+                  <li className="min-w-0">
+                    <Link
+                      href={sectionHref}
+                      className="text-muted hover:text-ink font-medium transition-colors truncate"
+                    >
+                      {sectionLabel}
+                    </Link>
+                  </li>
+                  <li className="min-w-0">
+                    <Link
+                      href={pathname}
+                      aria-current="page"
+                      className="text-ink font-semibold truncate"
+                    >
+                      Details
+                    </Link>
+                  </li>
+                </>
+              ) : (
+                <li className="min-w-0">
+                  <Link
+                    href={sectionHref}
+                    aria-current="page"
+                    className="text-ink font-semibold truncate"
+                  >
+                    {sectionLabel}
+                  </Link>
+                </li>
+              )}
+            </ol>
           </nav>
         </div>
 

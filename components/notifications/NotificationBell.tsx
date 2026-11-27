@@ -55,9 +55,9 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
   }, []);
 
   useEffect(() => {
-    if (!isOpen) return;
     const el = popoverRef.current as (HTMLDivElement & { showPopover?: () => void }) | null;
-    if (el && typeof el.showPopover === "function") {
+    if (!el) return;
+    if (isOpen && typeof el.showPopover === "function") {
       try {
         if (!el.matches(":popover-open")) {
           el.showPopover();
@@ -66,6 +66,14 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
         // Fallback to standard positioned block if showPopover fails
       }
     }
+    const onToggle = (e: Event) => {
+      const te = e as Event & { newState?: string };
+      if (te.newState === "closed") {
+        setIsOpen(false);
+      }
+    };
+    el.addEventListener("toggle", onToggle);
+    return () => el.removeEventListener("toggle", onToggle);
   }, [isOpen]);
 
   // Close dropdown on outside click or Escape for browsers without native Popover light-dismiss
@@ -150,16 +158,16 @@ export function NotificationBell({ workspaceId }: NotificationBellProps) {
         )}
       </button>
 
-      {/* Popover Dropdown */}
+      {/* Popover Dropdown (popover="auto" for native Top-Layer light-dismiss & Escape, anchored via CSS Anchor Positioning) */}
       {isOpen && (
         <div
           id={POPOVER_ID}
           ref={popoverRef}
-          popover="manual"
+          popover="auto"
           role="region"
           aria-label="Notifications"
           style={{ positionAnchor: "--notif-bell-anchor" } as React.CSSProperties}
-          className="anchored-popover-end absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] p-0 bg-white border border-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150"
+          className="anchored-popover-end fixed inset-auto top-16 right-4 m-0 w-96 max-w-[calc(100vw-2rem)] p-0 bg-white border border-border rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150"
         >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/80 bg-white sticky top-0 z-10">

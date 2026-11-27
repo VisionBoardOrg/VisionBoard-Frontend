@@ -107,7 +107,7 @@ export function InviteMemberModal({ workspaceId, currentMemberCount, memberLimit
                   <UserPlus size={18} aria-hidden="true" />
                 </div>
                 <div>
-                  <h2 id="invite-member-title" className="font-bold text-ink text-base">Invite Team Member</h2>
+                  <h1 id="invite-member-title" className="font-bold text-ink text-base">Invite Team Member</h1>
                   <p className="text-xs text-muted">Send an email invitation to your workspace.</p>
                 </div>
               </div>
@@ -208,6 +208,9 @@ export function InviteMemberModal({ workspaceId, currentMemberCount, memberLimit
                       type="email"
                       required
                       autoComplete="email"
+                      autoCorrect="off"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       placeholder="colleague@company.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}

@@ -78,9 +78,9 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 </div>
               )}
               <div className="min-w-0">
-                <h2 id="confirm-dialog-title" className="text-lg font-bold text-ink leading-snug">
+                <h1 id="confirm-dialog-title" className="text-lg font-bold text-ink leading-snug">
                   {pending.title}
-                </h2>
+                </h1>
                 {pending.description && (
                   <p id="confirm-dialog-description" className="text-sm text-slate mt-1.5 leading-relaxed">
                     {pending.description}

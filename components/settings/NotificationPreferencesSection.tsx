@@ -217,26 +217,27 @@ export function NotificationPreferencesSection() {
       {/* Master Toggle */}
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-5 flex items-center justify-between gap-4">
         <div>
-          <span className="text-sm font-semibold text-slate-900 block">
+          <label
+            htmlFor="pref-switch-emailEnabled"
+            className="text-sm font-semibold text-slate-900 block cursor-pointer"
+          >
             Enable Email Notifications
-          </span>
-          <span className="text-xs text-slate-500 block mt-0.5">
+          </label>
+          <span id="pref-desc-emailEnabled" className="text-xs text-slate-500 block mt-0.5">
             Master switch to pause or resume all outgoing emails for your account
           </span>
         </div>
 
-        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-          <input
-            type="checkbox"
-            role="switch"
-            {...({ switch: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
-            className="sr-only peer"
-            aria-label="Enable email notifications"
-            checked={prefs.emailEnabled}
-            onChange={(e) => updatePreference("emailEnabled", e.target.checked)}
-          />
-          <div className="w-11 h-6 bg-slate-300 peer-focus-visible:ring-2 peer-focus-visible:ring-blue peer-focus-visible:ring-offset-2 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue"></div>
-        </label>
+        <input
+          id="pref-switch-emailEnabled"
+          type="checkbox"
+          role="switch"
+          {...({ switch: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+          aria-describedby="pref-desc-emailEnabled"
+          className="native-switch"
+          checked={prefs.emailEnabled}
+          onChange={(e) => updatePreference("emailEnabled", e.target.checked)}
+        />
       </div>
 
       {/* Category Grid */}
@@ -251,6 +252,8 @@ export function NotificationPreferencesSection() {
 
         {categoryToggles.map((item) => {
           const Icon = item.icon;
+          const switchId = `pref-switch-${item.id}`;
+          const descId = `pref-desc-${item.id}`;
           return (
             <div
               key={item.id}
@@ -261,28 +264,29 @@ export function NotificationPreferencesSection() {
                   <Icon size={16} aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-xs font-semibold text-slate-800">
+                  <label
+                    htmlFor={switchId}
+                    className="text-xs font-semibold text-slate-800 block cursor-pointer"
+                  >
                     {item.label}
-                  </h3>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
+                  </label>
+                  <p id={descId} className="text-[11px] text-slate-500 mt-0.5">
                     {item.description}
                   </p>
                 </div>
               </div>
 
-              <label className="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
-                <input
-                  type="checkbox"
-                  role="switch"
-                  {...({ switch: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
-                  className="sr-only peer"
-                  aria-label={`Email notifications for ${item.label}`}
-                  checked={item.checked}
-                  disabled={!prefs.emailEnabled}
-                  onChange={(e) => updatePreference(item.id, e.target.checked)}
-                />
-                <div className="w-9 h-5 bg-slate-200 peer-focus-visible:ring-2 peer-focus-visible:ring-blue peer-focus-visible:ring-offset-2 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue"></div>
-              </label>
+              <input
+                id={switchId}
+                type="checkbox"
+                role="switch"
+                {...({ switch: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+                aria-describedby={descId}
+                className="native-switch ml-4"
+                checked={item.checked}
+                disabled={!prefs.emailEnabled}
+                onChange={(e) => updatePreference(item.id, e.target.checked)}
+              />
             </div>
           );
         })}

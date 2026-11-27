@@ -160,6 +160,8 @@ function RegisterForm() {
                 type="email"
                 required
                 autoComplete="username"
+                autoCorrect="off"
+                autoCapitalize="none"
                 spellCheck={false}
                 enterKeyHint="next"
                 aria-invalid="false"
@@ -209,8 +211,9 @@ function RegisterForm() {
                 />
                 <button
                   type="button"
+                  aria-pressed={showPassword}
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-ink transition-colors cursor-pointer"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 min-w-6 min-h-6 flex items-center justify-center text-muted hover:text-ink transition-colors cursor-pointer"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}

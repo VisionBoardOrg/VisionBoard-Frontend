@@ -408,13 +408,13 @@ export function ApiKeysSection() {
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <div className="flex items-center gap-2">
               <Key size={16} className="text-blue" aria-hidden="true" />
-              <h2 id="create-api-key-title" className="font-bold text-ink">Generate API Key</h2>
+              <h1 id="create-api-key-title" className="font-bold text-ink text-base">Generate API Key</h1>
             </div>
             <button
               type="button"
               onClick={handleCloseCreateModal}
               aria-label="Close"
-              className="text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
+              className="min-w-7 min-h-7 flex items-center justify-center text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
             >
               <X size={18} aria-hidden="true" />
             </button>
@@ -481,13 +481,13 @@ export function ApiKeysSection() {
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <div className="flex items-center gap-2">
               <Eye size={16} className="text-blue" aria-hidden="true" />
-              <h2 id="reveal-api-key-title" className="font-bold text-ink">Your New API Key</h2>
+              <h1 id="reveal-api-key-title" className="font-bold text-ink text-base">Your New API Key</h1>
             </div>
               <button
                 type="button"
                 onClick={handleDismissRawKey}
                 aria-label="Close"
-                className="text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
+                className="min-w-7 min-h-7 flex items-center justify-center text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
               >
                 <X size={18} aria-hidden="true" />
               </button>

@@ -75,20 +75,14 @@ export function UserSummaryCards({
         </div>
         <div className="text-2xl font-bold text-ink">{completionRate.toFixed(1)}%</div>
         <div className="text-xs text-muted mt-0.5">Task Completion</div>
-        {/* Progress bar */}
-        <div
-          className="mt-2 h-1.5 bg-border rounded-full overflow-hidden"
-          role="progressbar"
+        {/* Progress bar (native <progress> per progress guide) */}
+        <progress
           aria-label="Task completion rate"
-          aria-valuenow={Math.round(completionRate)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-        >
-          <div
-            className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-            style={{ width: `${Math.min(100, completionRate)}%` }}
-          />
-        </div>
+          value={Math.min(100, Math.round(completionRate))}
+          max={100}
+          style={{ "--progress-bar-fill": "#10b981" } as React.CSSProperties}
+          className="styled-progress mt-2 h-1.5 w-full block"
+        />
       </div>
     </div>
   );

@@ -217,9 +217,9 @@ export function TaskStatusDropdown({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <AlertTriangle size={16} className="text-danger" aria-hidden="true" />
-                <h3 id="blocked-modal-title" className="font-semibold text-ink text-sm">
+                <h1 id="blocked-modal-title" className="font-semibold text-ink text-sm">
                   Mark as Blocked
-                </h3>
+                </h1>
               </div>
               <button
                 type="button"

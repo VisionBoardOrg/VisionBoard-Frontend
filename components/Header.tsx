@@ -68,7 +68,7 @@ export default function Header() {
             >
               <Logo markSize={32} textSize={18} />
             </Link>
-            <nav aria-label="Primary navigation" className="hidden md:flex">
+            <nav aria-label="Primary" className="hidden md:flex">
               <ul className="flex gap-6 lg:gap-8 text-[15px] font-medium text-slate">
                 {navLinks.map((link) => {
                   const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
@@ -131,7 +131,7 @@ export default function Header() {
         {/* Mobile Navigation Dropdown */}
         {isMobileMenuOpen && (
           <div id="mobile-nav-menu" className="md:hidden pt-4 pb-3 border-t border-border mt-3 space-y-3">
-            <nav aria-label="Mobile primary navigation">
+            <nav aria-label="Mobile primary">
               <ul className="flex flex-col space-y-1">
                 {navLinks.map((link) => {
                   const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);

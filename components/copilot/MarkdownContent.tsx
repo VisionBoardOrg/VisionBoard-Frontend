@@ -139,41 +139,47 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
   const { copied, copyError, statusMessage, copy } = useClipboard();
 
   return (
-    <div className="my-2.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-100 overflow-hidden shadow-xs">
+    <div className="dark-code-block my-2.5 rounded-xl border border-slate-700 bg-slate-900 text-slate-100 overflow-hidden shadow-xs">
       <div className="flex items-center justify-between px-3 py-1.5 bg-slate-800/80 border-b border-slate-700 text-[11px] text-slate-400">
         <span className="font-mono">{lang || "text"}</span>
-        <div className="flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => void copy(code)}
             aria-label={`Copy ${lang || "code"} snippet`}
-            data-copied={copied ? "true" : undefined}
-            data-failed={copyError ? "true" : undefined}
-            className="flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
+            data-copied={copied ? "" : undefined}
+            data-failed={copyError ? "" : undefined}
+            className="min-w-6 min-h-6 inline-flex items-center gap-1 hover:text-white transition-colors cursor-pointer"
           >
             {copied ? (
-              <>
-                <Check size={12} className="text-emerald-400" aria-hidden="true" />
-                <span className="text-emerald-400">Copied</span>
-              </>
+              <Check size={12} className="text-emerald-400" aria-hidden="true" />
             ) : copyError ? (
-              <>
-                <AlertCircle size={12} className="text-rose-400" aria-hidden="true" />
-                <span className="text-rose-400">Copy failed</span>
-              </>
+              <AlertCircle size={12} className="text-rose-400" aria-hidden="true" />
             ) : (
-              <>
-                <Copy size={12} aria-hidden="true" />
-                <span>Copy</span>
-              </>
+              <Copy size={12} aria-hidden="true" />
             )}
+            <span>Copy</span>
           </button>
-          <span role="status" className="sr-only">
+          <span
+            role="status"
+            className={`text-[11px] font-medium transition-opacity ${
+              statusMessage
+                ? copyError
+                  ? "opacity-100 text-rose-400"
+                  : "opacity-100 text-emerald-400"
+                : "opacity-0 sr-only"
+            }`}
+          >
             {statusMessage}
           </span>
-        </div>
+        </span>
       </div>
-      <pre className="p-3 font-mono text-[11px] overflow-x-auto leading-relaxed">
+      <pre
+        tabIndex={0}
+        role="region"
+        aria-label={`${lang || "code"} snippet`}
+        className="dark-code-block p-3 font-mono text-[11px] overflow-x-auto leading-relaxed"
+      >
         <code>{code}</code>
       </pre>
     </div>

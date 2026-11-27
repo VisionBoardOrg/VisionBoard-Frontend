@@ -13,12 +13,13 @@ export function MetricBar({ metrics }: MetricBarProps) {
             <span className="text-sm text-slate">{label}</span>
             <span className="text-sm font-semibold text-ink">{value}%</span>
           </div>
-          <div className="h-2 bg-border rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${value}%`, backgroundColor: color }}
-            />
-          </div>
+          <progress
+            aria-label={label}
+            value={Math.max(0, Math.min(100, value))}
+            max={100}
+            style={{ "--progress-bar-fill": color } as React.CSSProperties}
+            className="styled-progress h-2 w-full block"
+          />
         </div>
       ))}
     </div>

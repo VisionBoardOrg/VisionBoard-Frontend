@@ -28,10 +28,9 @@ export default function HealthStatusBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full font-bold border ${
+      className={`inline-flex items-center gap-1.5 rounded-full font-bold border border-current/20 ${
         config.bg
       } ${config.text} ${sizeClass}`}
-      style={{ borderColor: "transparent" }}
     >
       {showDot && (
         <span

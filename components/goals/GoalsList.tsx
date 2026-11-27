@@ -95,28 +95,30 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
         )}
       </div>
 
-      {/* Status filter tabs */}
+      {/* Status filter tabs (single non-wrapping row per tabs guide) */}
       <div
         role="tablist"
         aria-label="Filter goals by status"
-        className="tablist-scroller flex gap-1 flex-wrap"
+        className="tablist-scroller flex gap-1"
       >
         {statusFilter.map((s, idx) => {
           const isActive = filter === s;
           return (
             <button
               key={s}
+              id={`goals-tab-${s}`}
               ref={(el) => { tabRefs.current[idx] = el; }}
               type="button"
               role="tab"
               aria-selected={isActive}
+              aria-controls="goals-tabpanel"
               tabIndex={isActive ? 0 : -1}
               onClick={() => {
                 setFilter(s);
                 tabRefs.current[idx]?.scrollIntoView({ block: "nearest", inline: "nearest" });
               }}
               onKeyDown={(e) => handleTabKeyDown(e, idx)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize whitespace-nowrap transition-colors ${
                 isActive ? "bg-blue text-white" : "bg-white border border-border text-slate hover:bg-offwhite"
               }`}
             >
@@ -139,7 +141,8 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
         />
       )}
 
-      {/* Goals grid */}
+      {/* Goals tabpanel */}
+      <div id="goals-tabpanel" role="tabpanel" aria-labelledby={`goals-tab-${filter}`}>
       {filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-border p-12 text-center">
           <Target size={40} className="text-muted mx-auto mb-4" />
@@ -197,19 +200,19 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
                   <GoalHealthScore score={health} size="sm" />
                 </div>
 
-                {/* Progress bar */}
+                {/* Progress bar (native <progress> per progress guide) */}
                 {totalTasks > 0 && (
                   <div>
                     <div className="flex justify-between text-xs text-muted mb-1">
                       <span>{doneTasks}/{totalTasks} tasks done</span>
                       <span>{Math.round((doneTasks / totalTasks) * 100)}%</span>
                     </div>
-                    <div className="h-1.5 bg-border rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue rounded-full transition-all"
-                        style={{ width: `${(doneTasks / totalTasks) * 100}%` }}
-                      />
-                    </div>
+                    <progress
+                      aria-label={`${goal.title} task completion`}
+                      value={doneTasks}
+                      max={totalTasks}
+                      className="styled-progress h-1.5 w-full block"
+                    />
                   </div>
                 )}
 
@@ -235,6 +238,7 @@ export function GoalsList({ workspaceId, goals: initialGoals, canCreate }: Goals
           })}
         </div>
       )}
+      </div>
 
       {/* WebMCP: make goal tools available to browser AI agents */}
       <GoalsWebMCPTools workspaceId={workspaceId} canCreate={canCreate} />

@@ -88,8 +88,9 @@ export function buildCsp(
     "frame-src https://js.stripe.com https://hooks.stripe.com",
     "frame-ancestors 'none'",
     "object-src 'none'",
-    "base-uri 'self'",
+    "base-uri 'none'",
     "form-action 'self'",
+    "trusted-types visionboard#html default",
     "report-to csp-endpoint",
   ].join("; ");
 }

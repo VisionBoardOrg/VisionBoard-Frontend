@@ -143,14 +143,39 @@ function AppShellContent({
   // Accessible mobile drawer focus trap, Escape handling, top-layer promotion, and focus restoration
   useModalA11y(mobileDrawerRef, closeMobile, mobileOpen);
 
-  // Scroll-snap swipe-to-dismiss observer for mobile navigation drawer
+  // Scroll-snap swipe-to-dismiss observer for mobile navigation drawer (navigation-drawer guide)
+  const dismissMobileDrawer = useCallback(() => {
+    const dialog = mobileDrawerRef.current;
+    const spacer = dialog?.querySelector<HTMLElement>(".drawer-spacer");
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (dialog && spacer && !prefersReducedMotion && dialog.scrollWidth > dialog.clientWidth) {
+      spacer.scrollIntoView({ behavior: "smooth", inline: "end" });
+      setTimeout(() => closeMobile(), 260);
+    } else {
+      closeMobile();
+    }
+  }, [closeMobile]);
+
   useEffect(() => {
     if (!mobileOpen) return;
     const dialog = mobileDrawerRef.current;
     const content = mobileDrawerContentRef.current;
     if (!dialog || !content || typeof IntersectionObserver === "undefined") return;
 
-    content.scrollIntoView({ behavior: "instant" as ScrollBehavior, inline: "end" });
+    content.scrollIntoView({ behavior: "instant" as ScrollBehavior, inline: "start" });
+    dialog.style.setProperty("--drawer-backdrop", "1");
+
+    const onScroll = () => {
+      const maxScroll = dialog.scrollWidth - dialog.clientWidth;
+      if (maxScroll > 0) {
+        const progress = Math.max(0, Math.min(1, 1 - dialog.scrollLeft / maxScroll));
+        dialog.style.setProperty("--drawer-backdrop", String(progress));
+      }
+    };
+    dialog.addEventListener("scroll", onScroll, { passive: true });
+
     let hasEntered = false;
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -163,7 +188,10 @@ function AppShellContent({
       { root: dialog, threshold: 0.1 }
     );
     observer.observe(content);
-    return () => observer.disconnect();
+    return () => {
+      dialog.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+    };
   }, [mobileOpen, closeMobile]);
 
   // Detect platform for keyboard shortcut hint
@@ -275,7 +303,7 @@ function AppShellContent({
 
         {/* Nav */}
         <nav
-          aria-label={isMobileDrawer ? "Mobile sidebar navigation" : "Primary sidebar navigation"}
+          aria-label={isMobileDrawer ? "Mobile sidebar" : "Primary sidebar"}
           className="flex-1 py-3 px-2 space-y-4 overflow-y-auto"
         >
           {/* ── PERSONAL SECTION — when not inside a workspace ── */}
@@ -483,19 +511,13 @@ function AppShellContent({
             </div>
             <div className="text-xs text-slate">{creditsText}</div>
             {creditsMax >= 0 && (
-              <div
-                role="progressbar"
+              <progress
                 aria-label="AI credits usage"
-                aria-valuenow={creditsUsed}
-                aria-valuemin={0}
-                aria-valuemax={creditsMax}
-                className="mt-1.5 h-1.5 bg-blue-light rounded-full overflow-hidden"
-              >
-                <div
-                  className="h-full bg-blue rounded-full transition-all"
-                  style={{ width: `${creditsPercent}%` }}
-                />
-              </div>
+                value={creditsUsed}
+                max={creditsMax}
+                style={{ "--progress-bar-track": "#DBEAFE", "--progress-bar-fill": "#2563EB" } as React.CSSProperties}
+                className="styled-progress mt-1.5 h-1.5 w-full block"
+              />
             )}
             {showUpgradeLink && (
               <Link
@@ -600,35 +622,34 @@ function AppShellContent({
       {/* Real-time floating Notification Toast banner */}
       <NotificationToast event={latestLiveEvent} onDismiss={dismissToast} />
 
-      {/* ── Mobile drawer (native Top-Layer <dialog> with horizontal scroll-snap dismissal) ── */}
+      {/* ── Mobile drawer (native Top-Layer <dialog> with horizontal scroll-snap dismissal, no closedby="any" per navigation-drawer) ── */}
       {mobileOpen && (
         <dialog
           id="mobile-sidebar-drawer"
           ref={mobileDrawerRef}
-          closedby="any"
           aria-label="Mobile navigation"
-          className="fixed inset-0 m-0 p-0 w-screen h-dvh max-w-none max-h-none bg-transparent border-0 flex overflow-x-auto snap-x snap-mandatory overscroll-x-contain md:hidden backdrop:bg-black/40"
+          className="mobile-nav-drawer drawer-scroller fixed inset-0 m-0 p-0 w-screen h-svh max-w-none max-h-none bg-transparent border-0 flex overflow-x-auto snap-x snap-mandatory overscroll-x-none md:hidden backdrop:bg-black/40"
         >
           <div
             ref={mobileDrawerContentRef}
-            className="relative snap-start shrink-0 flex flex-col bg-white border-r border-border w-64 h-dvh"
+            className="relative snap-start shrink-0 flex flex-col bg-white border-r border-border w-64 h-svh"
           >
             {/* Close button */}
             <button
               type="button"
-              onClick={closeMobile}
+              onClick={dismissMobileDrawer}
               className="absolute top-2 right-2 min-w-10 min-h-10 flex items-center justify-center rounded-lg text-muted hover:text-ink hover:bg-offwhite transition-colors cursor-pointer"
               aria-label="Close navigation"
             >
               <X size={18} aria-hidden="true" />
             </button>
-            {renderSidebarContent(true, closeMobile)}
+            {renderSidebarContent(true, dismissMobileDrawer)}
           </div>
           {/* Snap target for swipe-to-close gesture & backdrop tap */}
           <div
-            className="snap-end shrink-0 w-screen h-dvh"
+            className="drawer-spacer snap-end shrink-0 w-screen h-svh"
             aria-hidden="true"
-            onClick={closeMobile}
+            onClick={dismissMobileDrawer}
           />
         </dialog>
       )}
@@ -639,7 +660,7 @@ function AppShellContent({
         className={`hidden md:flex flex-col bg-white border-r border-border transition-all duration-300 shrink-0 ${
           sidebarOpen ? "w-56" : "w-14"
         }`}
-        aria-label="Desktop navigation"
+        aria-label="Desktop sidebar"
       >
         {renderSidebarContent(false)}
       </aside>

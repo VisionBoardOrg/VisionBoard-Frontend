@@ -65,7 +65,7 @@ export default function PricingFAQ() {
           >
             <summary className="list-none [&::-webkit-details-marker]:hidden w-full py-4 px-6 text-left flex items-center gap-3 font-semibold text-slate-900 text-sm md:text-base rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue/40 focus-visible:ring-inset cursor-pointer">
               <svg
-                className="w-5 h-5 text-blue-600 shrink-0 -rotate-90 group-open:rotate-0 transition-transform duration-200"
+                className="w-5 h-5 text-blue-600 shrink-0 -rotate-90 rtl:rotate-90 group-open:rotate-0 rtl:group-open:rotate-0 transition-transform duration-200"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"

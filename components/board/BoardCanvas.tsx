@@ -261,7 +261,10 @@ export function BoardCanvas({
   } | null>(null);
 
   const resetDialogRef = useRef<HTMLDialogElement>(null);
-  useModalA11y(resetDialogRef, () => setPendingResetConfirmation(null), Boolean(pendingResetConfirmation));
+  const resetCancelRef = useRef<HTMLButtonElement>(null);
+  useModalA11y(resetDialogRef, () => setPendingResetConfirmation(null), Boolean(pendingResetConfirmation), {
+    initialFocusRef: resetCancelRef,
+  });
 
   const lastDeleted = undoStack[undoStack.length - 1];
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -1851,9 +1854,9 @@ export function BoardCanvas({
             <div className="p-2.5 bg-purple-50 rounded-xl">
               <RotateCcw size={20} aria-hidden="true" />
             </div>
-            <h2 id="reset-child-tasks-title" className="text-base font-bold text-slate-900">
+            <h1 id="reset-child-tasks-title" className="text-base font-bold text-slate-900">
               Reset Child Tasks?
-            </h2>
+            </h1>
           </div>
             <p className="text-xs text-slate-600 leading-relaxed mb-6">
               You are moving{" "}
@@ -1888,7 +1891,9 @@ export function BoardCanvas({
                 Keep Current Task Statuses
               </button>
               <button
+                ref={resetCancelRef}
                 type="button"
+                autoFocus
                 onClick={() => setPendingResetConfirmation(null)}
                 className="w-full py-2 text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors mt-1 cursor-pointer"
               >

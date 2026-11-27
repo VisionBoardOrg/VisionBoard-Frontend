@@ -35,17 +35,64 @@
 /* Viewport-wide color-scheme and browser UI theming */
 :root {
   color-scheme: light dark;
-  accent-color: light-dark(var(--color-blue), var(--color-cyan));
-  --scrollbar-thumb: light-dark(#64748B, #94A3B8);
-  --scrollbar-track: light-dark(#F1F5F9, #1E293B);
+  --accent-color-light: var(--color-blue);
+  --accent-color-dark: var(--color-cyan);
+  --accent-color: var(--accent-color-light);
+  --scrollbar-thumb-light: #64748B;
+  --scrollbar-thumb-dark: #94A3B8;
+  --scrollbar-track-light: #F1F5F9;
+  --scrollbar-track-dark: #1E293B;
+  --scrollbar-thumb: var(--scrollbar-thumb-light);
+  --scrollbar-track: var(--scrollbar-track-light);
+  accent-color: var(--accent-color);
   scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: auto;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --scrollbar-thumb: #94A3B8;
-    --scrollbar-track: #1E293B;
+    --accent-color: var(--accent-color-dark);
+    --scrollbar-thumb: var(--scrollbar-thumb-dark);
+    --scrollbar-track: var(--scrollbar-track-dark);
+  }
+}
+
+@supports (color: light-dark(white, black)) {
+  :root {
+    --accent-color: light-dark(var(--accent-color-light), var(--accent-color-dark));
+    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
+    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
+    accent-color: var(--accent-color);
+  }
+}
+
+/* Keep form controls aligned with light card surfaces while allowing dark code blocks to opt into dark scheme */
+input,
+select,
+textarea {
+  color-scheme: light;
+}
+
+.dark-code-block {
+  color-scheme: dark;
+  accent-color: var(--accent-color);
+  scrollbar-color: #94A3B8 #1E293B;
+}
+
+/* Customizable native <select> progressive enhancement (branded-select-styling) */
+@supports (appearance: base-select) {
+  select.base-select,
+  select.base-select::picker(select) {
+    appearance: base-select;
+  }
+}
+
+/* Prevent iOS Safari auto-zoom on form controls by keeping mobile font-size >= 16px (forms §5) */
+@media (max-width: 640px) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: max(1rem, 1em);
   }
 }
 
@@ -123,33 +170,54 @@ details:not([open])::details-content {
 }
 
 @keyframes reveal-fade-start {
-  0% { --fade-start: 0px; }
-  5%, 100% { --fade-start: 2.5rem; }
+  from { --fade-start: 0px; }
+  to   { --fade-start: var(--fade-size, 2.5rem); }
 }
 
 @keyframes hide-fade-end {
-  0%, 95% { --fade-end: 2.5rem; }
-  100% { --fade-end: 0px; }
+  from { --fade-end: var(--fade-size, 2.5rem); }
+  to   { --fade-end: 0px; }
 }
 
 .tablist-scroller {
+  --fade-size: 2.5rem;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    black var(--fade-start),
-    black calc(100% - var(--fade-end)),
-    transparent
-  );
-  animation:
-    reveal-fade-start linear both,
-    hide-fade-end linear both;
-  animation-timeline: scroll(self inline);
+  scroll-padding-inline: var(--fade-size);
+}
+
+@supports (animation-timeline: scroll()) {
+  .tablist-scroller {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black var(--fade-start),
+      black calc(100% - var(--fade-end)),
+      transparent
+    );
+    animation:
+      reveal-fade-start linear both,
+      hide-fade-end linear both;
+    animation-timeline: scroll(self inline);
+    animation-range:
+      0 var(--fade-size),
+      calc(100% - var(--fade-size)) 100%;
+  }
+
+  .tablist-scroller:dir(rtl) {
+    mask-image: linear-gradient(
+      to left,
+      transparent,
+      black var(--fade-start),
+      black calc(100% - var(--fade-end)),
+      transparent
+    );
+  }
 }
 
 [role="tab"] {
   position: relative;
+  flex: none;
 }
 
 [role="tab"][aria-selected="true"]::after {
@@ -164,13 +232,35 @@ details:not([open])::details-content {
 /* Mobile navigation drawer horizontal scroll-snap & scroll-driven backdrop */
 @property --drawer-backdrop {
   syntax: "<number>";
-  inherits: false;
+  inherits: true;
   initial-value: 0;
 }
 
 @keyframes drawer-backdrop-fade {
-  from { --drawer-backdrop: 0; }
-  to   { --drawer-backdrop: 1; }
+  from { --drawer-backdrop: 1; }
+  to   { --drawer-backdrop: 0; }
+}
+
+@supports (animation-timeline: scroll()) {
+  dialog.mobile-nav-drawer {
+    timeline-scope: --drawer;
+  }
+
+  dialog.mobile-nav-drawer .drawer-scroller {
+    scroll-timeline: --drawer x;
+  }
+
+  dialog.mobile-nav-drawer::backdrop {
+    background-color: rgb(15 23 42 / calc(0.45 * var(--drawer-backdrop, 1)));
+    animation: drawer-backdrop-fade linear both;
+    animation-timeline: --drawer;
+  }
+}
+
+@supports (scroll-initial-target: nearest) {
+  dialog.mobile-nav-drawer .drawer-spacer {
+    scroll-initial-target: nearest;
+  }
 }
 
 /* Marquee animation moved from inline <style> so CSP does not require unsafe-inline */
@@ -293,7 +383,13 @@ details:not([open])::details-content {
   }
 }
 
-/* Viewport-aware anchored popovers (progressive enhancement) */
+/* Viewport-aware anchored popovers & polyfill compatibility */
+@supports not selector(:popover-open) {
+  [popover]:not(.\:popover-open) {
+    display: none;
+  }
+}
+
 @supports (position-area: block-end) {
   [popover].anchored-popover-start {
     inset: auto;
@@ -307,6 +403,205 @@ details:not([open])::details-content {
     margin: 0.5rem 0 0 0;
     position-area: block-end span-inline-start;
     position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+  }
+
+  [popover].anchored-popover-top {
+    inset: auto;
+    margin: 0 0 0.5rem 0;
+    position-area: block-start;
+    position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+    container-type: anchored;
+  }
+}
+
+/* Top-layer entry/exit transitions (animate-to-from-top-layer) */
+@media (prefers-reduced-motion: no-preference) {
+  dialog:not(.mobile-nav-drawer) {
+    opacity: 0;
+    scale: 0.96;
+    transition: opacity 0.18s ease-out, scale 0.18s ease-out, display 0.18s ease-out, overlay 0.18s ease-out;
+    transition-behavior: allow-discrete;
+  }
+
+  dialog:not(.mobile-nav-drawer)[open] {
+    opacity: 1;
+    scale: 1;
+    @starting-style {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+}
+
+/* Native <progress> bar, .progress-ring, and .loading-spinner (progress, progress-ring, spinner) */
+progress.styled-progress {
+  appearance: none;
+  border: 0 solid;
+  overflow: clip;
+  --progress-bar-radius: 9999px;
+  border-radius: var(--progress-bar-radius);
+  background: var(--progress-bar-track, var(--color-border));
+}
+
+progress.styled-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+progress.styled-progress::-webkit-progress-value {
+  background: var(--progress-bar-fill, var(--color-blue));
+  border-radius: var(--progress-bar-radius);
+  transition: inline-size 0.3s ease;
+}
+
+progress.styled-progress::-moz-progress-bar {
+  background: var(--progress-bar-fill, var(--color-blue));
+  border-radius: var(--progress-bar-radius);
+  transition: inline-size 0.3s ease;
+}
+
+/* Circular Progress Ring (<progress class="progress-ring">) */
+@property --value {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+progress.progress-ring {
+  --size: 110px;
+  --thickness: 14px;
+  --track-color: #E2E8F0;
+  --fill-color: #2563EB;
+  appearance: none;
+  border: 0;
+  width: var(--size);
+  height: var(--size);
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--fill-color) calc(var(--value, 0) * 1%),
+    var(--track-color) 0
+  );
+  transition: --value 0s ease-in-out;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  progress.progress-ring {
+    transition-duration: 0.4s;
+  }
+}
+
+progress.progress-ring::-webkit-progress-bar,
+progress.progress-ring::-webkit-progress-value {
+  display: none;
+  background: none;
+}
+
+progress.progress-ring::-moz-progress-bar {
+  display: none;
+  background: none;
+}
+
+@supports (background-clip: border-area) {
+  progress.progress-ring {
+    background-clip: border-area;
+    border: var(--thickness) solid transparent;
+    background-origin: border-box;
+  }
+}
+
+@supports not (background-clip: border-area) {
+  progress.progress-ring {
+    mask-image: radial-gradient(
+      transparent calc(50% - var(--thickness)),
+      black calc(50% - var(--thickness) + 0.5px)
+    );
+    border: 0;
+  }
+}
+
+/* Native Switch (<input type="checkbox" switch>) */
+input[type="checkbox"].native-switch {
+  appearance: none;
+  position: relative;
+  inline-size: 2.75rem;
+  block-size: 1.5rem;
+  border-radius: 9999px;
+  background-color: #CBD5E1;
+  border: 1px solid transparent;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"].native-switch::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 2px;
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+  border-radius: 50%;
+  background-color: #FFFFFF;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+  transition: translate 0.2s ease;
+}
+
+input[type="checkbox"].native-switch:checked {
+  background-color: var(--color-blue);
+}
+
+input[type="checkbox"].native-switch:checked::after {
+  translate: 1.25rem 0;
+}
+
+input[type="checkbox"].native-switch:dir(rtl):checked::after {
+  translate: -1.25rem 0;
+}
+
+/* CSS-generated decorative breadcrumb dividers (breadcrumbs guide) */
+.breadcrumb-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.breadcrumb-list > li {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.breadcrumb-list > li + li::before {
+  content: "/" / "";
+  margin-inline: 0.375rem;
+  color: var(--color-muted);
+  user-select: none;
+}
+
+/* Forced Colors Mode system color adaptations (color guide) */
+@media (forced-colors: active) {
+  progress.progress-ring {
+    forced-color-adjust: none;
+    --fill-color: CanvasText;
+    --track-color: Canvas;
+  }
+
+  progress.styled-progress {
+    border: 1px solid CanvasText;
+  }
+
+  input[type="checkbox"].native-switch {
+    border: 1px solid ButtonText;
+  }
+
+  input[type="checkbox"].native-switch:checked {
+    background-color: Highlight;
+  }
+
+  input[type="checkbox"].native-switch::after {
+    background-color: ButtonText;
   }
 }
 
@@ -335,15 +630,20 @@ select:disabled {
   outline-offset: 2px;
 }
 
-/* Respect user motion preferences globally (WCAG 2.2.2 / 2.3.3) */
+/* Respect user motion preferences globally (WCAG 2.2.2 / 2.3.3) while keeping spinners perceptibly active (spinner guide) */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *:not(.animate-spin):not(.loading-spinner),
+  *:not(.animate-spin):not(.loading-spinner)::before,
+  *:not(.animate-spin):not(.loading-spinner)::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .animate-spin,
+  .loading-spinner {
+    animation-duration: 6s !important;
   }
 }
 

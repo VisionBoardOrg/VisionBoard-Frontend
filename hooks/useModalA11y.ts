@@ -10,6 +10,8 @@ interface UseModalA11yOptions {
   initialFocusRef?: RefObject<HTMLElement | null>;
   /** Lock document body scrolling while active (default: true). */
   lockScroll?: boolean;
+  /** Trap Tab focus inside non-<dialog> overlays (default: true; set false for non-modal side panels per dialog Rule 2). */
+  trapFocus?: boolean;
 }
 
 /**
@@ -29,6 +31,7 @@ export function useModalA11y(
 ) {
   const onCloseRef = useRef(onClose);
   const initialFocusRef = options?.initialFocusRef;
+  const trapFocus = options?.trapFocus ?? true;
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -138,7 +141,7 @@ export function useModalA11y(
         return;
       }
 
-      if (e.key !== "Tab") return;
+      if (!trapFocus || e.key !== "Tab") return;
 
       const focusables = Array.from(
         current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)
@@ -170,5 +173,5 @@ export function useModalA11y(
         previouslyFocused.focus();
       }
     };
-  }, [ref, active, initialFocusRef]);
+  }, [ref, active, initialFocusRef, trapFocus]);
 }

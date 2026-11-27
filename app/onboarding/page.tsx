@@ -106,13 +106,14 @@ export default function OnboardingPage() {
         <span className="text-sm text-muted">Step {step} of 3</span>
       </header>
 
-      {/* Progress bar */}
-      <div className="h-1 bg-border" role="progressbar" aria-valuenow={Math.round(progress)} aria-valuemin={0} aria-valuemax={100}>
-        <div
-          className="h-full bg-blue transition-all duration-500 ease-out"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
+      {/* Progress bar (native <progress> per progress guide) */}
+      <progress
+        aria-label="Onboarding progress"
+        value={Math.round(progress)}
+        max={100}
+        style={{ "--progress-bar-radius": "0px" } as React.CSSProperties}
+        className="styled-progress h-1 w-full block"
+      />
 
       <div className="flex-1 flex items-start justify-center pt-12 pb-24 px-4">
         <div className="w-full max-w-2xl">

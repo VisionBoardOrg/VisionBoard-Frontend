@@ -50,9 +50,9 @@ export function CascadePromptModal({
           <AlertTriangle size={20} className="text-amber-600" aria-hidden="true" />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 id="cascade-prompt-title" className="font-bold text-ink text-base">
+          <h1 id="cascade-prompt-title" className="font-bold text-ink text-base">
             Schedule Cascade Detected
-          </h2>
+          </h1>
             <p className="text-xs text-slate mt-0.5">
               Shifting <span className="font-semibold text-ink">&ldquo;{shiftedMilestoneTitle}&rdquo;</span> impacts{" "}
               <span className="font-semibold text-amber-600">

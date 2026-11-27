@@ -23,7 +23,7 @@ export function InviteLinkSection({
 }: InviteLinkSectionProps) {
   const canOperate = canManageInviteLink ?? canAdmin ?? canManage ?? false;
   const { confirm: confirmDialog } = useConfirm();
-  const { copied, copyError, copy } = useClipboard();
+  const { copied, copyError, statusMessage, copy } = useClipboard();
   const [token, setToken] = useState<string | null>(initialToken);
   const [loading, setLoading] = useState<"generate" | "regenerate" | "revoke" | null>(null);
   const [error, setError] = useState("");
@@ -148,11 +148,21 @@ export function InviteLinkSection({
             <button
               type="button"
               onClick={handleCopy}
+              data-copied={copied ? "" : undefined}
+              data-failed={copyError ? "" : undefined}
               className="flex items-center gap-1.5 px-3 py-2.5 bg-blue text-white rounded-xl text-xs font-semibold hover:bg-blue-mid transition-colors shrink-0 cursor-pointer"
             >
               {copied ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-              {copied ? "Copied" : "Copy"}
+              <span>Copy</span>
             </button>
+            <span
+              role="status"
+              className={`text-xs font-semibold transition-opacity ${
+                statusMessage ? "opacity-100 text-emerald-700" : "opacity-0 sr-only"
+              }`}
+            >
+              {statusMessage}
+            </span>
           </div>
 
           {/* Regenerate — admin/owner only */}

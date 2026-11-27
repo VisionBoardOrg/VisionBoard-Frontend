@@ -146,15 +146,15 @@ export function NewMilestoneModal({
           <div className="w-8 h-8 rounded-xl bg-blue/10 border border-blue/20 flex items-center justify-center">
             <Layers size={16} className="text-blue" aria-hidden="true" />
           </div>
-          <h2 id="new-milestone-modal-title" className="font-bold text-ink text-base">
+          <h1 id="new-milestone-modal-title" className="font-bold text-ink text-base">
             New Milestone
-          </h2>
+          </h1>
         </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-muted hover:text-ink p-1 rounded-lg transition-colors cursor-pointer"
+            className="min-w-7 min-h-7 flex items-center justify-center text-muted hover:text-ink p-1 rounded-lg transition-colors cursor-pointer"
           >
             <X size={18} aria-hidden="true" />
           </button>
@@ -388,7 +388,7 @@ export function NewMilestoneModal({
               </button>
               <button
                 type="submit"
-                disabled={submitting || !title.trim()}
+                disabled={submitting}
                 className="flex-1 flex items-center justify-center gap-1.5 bg-blue text-white px-5 py-2.5 rounded-xl text-xs font-semibold hover:bg-blue-mid transition-all disabled:opacity-50 shadow-xs cursor-pointer"
               >
                 <Plus size={14} aria-hidden="true" />

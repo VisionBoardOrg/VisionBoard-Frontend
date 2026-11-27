@@ -69,6 +69,7 @@ export function WorkspacesClient({
   const { confirm: confirmDialog } = useConfirm();
   const newModalRef = useRef<HTMLDialogElement>(null);
   const deleteModalRef = useRef<HTMLDialogElement>(null);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
 
   const [workspaces, setWorkspaces] = useState(initialWorkspaces);
   const [ownedCount, setOwnedCount] = useState(initialOwnedCount);
@@ -99,7 +100,12 @@ export function WorkspacesClient({
   const atLimit = workspaceLimit !== null && ownedCount >= workspaceLimit;
 
   useModalA11y(newModalRef, () => { if (!creating) setShowNew(false); }, showNew);
-  useModalA11y(deleteModalRef, () => { if (!deleteLoading) { setDeleteId(null); setDeleteError(""); } }, Boolean(deleteId));
+  useModalA11y(
+    deleteModalRef,
+    () => { if (!deleteLoading) { setDeleteId(null); setDeleteError(""); } },
+    Boolean(deleteId),
+    { initialFocusRef: deleteCancelRef }
+  );
 
   // ── Create workspace ──
   async function handleCreate(e: React.FormEvent) {
@@ -223,11 +229,20 @@ export function WorkspacesClient({
       {/* Top nav — only rendered when outside AppShell */}
       {!inAppShell && (
         <header className="h-14 border-b border-border bg-white flex items-center px-6 gap-4">
-          <Link href="/dashboard">
-            <Logo markSize={28} textSize={16} />
-          </Link>
-          <span className="text-muted text-sm">/</span>
-          <span className="text-sm font-semibold text-ink">Workspaces</span>
+          <nav aria-label="Breadcrumbs">
+            <ol className="breadcrumb-list">
+              <li>
+                <Link href="/dashboard" aria-label="Dashboard">
+                  <Logo markSize={28} textSize={16} />
+                </Link>
+              </li>
+              <li>
+                <Link href="/workspaces" aria-current="page" className="text-sm font-semibold text-ink">
+                  Workspaces
+                </Link>
+              </li>
+            </ol>
+          </nav>
           <div className="flex-1" />
           <Link href="/dashboard" className="text-sm text-slate hover:text-ink transition-colors flex items-center gap-1.5">
             <ChevronRight size={14} className="rotate-180" aria-hidden="true" /> Dashboard
@@ -461,7 +476,7 @@ export function WorkspacesClient({
               <div className="flex items-center gap-2">
                 <div className="p-2 rounded-lg bg-blue-faint text-blue"><Plus size={16} aria-hidden="true" /></div>
                 <div>
-                  <h2 id="new-workspace-title" className="font-bold text-ink">New Workspace</h2>
+                  <h1 id="new-workspace-title" className="font-bold text-ink text-base">New Workspace</h1>
                   <p className="text-xs text-muted">Set up your team&apos;s new workspace.</p>
                 </div>
               </div>
@@ -562,7 +577,7 @@ export function WorkspacesClient({
               <Trash2 size={22} className="text-danger" aria-hidden="true" />
             </div>
             <div className="text-center">
-              <h2 id="delete-workspace-title" className="font-bold text-ink text-lg">Delete workspace?</h2>
+              <h1 id="delete-workspace-title" className="font-bold text-ink text-lg">Delete workspace?</h1>
               <p className="text-sm text-slate mt-2">
                 This will permanently delete{" "}
                 <strong>{workspaces.find((w) => w.id === deleteId)?.name}</strong>{" "}
@@ -576,7 +591,9 @@ export function WorkspacesClient({
             )}
             <div className="flex gap-3">
               <button
+                ref={deleteCancelRef}
                 type="button"
+                autoFocus
                 onClick={() => { setDeleteId(null); setDeleteError(""); }}
                 disabled={deleteLoading}
                 className="flex-1 border border-border rounded-xl py-2.5 text-sm font-medium text-slate hover:bg-offwhite transition-colors cursor-pointer"

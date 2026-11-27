@@ -194,12 +194,12 @@ export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
           ) : (
             <>
               <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-                <h2 id="delete-account-title" className="font-bold text-ink">Confirm account deletion</h2>
+                <h1 id="delete-account-title" className="font-bold text-ink text-base">Confirm account deletion</h1>
                   <button
                     type="button"
                     onClick={() => setDeleteOpen(false)}
                     aria-label="Close"
-                    className="text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
+                    className="min-w-7 min-h-7 flex items-center justify-center text-slate hover:text-ink p-1 rounded-lg hover:bg-offwhite transition-colors cursor-pointer"
                   >
                     <X size={18} aria-hidden="true" />
                   </button>
@@ -238,6 +238,7 @@ export function DataPrivacySection({ userEmail }: DataPrivacySectionProps) {
                   <div className="flex items-center justify-end gap-3 pt-2">
                     <button
                       type="button"
+                      autoFocus
                       onClick={() => setDeleteOpen(false)}
                       disabled={deleteLoading}
                       className="px-4 py-2 text-xs font-medium text-slate hover:bg-offwhite rounded-xl transition-colors cursor-pointer"

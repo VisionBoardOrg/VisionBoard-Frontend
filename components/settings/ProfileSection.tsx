@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { User, Check, Loader2, AlertCircle, Pencil, X } from "lucide-react";
+import { User, Check, Loader2, AlertCircle, Pencil, X, Eye, EyeOff } from "lucide-react";
 
 interface ProfileSectionProps {
   initialName:  string | null;
@@ -23,6 +23,7 @@ export function ProfileSection({ initialName, initialEmail, isOAuthUser = false 
   const [name, setName] = useState(initialName ?? "");
   const [email, setEmail] = useState(initialEmail);
   const [currentPassword, setCurrentPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -160,6 +161,9 @@ export function ProfileSection({ initialName, initialEmail, isOAuthUser = false 
             disabled={!isEditing || isOAuthUser}
             maxLength={255}
             autoComplete="email"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@example.com"
             className={`w-full px-3.5 py-2.5 rounded-xl border text-sm transition-colors ${
@@ -190,16 +194,27 @@ export function ProfileSection({ initialName, initialEmail, isOAuthUser = false 
             <label htmlFor="profile-current-password" className="block text-xs font-semibold text-ink mb-1.5">
               Current password <span className="text-danger">*</span>
             </label>
-            <input
-              id="profile-current-password"
-              type="password"
-              required
-              autoComplete="current-password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Enter your current password to confirm"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-border text-sm text-ink bg-white focus:outline-none focus:border-blue focus:ring-2 focus:ring-blue/30 transition-colors"
-            />
+            <div className="relative">
+              <input
+                id="profile-current-password"
+                type={showCurrentPassword ? "text" : "password"}
+                required
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Enter your current password to confirm"
+                className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-border text-sm text-ink bg-white focus:outline-none focus:border-blue focus:ring-2 focus:ring-blue/30 transition-colors"
+              />
+              <button
+                type="button"
+                aria-pressed={showCurrentPassword}
+                aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                onClick={() => setShowCurrentPassword((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 min-w-6 min-h-6 flex items-center justify-center text-muted hover:text-ink transition-colors cursor-pointer"
+              >
+                {showCurrentPassword ? <EyeOff size={15} aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+              </button>
+            </div>
           </div>
         )}
 

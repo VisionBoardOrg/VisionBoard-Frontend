@@ -370,6 +370,9 @@ export function TasksFilteredList({
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search tasks, goals…"
               aria-label="Search tasks"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
               className="w-full pl-8 pr-7 py-2 text-xs bg-white border border-border rounded-xl text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue/30"
             />
             {searchQuery && (
@@ -505,11 +508,11 @@ export function TasksFilteredList({
         </form>
       )}
 
-      {/* Status Filter Tabs (accessible tablist) */}
+      {/* Status Filter Tabs (single non-wrapping row per tabs guide) */}
       <div
         role="tablist"
         aria-label="Filter tasks by status"
-        className="tablist-scroller flex items-center gap-1.5 flex-wrap"
+        className="tablist-scroller flex items-center gap-1.5"
       >
         {FILTER_TABS.map(({ key, label }, idx) => {
           const count = key === "all" ? searchedAndPrioritized.length : (counts[key] ?? 0);
@@ -518,17 +521,19 @@ export function TasksFilteredList({
           return (
             <button
               key={key}
+              id={`tasks-tab-${key}`}
               ref={(el) => { filterTabRefs.current[idx] = el; }}
               type="button"
               role="tab"
               aria-selected={isActive}
+              aria-controls="tasks-tabpanel"
               tabIndex={isActive ? 0 : -1}
               onClick={() => {
                 setActiveFilter(key);
                 filterTabRefs.current[idx]?.scrollIntoView({ block: "nearest", inline: "nearest" });
               }}
               onKeyDown={(e) => handleFilterTabKeyDown(e, idx)}
-              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border transition-colors cursor-pointer
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full border whitespace-nowrap transition-colors cursor-pointer
                 ${
                   isActive
                     ? "bg-blue text-white border-blue shadow-sm"
@@ -547,6 +552,8 @@ export function TasksFilteredList({
         })}
       </div>
 
+      {/* Tasks Tabpanel */}
+      <div id="tasks-tabpanel" role="tabpanel" aria-labelledby={`tasks-tab-${activeFilter}`}>
       {/* Empty state when current filter / scope has 0 tasks */}
       {filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-border p-10 text-center">
@@ -739,6 +746,7 @@ export function TasksFilteredList({
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }

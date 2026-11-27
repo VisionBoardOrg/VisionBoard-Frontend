@@ -418,10 +418,11 @@ export function AICopilotDrawer({
   const standupAbortRef = useRef<AbortController | null>(null);
   const roadmapAbortRef = useRef<AbortController | null>(null);
 
-  // Accessible focus trap + Escape close (does not fight nested dialogs)
+  // Accessible Escape close + initial focus (trapFocus: false so desktop users can Tab back to the board per dialog Rule 2)
   useModalA11y(drawerRef, handleClose, isOpen, {
     initialFocusRef: activeTab === "chat" ? inputRef : undefined,
     lockScroll: false,
+    trapFocus: false,
   });
 
   // Keyboard shortcut listener (Ctrl+J or Cmd+J only; Escape handled by useModalA11y)
@@ -1220,13 +1221,15 @@ export function AICopilotDrawer({
           {copyStatusMessage}
         </span>
 
-        {/* TAB 1: Chat & Q&A */}
+        {/* TAB 1: Chat & Q&A (no padding/bg on panel itself so hidden="until-found" renders no empty strip per tabs guide) */}
         <div
           ref={(el) => { copilotPanelRefs.current.chat = el; }}
           role="tabpanel"
           aria-labelledby="copilot-tab-chat"
-          className={activeTab === "chat" ? "flex-1 flex flex-col min-h-0 bg-white" : "hidden"}
+          {...(activeTab !== "chat" ? ({ hidden: "until-found" } as unknown as React.HTMLAttributes<HTMLDivElement>) : {})}
+          className={activeTab === "chat" ? "flex-1 flex flex-col min-h-0" : ""}
         >
+          <div className="flex-1 flex flex-col min-h-0 bg-white">
             {/* Message History */}
             <div
               ref={messagesScrollRef}
@@ -1491,14 +1494,17 @@ export function AICopilotDrawer({
               </div>
             </div>
           </div>
+        </div>
 
         {/* TAB 2: Executive Summary */}
         <div
           ref={(el) => { copilotPanelRefs.current.executive = el; }}
           role="tabpanel"
           aria-labelledby="copilot-tab-executive"
-          className={activeTab === "executive" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+          {...(activeTab !== "executive" ? ({ hidden: "until-found" } as unknown as React.HTMLAttributes<HTMLDivElement>) : {})}
+          className={activeTab === "executive" ? "flex-1 overflow-y-auto no-scrollbar" : ""}
         >
+          <div className="p-4 space-y-4 bg-white">
             <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 flex items-start gap-3">
               <TrendingUp size={20} className="text-blue shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1621,14 +1627,17 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
+        </div>
 
         {/* TAB 3: Daily Standup */}
         <div
           ref={(el) => { copilotPanelRefs.current.standup = el; }}
           role="tabpanel"
           aria-labelledby="copilot-tab-standup"
-          className={activeTab === "standup" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+          {...(activeTab !== "standup" ? ({ hidden: "until-found" } as unknown as React.HTMLAttributes<HTMLDivElement>) : {})}
+          className={activeTab === "standup" ? "flex-1 overflow-y-auto no-scrollbar" : ""}
         >
+          <div className="p-4 space-y-4 bg-white">
             <div className="p-4 rounded-2xl bg-linear-to-r from-emerald-50 to-teal-50 border border-emerald-100 flex items-start gap-3">
               <ListTodo size={20} className="text-emerald-600 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1717,14 +1726,17 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
+        </div>
 
         {/* TAB 4: Knowledge Base Sync */}
         <div
           ref={(el) => { copilotPanelRefs.current.knowledge = el; }}
           role="tabpanel"
           aria-labelledby="copilot-tab-knowledge"
-          className={activeTab === "knowledge" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+          {...(activeTab !== "knowledge" ? ({ hidden: "until-found" } as unknown as React.HTMLAttributes<HTMLDivElement>) : {})}
+          className={activeTab === "knowledge" ? "flex-1 overflow-y-auto no-scrollbar" : ""}
         >
+          <div className="p-4 space-y-4 bg-white">
             <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 flex items-start gap-3">
               <Database size={20} className="text-purple-600 shrink-0 mt-0.5" aria-hidden="true" />
               <div>
@@ -1878,14 +1890,17 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
+        </div>
 
         {/* TAB 5: Roadmap Generator */}
         <div
           ref={(el) => { copilotPanelRefs.current.roadmap = el; }}
           role="tabpanel"
           aria-labelledby="copilot-tab-roadmap"
-          className={activeTab === "roadmap" ? "flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar bg-white" : "hidden"}
+          {...(activeTab !== "roadmap" ? ({ hidden: "until-found" } as unknown as React.HTMLAttributes<HTMLDivElement>) : {})}
+          className={activeTab === "roadmap" ? "flex-1 overflow-y-auto no-scrollbar" : ""}
         >
+          <div className="p-4 space-y-4 bg-white">
             {/* Roadmap Header Card */}
             <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 flex items-start gap-3">
               <Rocket size={20} className="text-orange shrink-0 mt-0.5" />
@@ -2211,6 +2226,7 @@ export function AICopilotDrawer({
               </div>
             )}
           </div>
+        </div>
       </div>
     </>
   );

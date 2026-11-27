@@ -98,6 +98,7 @@ export default function PricingComparisonTable() {
         className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
       >
         <table className="w-full text-left border-collapse min-w-[640px]">
+          <caption className="sr-only">Plan feature comparison table</caption>
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50/50">
               <th scope="col" className="py-4 px-6 text-sm font-bold text-slate-900 w-2/5">Feature</th>

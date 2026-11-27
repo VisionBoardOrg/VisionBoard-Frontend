@@ -277,25 +277,22 @@ function BillingSectionInner({
             </span>
           </div>
           {hasFiniteCredits && (
-            <div
-              className="h-2 bg-border rounded-full overflow-hidden"
-              role="progressbar"
+            <progress
               aria-label="AI credits used"
-              aria-valuenow={aiCreditsUsed}
-              aria-valuemin={0}
-              aria-valuemax={creditsMax}
-            >
-              <div
-                className={`h-full rounded-full transition-all ${
-                  creditsPct >= 90
-                    ? "bg-danger"
-                    : creditsPct >= 75
-                      ? "bg-amber-500"
-                      : "bg-blue"
-                }`}
-                style={{ width: `${creditsPct}%` }}
-              />
-            </div>
+              value={aiCreditsUsed}
+              max={creditsMax}
+              style={
+                {
+                  "--progress-bar-fill":
+                    creditsPct >= 90
+                      ? "var(--color-danger)"
+                      : creditsPct >= 75
+                        ? "#f59e0b"
+                        : "var(--color-blue)",
+                } as React.CSSProperties
+              }
+              className="styled-progress h-2 w-full block"
+            />
           )}
         </div>
       )}

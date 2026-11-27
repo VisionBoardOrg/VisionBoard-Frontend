@@ -18,7 +18,7 @@ export default function PricingHero({ isAnnual, setIsAnnual }: PricingHeroProps)
         Choose the plan that&apos;s right for you. All plans include 14-day free trial. No credit card required. Upgrade or downgrade anytime.
       </p>
 
-      {/* Monthly / Annual Toggle */}
+      {/* Monthly / Annual Toggle (native <input type="checkbox" switch> per switch guide) */}
       <div className="mt-8 flex items-center justify-center gap-3">
         <button
           type="button"
@@ -29,33 +29,24 @@ export default function PricingHero({ isAnnual, setIsAnnual }: PricingHeroProps)
           Monthly
         </button>
 
-        <button
-          type="button"
+        <input
+          id="pricing-annual-switch"
+          type="checkbox"
           role="switch"
-          aria-checked={isAnnual}
-          onClick={() => setIsAnnual(!isAnnual)}
-          className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
-            isAnnual ? "bg-blue-600" : "bg-slate-300"
-          }`}
-        >
-          <span className="sr-only">Toggle annual billing</span>
-          <span
-            aria-hidden="true"
-            className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-              isAnnual ? "translate-x-7" : "translate-x-0"
-            }`}
-          />
-        </button>
+          {...({ switch: "" } as React.InputHTMLAttributes<HTMLInputElement>)}
+          checked={isAnnual}
+          onChange={(e) => setIsAnnual(e.target.checked)}
+          aria-label="Toggle annual billing"
+          className="native-switch"
+        />
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setIsAnnual(true)}
-            aria-pressed={isAnnual}
-            className={`text-sm font-semibold transition-colors cursor-pointer rounded-md px-1.5 py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${isAnnual ? "text-slate-900" : "text-slate-500 hover:text-slate-700"}`}
+          <label
+            htmlFor="pricing-annual-switch"
+            className={`text-sm font-semibold transition-colors cursor-pointer rounded-md px-1.5 py-1 ${isAnnual ? "text-slate-900" : "text-slate-500 hover:text-slate-700"}`}
           >
             Annual
-          </button>
+          </label>
           <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-700 uppercase tracking-wide">
             Save 20%
           </span>

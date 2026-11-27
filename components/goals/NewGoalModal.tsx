@@ -123,15 +123,15 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
       <div>
         {/* Header */}
         <div className="flex items-center justify-between mb-5">
-          <h2 id="new-goal-modal-title" className="text-base font-bold text-ink flex items-center gap-2">
+          <h1 id="new-goal-modal-title" className="text-base font-bold text-ink flex items-center gap-2">
             <Target size={16} className="text-blue" aria-hidden="true" />
             New Goal
-          </h2>
+          </h1>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="p-1 rounded-lg hover:bg-offwhite text-muted hover:text-ink transition-colors cursor-pointer"
+            className="min-w-7 min-h-7 flex items-center justify-center p-1 rounded-lg hover:bg-offwhite text-muted hover:text-ink transition-colors cursor-pointer"
           >
             <X size={16} aria-hidden="true" />
           </button>
@@ -312,7 +312,7 @@ export function NewGoalModal({ workspaceId, onClose, onCreated, extended = false
             </button>
             <button
               type="submit"
-              disabled={creating || !title.trim() || !objective.trim()}
+              disabled={creating}
               className="px-4 py-2 text-sm font-semibold bg-blue text-white rounded-xl hover:bg-blue-mid disabled:opacity-50 transition-colors flex items-center gap-2 cursor-pointer"
             >
               {creating ? (

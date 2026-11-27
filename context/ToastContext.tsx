@@ -11,12 +11,21 @@ export interface ToastOptions {
   type?: ToastType;
   /** Auto-dismiss delay in ms. Pass 0 to require manual dismissal. */
   duration?: number;
+  /** Optional action button inside the toast (appends "Actions available" to ariaNotify announcement). */
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 interface ToastItem extends Required<Pick<ToastOptions, "title" | "type">> {
   id: number;
   description?: string;
   duration: number;
+  action?: {
+    label: string;
+    onClick: () => void;
+  };
 }
 
 interface ToastContextType {
@@ -45,6 +54,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const stackRef = useRef<HTMLDivElement>(null);
   const dismissBtnRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
   const priorFocusRef = useRef<HTMLElement | null>(null);
+  const queuedWhileModalRef = useRef<ToastOptions[]>([]);
 
   const clearTimer = useCallback((id: number) => {
     const timer = timers.current.get(id);
@@ -115,12 +125,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     }
   }, [toasts.length]);
 
-  const toast = useCallback(
-    ({ title, description, type = "info", duration = 5000 }: ToastOptions) => {
+  const enqueueOrShowToast = useCallback(
+    (opts: ToastOptions) => {
+      const { title, description, type = "info", duration = 5000, action } = opts;
       const id = nextId.current++;
       if (typeof document !== "undefined") {
         priorFocusRef.current = document.activeElement as HTMLElement | null;
-        const announcement = description ? `${title}. ${description}` : title;
+        const baseText = description ? `${title}. ${description}` : title;
+        const announcement = action ? `${baseText}. Actions available.` : baseText;
         const docWithAriaNotify = document as Document & {
           ariaNotify?: (msg: string, opts?: { priority?: "high" | "normal" }) => void;
         };
@@ -133,7 +145,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         }
       }
       setToasts((prev) => {
-        const next = [...prev, { id, title, description, type, duration }];
+        const next = [...prev, { id, title, description, type, duration, action }];
         if (next.length > 4) {
           const evicted = next.slice(0, next.length - 4);
           for (const item of evicted) clearTimer(item.id);
@@ -145,6 +157,38 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     },
     [clearTimer, scheduleDismiss]
   );
+
+  // Suppress toasts while a modal <dialog> is open, flushing them once the modal closes (persistent-toast-notifications)
+  const toast = useCallback(
+    (opts: ToastOptions) => {
+      if (typeof document !== "undefined" && document.querySelector("dialog:modal")) {
+        queuedWhileModalRef.current.push(opts);
+        return;
+      }
+      enqueueOrShowToast(opts);
+    },
+    [enqueueOrShowToast]
+  );
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const flushIfNoModal = () => {
+      if (queuedWhileModalRef.current.length === 0) return;
+      if (!document.querySelector("dialog:modal")) {
+        const pending = queuedWhileModalRef.current.splice(0);
+        for (const item of pending) {
+          enqueueOrShowToast(item);
+        }
+      }
+    };
+    document.addEventListener("close", flushIfNoModal, true);
+    const observer = new MutationObserver(flushIfNoModal);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["open"] });
+    return () => {
+      document.removeEventListener("close", flushIfNoModal, true);
+      observer.disconnect();
+    };
+  }, [enqueueOrShowToast]);
 
   return (
     <ToastContext.Provider value={{ toast }}>
@@ -186,6 +230,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 <p className="text-sm font-semibold text-ink leading-snug">{t.title}</p>
                 {t.description && (
                   <p className="text-xs text-slate mt-1 leading-relaxed">{t.description}</p>
+                )}
+                {t.action && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      t.action?.onClick();
+                      dismiss(t.id, true);
+                    }}
+                    className="mt-2 inline-flex items-center px-2.5 py-1 rounded-lg bg-blue text-white text-xs font-semibold hover:bg-blue-mid transition-colors cursor-pointer"
+                  >
+                    {t.action.label}
+                  </button>
                 )}
               </div>
               <button

@@ -1133,12 +1133,12 @@ export function GoalDetail({ goal, workspaceId, userId, canEdit = true }: GoalDe
                         </div>
                       )}
                     </div>
-                    <div className="h-2 bg-border rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-blue rounded-full transition-all"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+                    <progress
+                      aria-label={`${kr.title} progress`}
+                      value={pct}
+                      max={100}
+                      className="styled-progress h-2 w-full block"
+                    />
                   </div>
                 );
               })}

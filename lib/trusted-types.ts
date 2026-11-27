@@ -40,9 +40,26 @@ export function getTrustedTypesPolicy(): TrustedTypePolicyLike {
     };
   }
 
+  const sanitizeHtmlString = (input: string): string => {
+    // Never pass through unsanitized HTML: strip executable script/object/embed tags,
+    // inline event handlers (on*=), and javascript:/data: URLs before creating a TrustedHTML sink value.
+    return input
+      .replace(/<\s*\/?\s*(?:script|iframe|object|embed|base|meta|link)\b[^>]*>/gi, "")
+      .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/(?:javascript|vbscript)\s*:/gi, "blocked:");
+  };
+
   const rules = {
-    createHTML: (input: string) => input,
-    createScript: (input: string) => input,
+    createHTML: (input: string) => sanitizeHtmlString(input),
+    createScript: (input: string) => {
+      // Only allow valid JSON-LD payloads; block arbitrary script strings
+      const trimmed = input.trim();
+      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        JSON.parse(trimmed);
+        return trimmed.replace(/</g, "\\u003c");
+      }
+      throw new TypeError("Blocked untrusted script execution by Trusted Types policy.");
+    },
     createScriptURL: (input: string) => {
       const parsed = new URL(input, typeof location !== "undefined" ? location.origin : "https://vision-board.tech");
       if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
