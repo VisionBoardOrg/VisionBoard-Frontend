@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { tiptapDocSchema } from "@/lib/validations/tiptap-schema";
 import { indexSingleEntity } from "@/lib/ai/indexer";
@@ -202,6 +203,7 @@ export async function DELETE(
     SET "storageUsedBytes" = GREATEST(0, "storageUsedBytes" - ${contentBytes})
     WHERE id = ${doc.workspaceId}
   `;
+  invalidateWorkspaceDataCache({ workspaceId: doc.workspaceId });
 
   return NextResponse.json({ success: true });
 }

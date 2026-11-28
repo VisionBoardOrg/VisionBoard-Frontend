@@ -3,15 +3,16 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { Menu, X } from "lucide-react";
 import Logo from "./reusables/Logo";
 import PrimaryButton from "./reusables/primaryButton";
 
-export default function Header() {
+interface HeaderProps {
+  isAuthenticated?: boolean;
+}
+
+export default function Header({ isAuthenticated = false }: HeaderProps) {
   const pathname = usePathname();
-  const { status } = useSession();
-  const isAuthenticated = status === "authenticated";
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);

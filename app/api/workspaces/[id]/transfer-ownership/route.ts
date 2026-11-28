@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, invalidateAuthCache } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 
 const schema = z.object({
@@ -96,6 +97,11 @@ export async function POST(
         data: { role: previousOwnerRole },
       }),
     ]);
+
+    invalidateWorkspaceDataCache({ workspaceId, userId: session.user.id });
+    invalidateWorkspaceDataCache({ workspaceId, userId: newOwnerId });
+    invalidateAuthCache(session.user.id);
+    invalidateAuthCache(newOwnerId);
 
     return NextResponse.json({ success: true });
   } catch (err) {

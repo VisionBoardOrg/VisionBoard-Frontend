@@ -83,6 +83,7 @@ export default async function WorkspacesPage() {
       userName={session.user.name}
       userEmail={session.user.email}
       userImage={session.user.image}
+      emailVerified={session.user.emailVerified}
       isOwner={activeWorkspace?.ownerId === session.user.id}
     >
       <WorkspacesClient

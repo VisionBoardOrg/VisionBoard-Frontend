@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { nullableIsoDateString } from "@/lib/validations/date-schema";
 
@@ -124,6 +125,8 @@ export async function PATCH(
     },
   }).catch((err: unknown) => console.error("[goals/[id] PATCH] Activity log failed:", err));
 
+  invalidateWorkspaceDataCache({ workspaceId: goal.workspaceId });
+
   return NextResponse.json({ goal: updated });
 }
 
@@ -144,5 +147,6 @@ export async function DELETE(
   }
 
   await prisma.goal.delete({ where: { id } });
+  invalidateWorkspaceDataCache({ workspaceId: goal.workspaceId });
   return NextResponse.json({ success: true });
 }

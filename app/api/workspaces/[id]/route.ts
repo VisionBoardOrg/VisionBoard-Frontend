@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, invalidateAuthCache } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 
 const patchSchema = z.object({
@@ -57,6 +58,7 @@ export async function PATCH(
     data: { name: parsed.data.name, slug },
     select: { id: true, name: true, slug: true },
   });
+  invalidateWorkspaceDataCache({ workspaceId, userId: session.user.id });
 
   await prisma.activityLog.create({
     data: {
@@ -94,6 +96,8 @@ export async function DELETE(
   }
 
   await prisma.workspace.delete({ where: { id: workspaceId } });
+  invalidateWorkspaceDataCache({ workspaceId, userId: session.user.id });
+  invalidateAuthCache(session.user.id);
 
   return NextResponse.json({ success: true });
 }

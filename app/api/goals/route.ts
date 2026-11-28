@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { nullableIsoDateString } from "@/lib/validations/date-schema";
 
@@ -54,6 +55,8 @@ export async function POST(request: NextRequest) {
       action: "created",
     },
   }).catch((err: unknown) => console.error("[goals POST] Activity log failed:", err));
+
+  invalidateWorkspaceDataCache({ workspaceId: parsed.data.workspaceId });
 
   return NextResponse.json({ goal }, { status: 201 });
 }

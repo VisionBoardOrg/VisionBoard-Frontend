@@ -6,6 +6,7 @@ import CrossTeamPlanning from "@/components/features/CrossTeamPlanning";
 import ConnectedDocs from "@/components/features/ConnectedDocs";
 import FeaturesCTA from "@/components/features/FeaturesCTA";
 import JsonLd from "@/components/seo/JsonLd";
+import { leanAuth } from "@/lib/auth/lean";
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
 
@@ -44,7 +45,10 @@ export const metadata: Metadata = {
   },
 };
 
-export default function FeaturesPage() {
+export default async function FeaturesPage() {
+  const session = await leanAuth().catch(() => null);
+  const isAuthenticated = Boolean(session?.user?.id);
+
   const breadcrumbJsonLd = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -101,7 +105,7 @@ export default function FeaturesPage() {
     <div className="min-h-screen bg-offwhite text-ink font-sans flex flex-col justify-between">
       <JsonLd data={[breadcrumbJsonLd, featureListJsonLd]} />
       <div>
-        <Header />
+        <Header isAuthenticated={isAuthenticated} />
         <main>
           <FeaturesHero />
           <CrossTeamPlanning />

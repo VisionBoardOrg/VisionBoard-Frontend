@@ -126,6 +126,11 @@ export default async function BoardPage({ params }: BoardPageProps) {
       milestones={updatedMilestones as never}
       members={members.map((m) => m.user)}
       initialLayoutMode={initialLayoutMode}
+      currentUser={{
+        id: session.user.id,
+        name: session.user.name,
+        image: session.user.image,
+      }}
     />
   );
 }

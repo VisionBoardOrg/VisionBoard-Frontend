@@ -6,6 +6,7 @@ import FeatureSection2 from "@/components/FeatureSection2";
 import FeatureSection3 from "@/components/FeatureSection3";
 import BottomCTA from "@/components/BottomCTA";
 import Footer from "@/components/Footer";
+import { leanAuth } from "@/lib/auth/lean";
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
 
@@ -44,10 +45,13 @@ export const metadata: Metadata = {
   },
 };
 
-export default function Home() {
+export default async function Home() {
+  const session = await leanAuth().catch(() => null);
+  const isAuthenticated = Boolean(session?.user?.id);
+
   return (
     <div className="min-h-screen bg-offwhite font-sans text-ink">
-      <Header />
+      <Header isAuthenticated={isAuthenticated} />
       <main id="main-content" tabIndex={-1}>
         <HomeHero />
         <FeatureSection1 />

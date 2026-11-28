@@ -3,6 +3,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import JsonLd from "@/components/seo/JsonLd";
+import { leanAuth } from "@/lib/auth/lean";
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
 
@@ -38,7 +39,10 @@ export const metadata: Metadata = {
   },
 };
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  const session = await leanAuth().catch(() => null);
+  const isAuthenticated = Boolean(session?.user?.id);
+
   const breadcrumbJsonLd = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -61,7 +65,7 @@ export default function TermsPage() {
   return (
     <div className="min-h-screen bg-offwhite flex flex-col">
       <JsonLd data={breadcrumbJsonLd} />
-      <Header />
+      <Header isAuthenticated={isAuthenticated} />
 
       <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-14 space-y-6">
         {/* Page Header */}

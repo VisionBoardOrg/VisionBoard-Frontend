@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { nullableIsoDateString } from "@/lib/validations/date-schema";
 
@@ -78,6 +79,8 @@ export async function POST(request: NextRequest) {
 
     return ms;
   });
+
+  invalidateWorkspaceDataCache({ workspaceId: parsed.data.workspaceId });
 
   return NextResponse.json({ milestone }, { status: 201 });
 }

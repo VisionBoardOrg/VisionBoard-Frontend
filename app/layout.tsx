@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
-import { SessionProvider } from "next-auth/react";
 import { Analytics } from "@vercel/analytics/react";
 import { createTrustedJsonLd } from "@/lib/trusted-types";
 import "./globals.css";
@@ -192,7 +191,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        <meta name="color-scheme" content="light dark" />
+        <meta name="color-scheme" content="light" />
         <meta name="text-scale" content="scale" />
         <script
           type="application/ld+json"
@@ -207,10 +206,8 @@ export default function RootLayout({
         )}
       </head>
       <body className="h-full bg-offwhite text-ink">
-        <SessionProvider refetchOnWindowFocus={false}>
-          {children}
-          <Analytics />
-        </SessionProvider>
+        {children}
+        <Analytics />
       </body>
     </html>
   );

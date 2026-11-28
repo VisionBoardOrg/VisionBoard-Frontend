@@ -18,6 +18,25 @@ export async function register() {
     const { validateEnv } = await import("./lib/validate-env");
     validateEnv();
 
+    // ── Stream abort error filter (Node.js 20 Web Streams + React 19 RSC) ─
+    // Suppresses noisy "TypeError: controller[kState].transformAlgorithm is not a function"
+    // uncaughtException events triggered when a browser cancels or refreshes an in-flight
+    // App Router RSC stream before Node's TransformStream controller finishes flushing.
+    const globalForStreamGuard = globalThis as unknown as { __vbStreamGuardInstalled?: boolean };
+    if (!globalForStreamGuard.__vbStreamGuardInstalled) {
+      globalForStreamGuard.__vbStreamGuardInstalled = true;
+      process.on("uncaughtException", (err) => {
+        if (
+          err instanceof TypeError &&
+          typeof err.message === "string" &&
+          err.message.includes("transformAlgorithm is not a function")
+        ) {
+          return;
+        }
+        console.error(err);
+      });
+    }
+
     // ── F-14: pgvector column health check ───────────────────────────────
     // The semantic search fast path (ANN via pgvector HNSW index) requires
     // the `embeddingVec` column created by apply_vector_embeddings.sql.

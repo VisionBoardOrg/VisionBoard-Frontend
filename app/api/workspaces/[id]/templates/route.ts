@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { TEMPLATES, TemplateName } from "@/lib/templates";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 
 const schema = z.object({
@@ -93,6 +94,8 @@ export async function POST(
       diff: { template: parsed.data.template } as never,
     },
   });
+
+  invalidateWorkspaceDataCache({ workspaceId });
 
   return NextResponse.json({ success: true, template: parsed.data.template });
 }

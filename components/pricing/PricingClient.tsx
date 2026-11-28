@@ -25,7 +25,7 @@ export default function PricingClient({
   return (
     <div className="min-h-screen bg-offwhite text-ink font-sans flex flex-col justify-between">
       <div>
-        <Header />
+        <Header isAuthenticated={isAuthenticated} />
         <main id="main-content" tabIndex={-1} className="space-y-4">
           <PricingHero isAnnual={isAnnual} setIsAnnual={setIsAnnual} />
           <PricingCards

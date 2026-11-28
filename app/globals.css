@@ -34,36 +34,11 @@
 
 /* Viewport-wide color-scheme and browser UI theming */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --accent-color-light: var(--color-blue);
-  --accent-color-dark: var(--color-cyan);
   --accent-color: var(--accent-color-light);
-  --scrollbar-thumb-light: #64748B;
-  --scrollbar-thumb-dark: #94A3B8;
-  --scrollbar-track-light: #F1F5F9;
-  --scrollbar-track-dark: #1E293B;
-  --scrollbar-thumb: var(--scrollbar-thumb-light);
-  --scrollbar-track: var(--scrollbar-track-light);
   accent-color: var(--accent-color);
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: auto;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --accent-color: var(--accent-color-dark);
-    --scrollbar-thumb: var(--scrollbar-thumb-dark);
-    --scrollbar-track: var(--scrollbar-track-dark);
-  }
-}
-
-@supports (color: light-dark(white, black)) {
-  :root {
-    --accent-color: light-dark(var(--accent-color-light), var(--accent-color-dark));
-    --scrollbar-thumb: light-dark(var(--scrollbar-thumb-light), var(--scrollbar-thumb-dark));
-    --scrollbar-track: light-dark(var(--scrollbar-track-light), var(--scrollbar-track-dark));
-    accent-color: var(--accent-color);
-  }
 }
 
 /* Keep form controls aligned with light card surfaces while allowing dark code blocks to opt into dark scheme */
@@ -653,32 +628,7 @@ select:disabled {
   to   { transform: translateX(0);   opacity: 1; }
 }
 
-/* Accessible themed scrollbar (replaces scrollbar-width: none per browser-ui-theming) */
+/* Accessible native scrollbar */
 .no-scrollbar {
-  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   scrollbar-width: auto;
-}
-
-/* Legacy fallback for WebKit/Blink browsers without scrollbar-color */
-@supports not (scrollbar-color: auto) {
-  :root,
-  .no-scrollbar {
-    scrollbar-width: auto;
-  }
-
-  :root::-webkit-scrollbar,
-  .no-scrollbar::-webkit-scrollbar {
-    width: 12px;
-    height: 12px;
-  }
-
-  :root::-webkit-scrollbar-thumb,
-  .no-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-  }
-
-  :root::-webkit-scrollbar-track,
-  .no-scrollbar::-webkit-scrollbar-track {
-    background: var(--scrollbar-track);
-  }
 }

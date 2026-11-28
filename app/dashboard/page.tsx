@@ -89,6 +89,7 @@ export default async function DashboardPage() {
       userName={session.user.name}
       userEmail={session.user.email}
       userImage={session.user.image}
+      emailVerified={session.user.emailVerified}
       isOwner={primaryWorkspace.ownerId === session.user.id}
     >
       <div className="max-w-4xl mx-auto space-y-8">

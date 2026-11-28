@@ -7,6 +7,7 @@ import TemplateSection from "@/components/solutions/TemplateSection";
 import AIFeaturesSection from "@/components/solutions/AIFeaturesSection";
 import SolutionsCTA from "@/components/solutions/SolutionsCTA";
 import JsonLd from "@/components/seo/JsonLd";
+import { leanAuth } from "@/lib/auth/lean";
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://vision-board.tech";
 
@@ -45,7 +46,10 @@ export const metadata: Metadata = {
   },
 };
 
-export default function SolutionsPage() {
+export default async function SolutionsPage() {
+  const session = await leanAuth().catch(() => null);
+  const isAuthenticated = Boolean(session?.user?.id);
+
   const breadcrumbJsonLd = {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
@@ -69,7 +73,7 @@ export default function SolutionsPage() {
     <div className="min-h-screen bg-offwhite text-ink font-sans flex flex-col justify-between">
       <JsonLd data={breadcrumbJsonLd} />
       <div>
-        <Header />
+        <Header isAuthenticated={isAuthenticated} />
         <main className="space-y-4">
           <SolutionsHero />
           <RoleBasedViews />

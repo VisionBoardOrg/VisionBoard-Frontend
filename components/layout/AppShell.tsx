@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { signOut, useSession } from "next-auth/react";
+import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Map, Kanban, FileText, Settings,
   Layers, LogOut, Zap, Building2, Target, ListTodo, ChevronLeft, ChevronDown, Check, X, Menu, UserCircle, Users, Search,
@@ -47,10 +47,11 @@ interface AppShellProps {
   workspaceName?: string | null;
   /** List of user's workspaces for quick switching */
   workspaces?: Array<{ id: string; name: string }>;
-  /** Optional user profile metadata (falls back to NextAuth session) */
+  /** Optional user profile metadata */
   userName?: string | null;
   userEmail?: string | null;
   userImage?: string | null;
+  emailVerified?: Date | string | null;
 }
 
 const PERSONAL_NAV = [
@@ -118,9 +119,9 @@ function AppShellContent({
   userName,
   userEmail,
   userImage,
+  emailVerified,
 }: AppShellProps) {
   const pathname = usePathname();
-  const { data: session } = useSession();
   // Real-time live notifications & toasts (consumed from shared NotificationProvider)
   const { latestLiveEvent, dismissToast } = useNotifications();
 
@@ -258,10 +259,10 @@ function AppShellContent({
   const personalItems = PERSONAL_NAV;
   const workspaceItems = workspaceId ? WORKSPACE_NAV(workspaceId) : [];
 
-  // Resolve user metadata (props override session fallback)
-  const resolvedUserName = userName ?? session?.user?.name ?? null;
-  const resolvedUserEmail = userEmail ?? session?.user?.email ?? null;
-  const resolvedUserImage = userImage ?? session?.user?.image ?? null;
+  // Resolve user metadata from server props (zero client /api/auth/session round-trip)
+  const resolvedUserName = userName ?? null;
+  const resolvedUserEmail = userEmail ?? null;
+  const resolvedUserImage = userImage ?? null;
   const userInitial = (resolvedUserName?.[0] || resolvedUserEmail?.[0] || "U").toUpperCase();
 
   // Resolve active workspace display name
@@ -667,7 +668,7 @@ function AppShellContent({
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <EmailVerificationBanner />
+        <EmailVerificationBanner userEmail={resolvedUserEmail} emailVerified={emailVerified} />
 
         {/* Top bar */}
         <header className="h-14 border-b border-border bg-white flex items-center px-3 sm:px-4 gap-2 sm:gap-3 shrink-0">

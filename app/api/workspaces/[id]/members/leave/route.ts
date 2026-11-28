@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, invalidateAuthCache } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 
 export async function POST(
   _request: NextRequest,
@@ -35,6 +36,8 @@ export async function POST(
   await prisma.workspaceMember.delete({
     where: { workspaceId_userId: { workspaceId, userId: session.user.id } },
   });
+  invalidateWorkspaceDataCache({ workspaceId, userId: session.user.id });
+  invalidateAuthCache(session.user.id);
 
   return NextResponse.json({ success: true });
 }

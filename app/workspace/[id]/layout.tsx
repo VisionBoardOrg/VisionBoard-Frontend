@@ -50,6 +50,7 @@ export default async function WorkspaceLayout({
       userName={session.user.name}
       userEmail={session.user.email}
       userImage={session.user.image}
+      emailVerified={session.user.emailVerified}
       isOwner={isOwner}
     >
       {children}

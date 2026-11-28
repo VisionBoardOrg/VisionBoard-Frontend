@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { calculateGoalHealth } from "@/lib/goal-health";
 import { syncMilestoneStatus } from "@/lib/milestone-sync";
@@ -165,6 +166,8 @@ export async function PATCH(
     include: { ...assigneesInclude },
   });
 
+  invalidateWorkspaceDataCache({ workspaceId });
+
   return NextResponse.json({ task: finalTask ?? updated });
 }
 
@@ -192,6 +195,7 @@ export async function DELETE(
   }
 
   await prisma.task.delete({ where: { id } });
+  invalidateWorkspaceDataCache({ workspaceId });
 
   // Re-sync parent milestone status (deleting the only started task should
   // move it back to planned) — fire-and-forget

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -107,6 +106,11 @@ interface BoardCanvasProps {
   milestones: MilestoneWithTasks[];
   members: UserSimple[];
   initialLayoutMode?: BoardLayoutMode;
+  currentUser?: {
+    id: string;
+    name?: string | null;
+    image?: string | null;
+  };
 }
 
 export function BoardCanvas({
@@ -116,6 +120,7 @@ export function BoardCanvas({
   milestones: initialMilestones,
   members,
   initialLayoutMode = "canvas",
+  currentUser,
 }: BoardCanvasProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -140,13 +145,12 @@ export function BoardCanvas({
     hydratedInitialItems
   );
 
-  const { data: session } = useSession();
-  const currentUserId = session?.user?.id;
-  const currentUserName = session?.user?.name || "Teammate";
-  const currentUserImage = session?.user?.image;
+  const currentUserId = currentUser?.id;
+  const currentUserName = currentUser?.name || "Teammate";
+  const currentUserImage = currentUser?.image;
   const currentUserColor = useMemo(() => getUserColor(currentUserId), [currentUserId]);
 
-  const { sendEvent, connectionState, reconnect } = useWebSocket(workspaceId);
+  const { sendEvent, connectionState, reconnect } = useWebSocket(workspaceId, currentUserId);
   const viewersByCard = useCursorStore((s) => s.viewersByCard);
   const activeCollaborators = useCursorStore((s) => s.activeUsers);
 

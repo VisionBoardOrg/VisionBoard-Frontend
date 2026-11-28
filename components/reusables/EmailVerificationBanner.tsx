@@ -1,12 +1,18 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSession } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Mail, AlertTriangle, CheckCircle2, Loader2, X, RefreshCw } from "lucide-react";
 
-function EmailVerificationBannerInner() {
-  const { data: session, update: updateSession } = useSession();
+interface EmailVerificationBannerProps {
+  userEmail?: string | null;
+  emailVerified?: Date | string | null;
+}
+
+function EmailVerificationBannerInner({
+  userEmail,
+  emailVerified,
+}: EmailVerificationBannerProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -19,7 +25,6 @@ function EmailVerificationBannerInner() {
 
   useEffect(() => {
     if (verifiedParam === "true") {
-      updateSession();
       setStatusMessage({
         type: "success",
         text: "Your email address has been successfully verified.",
@@ -38,12 +43,15 @@ function EmailVerificationBannerInner() {
           : "Invalid verification link.";
       setStatusMessage({ type: "error", text: msg });
     }
-  }, [verifiedParam, reasonParam, updateSession, router]);
+  }, [verifiedParam, reasonParam, router]);
 
   // Always honor manual dismissal first, even when a status message is active
   if (dismissed) return null;
 
-  if (!session?.user || session.user.emailVerified) {
+  const resolvedEmail = userEmail ?? null;
+  const resolvedVerified = Boolean(emailVerified);
+
+  if (!resolvedEmail || resolvedVerified) {
     if (!statusMessage) return null;
   }
 
@@ -101,14 +109,14 @@ function EmailVerificationBannerInner() {
               </strong>
             ) : (
               <>
-                Please verify your email (<strong>{session?.user.email}</strong>) to secure your account.
+                Please verify your email (<strong>{resolvedEmail}</strong>) to secure your account.
               </>
             )}
           </span>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-          {!session?.user?.emailVerified && (
+          {!resolvedVerified && (
             <button
               type="button"
               onClick={handleResend}
@@ -147,10 +155,10 @@ function EmailVerificationBannerInner() {
  * calls `useSearchParams()` which Next.js requires to be behind a Suspense
  * boundary during static prerender analysis.
  */
-export function EmailVerificationBanner() {
+export function EmailVerificationBanner(props: EmailVerificationBannerProps) {
   return (
     <Suspense fallback={null}>
-      <EmailVerificationBannerInner />
+      <EmailVerificationBannerInner {...props} />
     </Suspense>
   );
 }

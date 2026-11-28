@@ -1,6 +1,7 @@
-import { auth, signOut } from "@/lib/auth";
+import { auth, signOut, invalidateAuthCache } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { checkPlanLimit } from "@/lib/plan-limits";
@@ -79,6 +80,8 @@ export default async function InvitePage({ params }: InvitePageProps) {
       await prisma.workspaceMember.create({
         data: { workspaceId: invite.workspaceId, userId: session.user.id, role: invite.role as never },
       });
+      invalidateWorkspaceDataCache({ workspaceId: invite.workspaceId, userId: session.user.id });
+      invalidateAuthCache(session.user.id);
 
       await prisma.activityLog.create({
         data: {
@@ -133,6 +136,8 @@ export default async function InvitePage({ params }: InvitePageProps) {
     await prisma.workspaceMember.create({
       data: { workspaceId: invite.workspaceId, userId: session.user.id, role: invite.role as never },
     });
+    invalidateWorkspaceDataCache({ workspaceId: invite.workspaceId, userId: session.user.id });
+    invalidateAuthCache(session.user.id);
     await prisma.workspaceInvite.update({
       where: { id: invite.id },
       data: { status: "accepted" },

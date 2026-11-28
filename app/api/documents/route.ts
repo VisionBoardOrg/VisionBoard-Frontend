@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
 import { tiptapDocSchema } from "@/lib/validations/tiptap-schema";
@@ -144,6 +145,8 @@ export async function POST(request: NextRequest) {
   indexSingleEntity(workspaceId, "document", document.id).catch((err) =>
     console.error("[documents/create] Incremental index error:", err)
   );
+
+  invalidateWorkspaceDataCache({ workspaceId });
 
   return NextResponse.json({ document }, { status: 201 });
 }

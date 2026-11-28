@@ -64,6 +64,7 @@ export default async function AccountPage() {
       userName={user.name}
       userEmail={user.email}
       userImage={user.image}
+      emailVerified={session.user.emailVerified}
       isOwner={isOwner}
     >
       <div className="max-w-2xl mx-auto space-y-8">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { syncMilestoneStatus } from "@/lib/milestone-sync";
 import {
@@ -167,6 +168,8 @@ export async function POST(request: NextRequest) {
     where: { id: task.id },
     include: { ...assigneesInclude },
   });
+
+  invalidateWorkspaceDataCache({ workspaceId });
 
   return NextResponse.json({ task: finalTask ?? task }, { status: 201 });
 }

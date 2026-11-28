@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, invalidateAuthCache } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 
 const roleSchema = z.object({
@@ -110,6 +111,8 @@ export async function PATCH(
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
       data: { role },
     });
+    invalidateWorkspaceDataCache({ workspaceId, userId: targetUserId });
+    invalidateAuthCache(targetUserId);
 
     return NextResponse.json({ success: true, role: updated.role });
   } catch (err) {

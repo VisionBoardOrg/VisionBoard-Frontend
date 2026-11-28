@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { useSession } from "next-auth/react";
 import { useBoardStore } from "@/store/board-store";
 import { useCursorStore, type CursorUpdate } from "@/store/cursor-store";
 import type { TaskSimple } from "@/types/board";
@@ -216,8 +215,7 @@ function validateCursorMoved(data: Record<string, unknown>): CursorUpdate | null
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function useWebSocket(workspaceId: string | null) {
-  const { data: session } = useSession();
+export function useWebSocket(workspaceId: string | null, userId?: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isConnectingRef = useRef(false);
@@ -233,7 +231,7 @@ export function useWebSocket(workspaceId: string | null) {
     isConfigured ? "connecting" : "disabled"
   );
 
-  const sessionToken = (session as { accessToken?: string })?.accessToken ?? session?.user?.id ?? null;
+  const sessionToken = userId ?? null;
   useEffect(() => {
     if (sessionToken) {
       tokenRef.current = sessionToken;

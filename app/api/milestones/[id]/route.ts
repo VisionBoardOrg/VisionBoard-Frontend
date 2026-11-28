@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { nullableIsoDateString } from "@/lib/validations/date-schema";
 
@@ -136,6 +137,8 @@ export async function PATCH(
     },
   }).catch((err: unknown) => console.error("[milestones/[id] PATCH] Activity log failed:", err));
 
+  invalidateWorkspaceDataCache({ workspaceId });
+
   return NextResponse.json({ milestone: updated });
 }
 
@@ -161,5 +164,6 @@ export async function DELETE(
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   await prisma.milestone.delete({ where: { id } });
+  invalidateWorkspaceDataCache({ workspaceId });
   return NextResponse.json({ success: true });
 }

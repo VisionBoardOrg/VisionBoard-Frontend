@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { auth, invalidateAuthCache } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { seedWorkspace } from "@/lib/seed-workspace";
 import { checkPlanLimit, PLAN_LIMITS } from "@/lib/plan-limits";
+import { invalidateWorkspaceDataCache } from "@/lib/workspace-data";
 import { z } from "zod";
 import { MemberRole, PlanTier } from "@prisma/client";
 import { TemplateName } from "@/lib/templates";
@@ -53,6 +54,8 @@ export async function POST(request: NextRequest) {
       role: parsed.data.role as MemberRole,
       template: parsed.data.template as TemplateName,
     });
+    invalidateWorkspaceDataCache({ workspaceId: workspace.id, userId: session.user.id });
+    invalidateAuthCache(session.user.id);
 
     // Warn user when they have exactly 1 remaining workspace slot
     const workspaceLimitNum = PLAN_LIMITS[userPlan].workspaces;
